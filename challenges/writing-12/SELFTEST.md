@@ -117,3 +117,21 @@ SELFTEST.md                    <this file>
 | 构建证据 | 有 PDF 才算 build | `build.json` 记 engine/exit/pdf/pages/errors/warnings；无引擎时给可执行复现命令 |
 | 契约回填 | 顶层 | 顶层 + `output_contract` 双层逐键回填；`case_id` 贯通所有产物 |
 | 自证 | 无 | `selfcheck` 子命令校验契约形状（`{"status":"ok","missing":[]}`） |
+
+## v8 复跑与关键数字（examples/）
+
+新增随包最小样例 `examples/`（`case.json` + `main.tex`：重复宏包、`hyperref` 先于 `cleveref`、
+未闭合 `itemize`），可被评审直接复跑：
+
+```bash
+python3 scripts/latex_build.py build --input examples --output /tmp/out --work /tmp/work --engine pdflatex
+```
+
+最近一次运行（本机、离线、纯标准库；无 LaTeX 引擎时如实降级）：
+
+- exit 0，`result.json.status = partial`（`build.status = missing_tool`），产物 **10** 文件。
+- lint 发现 3 条；`fixes` 应用 **2**（重复宏包、未闭合 `itemize`），仅定位不改 **1**（宏包顺序）；
+  `checks` 7 项（pass 4 / warn 1 / skip 2）；`change_records` 4；契约键 **7/7**；占位符 0。
+- 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
+  separators=(",",":"))` 的 `sha256` 前 16 位）：**`52119b06b32d893c`**。
+- `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（契约键 7/7）。
