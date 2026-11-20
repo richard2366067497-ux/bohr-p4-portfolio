@@ -1,0 +1,60 @@
+# Resource declaration for the field-extraction weekly skill.
+# Everything runs locally on the Python standard library; nothing is fetched.
+skill: field-extraction
+version: 3.0.0
+runtime:
+  language: python
+  minimum: "3.9"
+  entry: scripts/extract.py
+  self_locating: true
+  working_dir: package root (resolved from __file__)
+paths:
+  install: /skills/weekly-skill
+  input: /input
+  output: /app/output
+  work: /app/work
+  default_input: /input
+  default_output: /app/output
+  default_work: /app/work
+commands:
+  single: "python3 -B /skills/weekly-skill/scripts/extract.py --stage run --input /input --output /app/output --work /app/work"
+  prepare: "python3 -B /skills/weekly-skill/scripts/extract.py --stage prepare --input /input --output /app/output --work /app/work"
+  finalize: "python3 -B /skills/weekly-skill/scripts/extract.py --stage finalize --input /input --output /app/output --work /app/work"
+  selfcheck: "python3 -B /skills/weekly-skill/scripts/extract.py --stage selfcheck --input /input --output /app/output --work /app/work"
+dependencies:
+  third_party: []
+  network: false
+  external_models: false
+  standard_library:
+    - argparse
+    - csv
+    - hashlib
+    - io
+    - json
+    - os
+    - pathlib
+    - re
+    - sys
+    - time
+    - traceback
+inputs:
+  required:
+    - case.json (optional; provides case_id and output_contract)
+    - a field dictionary (a json file carrying a fields[] array)
+  accepted_materials: [json, csv, tsv, txt, md, tex, xml]
+  dedupe: sha1
+outputs:
+  main:
+    - result.json
+    - fields.csv
+  work:
+    - work/corpus_index.json
+    - work/draft.json
+budgets:
+  wall_seconds: 60
+  model_requests: 0
+  memory_mb: 256
+limits:
+  - no unit conversion
+  - no dispersion or standard-error computation
+  - values come only from the indexed corpus
