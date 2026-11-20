@@ -1,4 +1,4 @@
-# SELFTEST — bounded-param-optimizer（experiment-03 v6）
+# SELFTEST — bounded-param-optimizer（experiment-03 v9）
 
 本文件记录 **2026-11-20** 在仓库根目录用 `scripts/eval_sim.py` 对 rich / boundary 两个合成用例
 × single / agent 两种模式做的本地评测结果，以及一个自带数值域的本地功能用例。所有评测均为
@@ -7,13 +7,13 @@
 ## 复现命令
 
 ```bash
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-03 \
+python scripts/eval_sim.py --pkg work/p4/v9/experiment-03 \
   --case work/p4/synth_cases/experiment-03/rich     --mode single
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-03 \
+python scripts/eval_sim.py --pkg work/p4/v9/experiment-03 \
   --case work/p4/synth_cases/experiment-03/rich     --mode agent
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-03 \
+python scripts/eval_sim.py --pkg work/p4/v9/experiment-03 \
   --case work/p4/synth_cases/experiment-03/boundary --mode single
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-03 \
+python scripts/eval_sim.py --pkg work/p4/v9/experiment-03 \
   --case work/p4/synth_cases/experiment-03/boundary --mode agent
 ```
 
@@ -61,3 +61,30 @@ result.json、search_notes.md、parameter_table.json、feasible_grid.json、pare
 search_plan.json、cost_ledger.json、version_diff.md、evidence.json、infeasibility.json（共 10 个）。
 
 > 以上为本地模拟评测（`scripts/eval_sim.py`）结果，不代表平台正式分数；正式案例以平台 `/input` 为准。
+
+## v8 复跑与关键数字（examples/）
+
+新增随包最小样例 `examples/`（`case.json` + `params.json`：3 参数域、约束、资源与预算、12 行历史），
+可被评审直接复跑：
+
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：
+
+- exit 0，`result.json.status = answered`，产物 **10** 文件。
+- `evidence_stats = {total: 14, verbatim_hits: 12, hit_rate: 0.8571}`；识别参数域 **3**、约束 **6**；
+  历史 14 行（12 行可用）；**715** 个网格点中可行 **440**（pass_rate 0.6154）；Pareto 前沿 **71** 点；
+  推荐点 `temperature=160, time=60, catalyst=0.5`；契约键 **14/14**；占位符 0。
+- 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
+  separators=(",",":"))` 的 `sha256` 前 16 位）：**`e577bd5b30e78406`**。
+- `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（rich 契约键 14/14，boundary 8/8）。
+
+
+## v9 交付状态
+
+- GITHUB_URL.txt 两行（公开仓库 + challenges/experiment-03），补齐官方 5 分公开链接加分。
+- 随包生态齐备：examples/（case.json + params.json，可复跑）、environment/resources.yaml、README.md、
+  GAIN_EVIDENCE.md（含确定性基线对照）、SELFTEST.md。
+- scripts/eval_sim.py rich/boundary × single/agent 四项全 **PASS**（契约键逐键回填，placeholder_sweep 干净）。
