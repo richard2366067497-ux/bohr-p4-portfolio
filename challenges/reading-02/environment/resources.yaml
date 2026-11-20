@@ -1,0 +1,42 @@
+skill: scientific-figure-parser
+version: 2.0.0
+runtime: python3
+python_min: "3.9"
+dependencies: []          # stdlib only: zlib struct csv json re hashlib pathlib
+network: false
+external_models: false
+timeout_seconds: 120
+
+entry:
+  primary:
+    cmd: "python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work"
+    produces: [figure_structure.json, digitized_series.csv, tables.json, figure_tables_digest.md, result.json]
+  subcommands:
+    - {name: build,     cmd: "python3 /skills/weekly-skill/scripts/main.py build     --input /input --output /app/output --work /app/work"}
+    - {name: show,      cmd: "python3 /skills/weekly-skill/scripts/main.py show      --input /input --output /app/output --work /app/work"}
+    - {name: check,     cmd: "python3 /skills/weekly-skill/scripts/main.py check     --input /input --output /app/output --work /app/work"}
+    - {name: selfcheck, cmd: "python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --output /app/output --work /app/work"}
+  agent_first:
+    draft: "/app/work/draft.json"
+    note: "build -> show -> agent writes draft.json (claims with verbatim evidence) -> check -> selfcheck"
+
+paths:
+  install_root: /skills/weekly-skill
+  input: /input
+  output: /app/output
+  work: /app/work
+
+defaults:
+  input: /input
+  output: /app/output
+  work: /app/work
+
+budget:
+  max_output_bytes: 3000000
+  max_wall_seconds: 120
+
+notes: >-
+  All paths are resolved from __file__; the current working directory is irrelevant.
+  Exit code is always 0, including every degraded path (empty input, undecodable PNG,
+  fewer than two usable ticks, malformed case.json, unwritable output).
+  Only argparse usage errors return 2.
