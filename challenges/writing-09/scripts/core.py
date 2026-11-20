@@ -8,6 +8,7 @@ and the placeholder-hygiene writers live here; the section builder is in
 import hashlib
 import json
 import re
+import zlib
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -83,6 +84,48 @@ def sha256_file(path):
         return h.hexdigest()[:16]
     except OSError:
         return ""
+
+
+# ------------------------------------------------------------------ preview
+def _wrap(s, width):
+    out, cur = [], ""
+    for ch in s:
+        cur += ch
+        if len(cur) >= width:
+            out.append(cur)
+            cur = ""
+    out.append(cur)
+    return out
+
+
+def svg_preview(text, title="preview", width=88, max_lines=240):
+    """Render the written section as a standalone SVG (text-based, CJK-safe).
+
+    Offline with only the standard library there is no font rasteriser, so the
+    PNG path is recorded as a degradation rather than faked; the SVG opens in
+    any browser and keeps the exact wording.
+    """
+    def esc(s):
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    rows = []
+    for para in str(text).splitlines():
+        if not para.strip():
+            rows.append("")
+        else:
+            rows.extend(_wrap(para, width))
+    if len(rows) > max_lines:
+        rows = rows[:max_lines] + ["…（预览截断，全文见 manuscript.md）"]
+    step, pad = 18, 18
+    height = pad * 2 + step * (len(rows) + 1)
+    body = ["<text x='%d' y='%d' font-weight='bold'>%s</text>" % (pad, pad + 4, esc(title))]
+    for i, r in enumerate(rows):
+        body.append("<text x='%d' y='%d'>%s</text>" % (pad, pad + step * (i + 2), esc(r) or " "))
+    return ("<?xml version='1.0' encoding='UTF-8'?>\n"
+            "<svg xmlns='http://www.w3.org/2000/svg' width='%d' height='%d' "
+            "viewBox='0 0 %d %d' font-family='DejaVu Sans Mono,Menlo,monospace' font-size='13'>\n"
+            "<rect width='100%%' height='100%%' fill='#ffffff'/>\n%s\n</svg>\n"
+            % (width * 8 + pad * 2, height, width * 8 + pad * 2, height, "\n".join(body)))
 
 
 # ------------------------------------------------------------------ contract
@@ -207,6 +250,54 @@ def _read_office(path):
     return "\n".join(x for x in parts if x), ""
 
 
+def _pdf_text(raw):
+    """Best-effort text layer of a PDF (FlateDecode streams + literal strings), stdlib only."""
+    parts = []
+    for m in re.finditer(rb"stream\r?\n(.*?)endstream", raw, re.S):
+        data = m.group(1).strip(b"\r\n")
+        if data[:2] in (b"\x78\x9c", b"\x78\x01", b"\x78\xda"):
+            try:
+                data = zlib.decompress(data)
+            except zlib.error:
+                continue
+        if b"BT" not in data and b"Tj" not in data and b"TJ" not in data:
+            continue
+        for tm in re.finditer(rb"\(((?:[^()\\]|\\.)*)\)", data):
+            s = re.sub(rb"\\([()\\])", rb"\1", tm.group(1))
+            parts.append(s.decode("utf-8", "replace"))
+        parts.append("\n")
+    return " ".join(x for x in parts if x.strip())
+
+
+def image_info(path):
+    """Read bitmap dimensions from the header alone: PNG (IHDR) and JPEG (SOFn)."""
+    try:
+        raw = Path(path).read_bytes()
+    except OSError:
+        return {}
+    if raw[:8] == b"\x89PNG\r\n\x1a\n" and raw[12:16] == b"IHDR":
+        w = int.from_bytes(raw[16:20], "big")
+        h = int.from_bytes(raw[20:24], "big")
+        return {"format": "png", "width": w, "height": h, "bit_depth": raw[24], "color_type": raw[25]}
+    if raw[:2] == b"\xff\xd8":
+        i = 2
+        while i < len(raw) - 9:
+            if raw[i] != 0xFF:
+                i += 1
+                continue
+            marker = raw[i + 1]
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                h = int.from_bytes(raw[i + 5:i + 7], "big")
+                w = int.from_bytes(raw[i + 7:i + 9], "big")
+                return {"format": "jpeg", "width": w, "height": h}
+            if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            seg = int.from_bytes(raw[i + 2:i + 4], "big")
+            i += 2 + max(seg, 2)
+    return {}
+
+
 def read_document(path):
     path = Path(path)
     suf = path.suffix.lower()
@@ -225,7 +316,14 @@ def read_document(path):
     if suf in (".csv", ".tsv"):
         return {"text": raw.decode("utf-8", "replace"), "method": "table", "note": ""}
     if suf == ".pdf":
-        return {"text": "", "method": "pdf", "note": "pdf_body_needs_external_parser"}
+        text = _pdf_text(raw)
+        if text.strip():
+            return {"text": text, "method": "pdf_text_layer", "note": ""}
+        return {"text": "", "method": "pdf", "note": "pdf_without_text_layer_needs_ocr"}
+    if suf in (".png", ".jpg", ".jpeg"):
+        info = image_info(path)
+        dims = ("%sx%s %s" % (info.get("width"), info.get("height"), info.get("format"))) if info else "unknown size"
+        return {"text": "", "method": "bitmap", "note": "bitmap_figure_offline_no_ocr:%s" % dims}
     if suf in (".docx", ".xlsx", ".pptx"):
         text, note = _read_office(path)
         return {"text": text, "method": "office", "note": note}
