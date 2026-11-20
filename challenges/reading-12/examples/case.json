@@ -1,0 +1,13 @@
+{
+  "case_id": "example-reading-12",
+  "language": "en",
+  "question": "Clean a dirty literature extraction table: resolve the columns, normalise the units, merge duplicates, flag conflicts, and keep every changed value traceable.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "deliverable": "path",
+    "evidence_map": "array",
+    "change_log": "array",
+    "coverage": "object"
+  }
+}
