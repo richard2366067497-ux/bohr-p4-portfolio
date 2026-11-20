@@ -1,0 +1,15 @@
+{
+  "case_id": "example-writing-02",
+  "task_instruction": "Polished the English abstract below. Keep every number, unit, citation marker and figure pointer exactly as in the source.",
+  "language": "en",
+  "genre": "abstract",
+  "output_contract": {
+    "deliverable": "string",
+    "preserved_facts": "array",
+    "evidence_map": "array",
+    "change_log": "array",
+    "format_spec": "object",
+    "compliance_checks": "array",
+    "custom_unknown_field": "string"
+  }
+}
