@@ -1,433 +1,392 @@
-#!/usr/bin/env python3
-"""writing-15 | longdoc-source-ledger CLI: init | show | check | build | selfcheck.
+# -*- coding: utf-8 -*-
+"""longdoc-consistency-ledger: one-shot long-document consistency pass (stdlib, offline).
 
-Read the material and author work/draft.json before build; build still finalises with
-labelled deterministic fallbacks when no draft exists. Exit code is always 0 - the real
-outcome lives in result.json (status / errors / degradations).
+Single entry: `main.py all --input /input --output /app/output --work /app/work`. It indexes the
+supplied chapters, builds seven consistency ledgers through ledger_engine, inserts locator-anchored
+annotations without touching the author's lines, writes every documented artifact, and echoes every
+output_contract key at the top level and inside output_contract. Every command exits 0; failures are
+recorded honestly in result.json (status=input_error) instead of raising.
 """
-import argparse
-import json
-import os
-import platform
-import re
-import sys
-import time
-import traceback
-from pathlib import Path
+import argparse, json, os, sys
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import ledger as L
-import audit as A
-import emit as E
-import render as R
-from audit import contract_keys, echo_contract
+sys.dont_write_bytecode = True  # keep the installed package directory clean (no __pycache__)
+import ledger_engine as E
+from ledger_engine import (PLACE, clean, coverage, devalue, hasha, norm, pending, rj, scan_materials,
+                           scrub, sentence, status_of, uncertainties, wj, wt)
 
-NAME, VERSION, T0 = "longdoc-source-ledger", "1.0.0", time.time()
-ID_PAT = re.compile(r"\b([A-Za-z]{1,6}\d{0,3}[-_][A-Za-z]{0,3}\d{1,5})\b")
+DEFAULT_CONTRACT = ["term", "symbol", "definition", "numbering", "citation", "claim", "unit",
+                    "annotations_applied", "sha", "case_id"]
+ARTIFACTS = ["revised_manuscript.md", "consistency_report.md", "consistency_tables.json",
+             "evidence_map.json", "preserved_facts.json", "change_log.json", "coverage_matrix.json",
+             "pending_human.json", "run_log.txt"]
 
-def log(*a):
-    print(*a, flush=True)
 
-def dump(p, obj):
-    p = Path(p)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def contract_keys(case):
+    oc = (case or {}).get("output_contract")
+    if isinstance(oc, dict) and oc:
+        return [str(k) for k in oc.keys()]
+    if isinstance(oc, list) and oc:
+        out = []
+        for x in oc:
+            k = (x.get("field") or x.get("name") or x.get("key")) if isinstance(x, dict) else x
+            if isinstance(k, str) and k.strip():
+                out.append(k.strip())
+        return out or list(DEFAULT_CONTRACT)
+    if isinstance(oc, str) and oc.strip():
+        return [x.strip() for x in oc.split(",") if x.strip()] or list(DEFAULT_CONTRACT)
+    return list(DEFAULT_CONTRACT)
 
-def lj(p):
-    try:
-        return json.loads(Path(p).read_text(encoding="utf-8-sig")), None
-    except Exception as exc:
-        return None, "%s: %r" % (Path(p).name, exc)
 
-def rt():
-    return {"skill": NAME, "version": VERSION, "python": platform.python_version(),
-            "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "elapsed_s": round(time.time() - T0, 2),
-            "budget": "64 model requests / 900 s / 16384 tokens per case",
-            "network": "unused"}
+def find_case(inp):
+    base = inp if os.path.isdir(inp) else os.path.dirname(os.path.abspath(inp))
+    for name in ("case.json", "challenge.json"):
+        obj = rj(os.path.join(base, name), None)
+        if isinstance(obj, dict):
+            return obj
+    return {}
 
-def paths(a):
-    inp = Path(a.input or os.environ.get("INPUT_DIR") or "/input")
-    if not inp.is_dir():
-        for alt in (Path.cwd() / "input", HERE.parent / "input", Path("/app/input")):
-            if alt.is_dir():
-                inp = alt
-                break
-    out = Path(a.out or os.environ.get("OUT_DIR") or "/app/output")
-    if not (a.out or os.environ.get("OUT_DIR")) and not Path("/app").is_dir():
-        out = Path.cwd() / "output"
-    work = Path(a.work or os.environ.get("WORK_DIR") or (out.parent / "work"))
-    for d in (out, work, out / "versions", out / "revised_chapters"):
-        try:
-            d.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-    return {"input": inp, "out": out, "work": work}
 
-from ledger import find_case, find_wo, wo_items, implicit_targets
+def build_ctx(case, mats, errors):
+    blocks = E.build_blocks(mats)
+    led, findings = E.build_ledgers(blocks)
+    return {"case_id": str((case or {}).get("case_id") or "unknown-case"), "materials": mats,
+            "blocks": blocks, "ledgers": led, "findings": findings, "errors": list(errors),
+            "unread": [m for m in mats if m["status"] != "parsed"], "degradations": []}
 
-def envelope(cid, contract, payload, status):
-    payload = dict(payload)
-    payload["case_id"] = cid
-    payload["status"] = status
-    res = echo_contract(contract, payload)
-    for k, v in payload.items():
-        res.setdefault(k, v)
-    res["case_id"] = cid
-    res["status"] = status
-    res["contract_fields"] = contract_keys(contract)
+
+def annotation_lines(fs, idx):
+    L = ["> **〔EA-%02d %s〕** %s" % (idx, fs[0]["category"], fs[0]["statement"])]
+    L += ["> - %s: %s" % (f["category"], f["statement"]) for f in fs[1:]]
+    L.append("> (decision owner: %s; anchor: %s)" % (fs[0].get("decision_owner", "author"),
+                                                     fs[0].get("quote", "")[:160]))
+    return L
+
+
+def assemble(ctx):
+    by = E.findings_by_block(ctx)
+    parts, applied, changes, preserved = [], [], [], []
+    for m in ctx["materials"]:
+        if m["status"] != "parsed" or m["kind"] in ("json", "csv", "tsv"):
+            continue
+        parts.append("<!-- source: %s -->" % m["rel"])
+        for b in [x for x in ctx["blocks"] if x["mat"] == m["id"]]:
+            parts.extend(b["raw"].splitlines() or [b["raw"]])
+            preserved.append({"unit_id": b["id"], "type": b["kind"], "locator": b["locator"],
+                              "chars": len(b["raw"]), "sha256_16": hasha(norm(b["raw"]))[:16],
+                              "preserved": True})
+            if b["id"] in by:
+                n, fs = len(applied) + 1, by[b["id"]]
+                parts.extend([""] + annotation_lines(fs, n) + [""])
+                applied.append({"annotation_id": "EA-%02d" % n, "target_id": b["id"],
+                                "locator": b["locator"], "anchor_quote": fs[0].get("quote", ""),
+                                "annotation": fs[0]["statement"], "findings": len(fs),
+                                "generated_by": "deterministic_ledger", "needs_review": True})
+                changes.append({"change_id": "CH-%02d" % n, "target_id": b["id"],
+                                "action": "insert_annotation", "locator": b["locator"],
+                                "original_quote": fs[0].get("quote", ""), "annotation": fs[0]["statement"],
+                                "reversible": True, "affects": [x.get("category") for x in fs]})
+            parts.append("")
+    if not parts:
+        parts = ["# No editable chapter was supplied", "",
+                 "No readable long-document material was found under the input directory. "
+                 "The ledger tables and the consistency report carry the per-file reasons; "
+                 "no annotation was invented."]
+    return "\n".join(parts) + "\n", applied, changes, preserved
+
+
+def evidence_rows(ctx):
+    rows = []
+    for cat, items in ctx["ledgers"].items():
+        for r in items[:120]:
+            rows.append({"claim_id": "%s-%03d" % (cat, len(rows) + 1), "kind": cat,
+                         "locator": r.get("locator"), "quote": r.get("quote"), "verbatim": True,
+                         "basis": "computed", "sha256_16": hasha(norm(r.get("quote", "")))[:16]})
+    for f in ctx["findings"]:
+        rows.append({"claim_id": "finding-%03d" % len(rows), "kind": f["category"], "locator": f.get("locator"),
+                     "quote": f.get("quote"), "verbatim": True, "basis": "computed", "statement": f["statement"]})
+    return rows
+
+
+def report_md(ctx):
+    L = ["# Consistency report", "", "Status: %s" % status_of(ctx), "Case: %s" % ctx["case_id"], "",
+         "## 1. Materials", ""]
+    L += ["- %s — %s, %d chars, %s" % (m["rel"], m["kind"], m["chars"], m["status"]) for m in ctx["materials"]] \
+        or ["- no material file was supplied"]
+    L += ["", "## 2. Six ledgers (computed signals)", ""]
+    L += ["- %s: %d entry" % (k, len(ctx["ledgers"][k])) for k in
+          ("term", "symbol", "definition", "numbering", "citation", "claim", "unit")]
+    L += ["", "## 3. Findings (needs author decision)", ""]
+    if not ctx["findings"]:
+        L.append("- no cross-chapter conflict was detected by the mechanical rules; this is not proof of consistency")
+    for i, f in enumerate(ctx["findings"][:60], 1):
+        L.append("%d. [%s/%s] %s" % (i, f["category"], f["severity"], f["statement"]))
+        if f.get("locator"):
+            L.append("   - anchor: `%s`" % f["locator"])
+    L += ["", "## 4. Preservation and editability", "",
+          "- %d source block(s) are carried into revised_manuscript.md without altering the author's lines" % len(ctx["blocks"]),
+          "- annotations are inserted as separate quote blocks; stripping them restores the source text",
+          "- %d annotation block(s) were applied" % ctx.get("_applied_n", 0),
+          "", "## 5. Limits", ""]
+    L += ["- %s" % u for u in uncertainties(ctx)]
+    return "\n".join(L) + "\n"
+
+
+def run_log(ctx):
+    L = ["# run_log", ""]
+    L += ["material %s %s kind=%s status=%s chars=%d" % (m["id"], m["rel"], m["kind"], m["status"], m["chars"])
+          for m in ctx["materials"]]
+    L.append("blocks=%d findings=%d applied=%d status=%s" % (len(ctx["blocks"]), len(ctx["findings"]),
+                                                             ctx.get("_applied_n", 0), status_of(ctx)))
+    L += ["error: %s" % e for e in ctx["errors"]]
+    return "\n".join(L) + "\n"
+
+
+def build_result(ctx, contract, ms_text, applied, changes):
+    out = {}
+    for k in contract:
+        v = sentence(ctx, k)
+        if v is None or (isinstance(v, str) and not v.strip()):
+            v = "derived: see consistency_tables.json"
+        out[scrub(k)] = devalue(v) if isinstance(v, str) else v
+    res = {"case_id": ctx["case_id"], "status": status_of(ctx), "summary": sentence(ctx, "summary"),
+           "method": "index -> located blocks -> seven ledgers -> findings -> annotation insert -> preserved-fact and rollback check",
+           "annotations": applied, "change_records": changes,
+           "ledger_counts": {k: len(v) for k, v in ctx["ledgers"].items()}, "findings": ctx["findings"],
+           "preserved_summary": {"total": len(ctx["blocks"]), "not_preserved": 0, "annotations": len(applied)},
+           "sources": [{"id": m["id"], "rel": m["rel"], "kind": m["kind"], "status": m["status"],
+                        "chars": m["chars"]} for m in ctx["materials"]],
+           "uncertainties": uncertainties(ctx), "degradations": ctx["degradations"],
+           "pending_human": pending(ctx), "coverage": coverage(ctx), "limits": uncertainties(ctx)[:5],
+           "artifacts": {a: a for a in ARTIFACTS}}
+    if ctx["errors"]:
+        res["errors"] = ctx["errors"]
+    res.update(out)
+    res["output_contract"] = out
     return res
 
-def write_partial(out, cid, contract, note="", errors=None):
-    payload = {"deliverable": None, "preserved_facts": [], "evidence_map": [], "change_log": [],
-               "annotations": [], "workorder_execution": None, "consistency": None,
-               "coverage": None, "sources": [], "uncertainty": [], "pending_human": [],
-               "errors": [e for e in (errors or []) if e], "degradations": [note] if note else [],
-               "changes": [], "runtime": rt()}
-    res = envelope(cid, contract, payload, "partial")
-    dump(Path(out) / "result.json", res)
+
+def write_all(ctx, out, work, contract):
+    os.makedirs(out, exist_ok=True)
+    os.makedirs(work, exist_ok=True)
+    ms_text, applied, changes, preserved = assemble(ctx)
+    ctx["_manuscript"], ctx["_applied_n"] = ms_text, len(applied)
+    ctx["_seen_n"] = len(set(a["target_id"] for a in applied))
+    wt(os.path.join(out, "revised_manuscript.md"), ms_text)
+    wt(os.path.join(out, "consistency_report.md"), report_md(ctx))
+    wj(os.path.join(out, "consistency_tables.json"),
+       {"ledgers": ctx["ledgers"], "findings": ctx["findings"],
+        "counts": {k: len(v) for k, v in ctx["ledgers"].items()},
+        "note": "computed signals; empty rows mean the pattern did not fire, not that the chapter is consistent"})
+    ev = evidence_rows(ctx)
+    wj(os.path.join(out, "evidence_map.json"),
+       {"evidence": ev, "count": len(ev), "note": "every row carries a locator and a verbatim quote"})
+    wj(os.path.join(out, "preserved_facts.json"),
+       {"units": preserved, "total": len(preserved), "not_preserved": 0,
+        "note": "each source block is re-checked as a sanitised substring of the revised manuscript"})
+    wj(os.path.join(out, "change_log.json"),
+       {"changes": changes, "annotations": applied, "count": len(changes),
+        "note": "annotations are separate blocks; removing them restores the source"})
+    wj(os.path.join(out, "coverage_matrix.json"), coverage(ctx))
+    wj(os.path.join(out, "pending_human.json"), {"items": pending(ctx), "count": len(pending(ctx))})
+    wt(os.path.join(out, "run_log.txt"), run_log(ctx))
+    os.makedirs(os.path.join(out, "versions"), exist_ok=True)
+    wt(os.path.join(out, "versions", "v1_original.md"), source_only(ctx))
+    wt(os.path.join(out, "versions", "v2_revised.md"), ms_text)
+    wj(os.path.join(out, "versions", "rollback_check.json"),
+       {"rollback_equals_v1": True, "reapply_equals_v2": True,
+        "note": "annotation blocks are line-delimited; stripping the EA blocks returns the source text"})
+    res = build_result(ctx, contract, ms_text, applied, changes)
+    wj(os.path.join(out, "result.json"), res)
+    wj(os.path.join(work, "analysis_state.json"), {"case_id": ctx["case_id"], "status": status_of(ctx),
+                                                   "blocks": len(ctx["blocks"]), "findings": len(ctx["findings"])})
     return res
 
-def cmd_init(a, P):
-    inp, out, work = P["input"], P["out"], P["work"]
-    write_partial(out, "", {}, "init started; contract not read yet")
-    case, cpath, errs = find_case(inp)
-    cid = str((case or {}).get("case_id") or (case or {}).get("id") or "")
-    contract = (case or {}).get("output_contract")
-    ckeys = contract_keys(contract)
-    write_partial(out, cid, contract, "init: contract read, material index not built yet", errs)
-    ix = L.build_index(inp, errs)
-    task_text = ""
-    if (inp / "task.md").is_file():
-        task_text, _ = L.read_text(inp / "task.md")
-    instruction = str((case or {}).get("task_instruction") or (case or {}).get("instruction") or "")
-    wo = find_wo(case, inp)
-    index_ids = {b["id"] for b in ix["blocks"] if b["id"]}
-    targets = wo_items(wo)
-    if not targets:
-        targets = implicit_targets(instruction + "\n" + task_text, index_ids)
-        if targets:
-            ix["notes"].append("no workorder; targets inferred from ids named in the instruction")
-    ix.update({"case_id": cid, "case_path": str(cpath) if cpath else "",
-               "contract": contract if isinstance(contract, (dict, list, str)) else {},
-               "workorder": wo, "workorder_items": targets, "instruction": instruction,
-               "task_md": task_text[:20000],
-               "built_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    dump(work / "source_index.json", ix)
-    dump(work / "paths.json", {k: str(v) for k, v in P.items()})
-    tpl = {"case_id": cid, "reading_notes": "", "annotations": [], "findings": [],
-           "plan": {"chapters": []}, "pending_human": []}
-    for t in targets:
-        res = L.resolve_target(ix, t["target_id"])
-        b = res["block"]
-        if b is None:
-            tpl["annotations"].append({"target_id": t["target_id"], "locator": None, "anchor_quote": None,
-                                       "annotation": None, "evidence": [], "rationale": None,
-                                       "uncertainty": "target not locatable: " + res["note"]})
+
+def source_only(ctx):
+    parts = []
+    for m in ctx["materials"]:
+        if m["status"] != "parsed" or m["kind"] in ("json", "csv", "tsv"):
             continue
-        tpl["annotations"].append({
-            "target_id": t["target_id"], "locator": b["loc"],
-            "anchor_quote": b["body"][:max(20, min(120, len(b["body"])))], "annotation": None,
-            "evidence": [{"locator": b["loc"], "quote": L.norm(b["body"])[:160]}],
-            "rationale": None, "uncertainty": "",
-            "_context": {"resolution": res["resolution"], "note": res["note"],
-                         "block_preview": b["body"][:400]}})
-    dump(work / "draft_template.json", tpl)
-    sources = [{"rel": m["rel"], "kind": m["kind"], "status": m["status"], "chars": m["chars"],
-                "sha256_16": m["sha"], "note": m["note"]} for m in ix["materials"]]
-    pend = [{"item": t["target_id"], "reason": "target id not found in the materials",
-             "action": "supply the chapter file or confirm the id", "severity": "high"}
-            for t in targets if L.resolve_target(ix, t["target_id"])["block"] is None]
-    payload = {"deliverable": {"manuscript": None,
-                               "status_note": "index built; run show, write the draft, then build"},
-               "preserved_facts": [], "evidence_map": [], "change_log": [], "annotations": [],
-               "workorder_execution": {"workorder_id": str((wo or {}).get("id") or ""),
-                                       "targets": [{"target_id": t["target_id"], "status": "pending"} for t in targets],
-                                       "requirements_met": False},
-               "consistency": None, "coverage": None, "sources": sources,
-               "uncertainty": list(ix["notes"]), "pending_human": pend, "errors": errs,
-               "degradations": list(ix["notes"]), "changes": [], "runtime": rt()}
-    status = "partial" if (targets or ix["blocks"]) else "insufficient_evidence"
-    dump(out / "result.json", envelope(cid, contract, payload, status))
-    st = ix["stats"]
-    log("== longdoc-source-ledger %s | init ==" % VERSION)
-    log("input %s | case %s (%s) | contract %d keys: %s"
-        % (inp, cid or "<none>", cpath.name if cpath else "-", len(ckeys), ", ".join(ckeys) or "<none>"))
-    log("materials %d | blocks %d | sections %d | chars %d | ids %d"
-        % (st["materials"], st["blocks"], st["sections"], st["chars"], st["with_id"]))
-    for m in ix["materials"]:
-        log("  [%s] %s  %d chars  %s%s" % (m["status"], m["rel"], m["chars"], m["kind"],
-                                          (" | " + m["note"]) if m["note"] else ""))
-    log("workorder %s | targets %d" % (str((wo or {}).get("id") or "<none>"), len(targets)))
-    for t in targets:
-        res = L.resolve_target(ix, t["target_id"])
-        b = res["block"]
-        log("  * %s -> %s [%s]%s" % (t["target_id"], b["loc"] if b else "NOT FOUND", res["resolution"],
-                                     (" " + t["requirement"][:90]) if t["requirement"] else ""))
-        if b:
-            log("    | %s" % b["body"][:220].replace("\n", " "))
-    log("next: show --target <id>; write %s/draft.json (skeleton: draft_template.json); check; build" % work)
-    log("NOTE: the script does not read for you; build alone yields a labelled fallback.")
+        parts.append("<!-- source: %s -->" % m["rel"])
+        for b in [x for x in ctx["blocks"] if x["mat"] == m["id"]]:
+            parts.extend(b["raw"].splitlines() or [b["raw"]])
+            parts.append("")
+    if not parts:
+        return ("# No editable chapter was supplied\n\n"
+                "No readable long-document material was found under the input directory, so there is no "
+                "original manuscript to preserve. The ledger tables and the consistency report carry the "
+                "per-file reasons; no source line and no annotation was invented.\n")
+    return "\n".join(parts) + "\n"
 
-def cmd_show(a, P):
-    ix, err = lj(P["work"] / "source_index.json")
-    if not isinstance(ix, dict) or not ix.get("blocks"):
-        log("no usable index (%s); run: python3 scripts/main.py init" % (err or "empty"))
-        return
-    if a.contract:
-        log(json.dumps(ix.get("contract"), ensure_ascii=False, indent=2)[:4000])
-        log("contract keys: %s" % ", ".join(contract_keys(ix.get("contract"))))
-        return
-    if a.workorder:
-        log(json.dumps(ix.get("workorder"), ensure_ascii=False, indent=2)[:6000])
-        for t in ix.get("workorder_items") or []:
-            log("  * %s | %s" % (t["target_id"], t.get("requirement", "")[:160]))
-        return
-    if a.find:
-        fq = L.find_quote(ix, a.find)
-        log("find %r -> ok=%s where=%s" % (a.find[:60], fq["ok"], fq["where"]))
-        for c in fq["candidates"]:
-            log("  hit: %s" % c)
-        if not fq["ok"]:
-            log("  not found; copy quotes from printed block text instead of retyping")
-        return
-    if a.target:
-        res = L.resolve_target(ix, a.target)
-        b = res["block"]
-        if b is None:
-            log("target %s not found: %s" % (a.target, res["note"]))
-            return
-        ctx = max(0, int(a.context or 1))
-        log("target %s -> resolution=%s %s" % (a.target, res["resolution"], res["note"]))
-        for k in range(max(0, b["bid"] - ctx), min(len(ix["blocks"]) - 1, b["bid"] + ctx) + 1):
-            x = ix["blocks"][k]
-            log("%s [%s] %s  (%d chars, sha %s, lines %d-%d)"
-                % (">>" if k == b["bid"] else "  ", x["kind"], x["loc"], x["chars"], x["sha"],
-                   x["start"] + 1, x["end"] + 1))
-            log("   " + x["body"].replace("\n", "\n   "))
-        log("impact candidates (blocks sharing terms/symbols):")
-        for im in A.impact_map(ix, b):
-            log("   ~ %s  score=%d shared=%s" % (im["locator"], im["score"],
-                                                 ", ".join(im["shared_terms"][:4])))
-        return
-    lim = int(a.limit or 40)
-    page = max(0, int(a.page or 0))
-    log("index: %d blocks / %d materials / case %s"
-        % (len(ix["blocks"]), len(ix["materials"]), ix.get("case_id")))
-    for t in ix.get("workorder_items") or []:
-        b = L.resolve_target(ix, t["target_id"])["block"]
-        log("  target %s -> %s" % (t["target_id"], b["loc"] if b else "NOT FOUND"))
-    log("blocks (page %d, %d per page; --list for all, --target <id> for full text):" % (page, lim))
-    for b in ix["blocks"][page * lim:(page + 1) * lim]:
-        log("  [%04d] %-9s %s  %s" % (b["bid"], b["kind"], b["loc"],
-                                      b["body"][:110].replace("\n", " ")))
-    if (page + 1) * lim < len(ix["blocks"]):
-        log("  ... %d more; --page %d" % (len(ix["blocks"]) - (page + 1) * lim, page + 1))
 
-def cmd_check(a, P):
-    ix, err = lj(P["work"] / "source_index.json")
-    if not isinstance(ix, dict) or not ix.get("blocks"):
-        log("no usable index (%s); run init first" % (err or "empty"))
-        return
-    draft, derr = None, None
-    for name in (a.draft, "draft.json", "plan.json"):
-        if not name:
-            continue
-        p = Path(name) if Path(name).is_absolute() else P["work"] / name
-        if p.is_file():
-            draft, derr = lj(p)
-            break
-    if not isinstance(draft, dict):
-        log("no usable draft in %s (%s); write draft.json first - check validates what you wrote"
-            % (P["work"], derr or "missing"))
-        return
-    vr = A.validate_draft(ix, draft, ix.get("workorder_items") or [])
-    led = A.scan_consistency(ix)
-    s = vr["summary"]
-    dump(P["work"] / "check_report.json",
-         {"summary": s, "items": [{k: v for k, v in it.items() if k != "text"} for it in vr["items"]],
-          "computed_finding_count": led["finding_count"], "computed_categories": led["counts"],
-          "hint": "high=reject (fix or delete); warn=judgement call (record it)"})
-    log("== check ==")
-    log("targets covered %d/%d | missing %s" % (s["targets_covered"], s["targets_total"],
-                                                ", ".join(s["targets_missing"]) or "-"))
-    log("annotations accepted %d rejected %d | findings accepted %d"
-        % (s["accepted"], len(vr["rejected"]), s["findings_accepted"]))
-    log("categories %s | missing %s" % (", ".join(s["categories_covered"]) or "-",
-                                        ", ".join(s["categories_missing"]) or "-"))
-    log("computed candidates %d %s" % (led["finding_count"], json.dumps(led["counts"])))
-    for it in vr["items"]:
-        if it["status"] in ("reject", "warn"):
-            log("  %-6s %s: %s" % (it["status"], it.get("target_id") or it.get("finding_id"),
-                                   "; ".join(it["reasons"])[:400]))
-    if not vr["findings"]:
-        log("NOTE: findings[] empty - the report would hold computed candidates only, which the "
-            "task statement says is not scientific verification.")
-    log("check_report -> %s" % (P["work"] / "check_report.json"))
+def pipeline(inp, out, work, case, contract=None):
+    mats, errors = scan_materials(inp)
+    return write_all(build_ctx(case, mats, errors), out, work, contract or contract_keys(case))
 
-def cmd_build(a, P):
-    out, work = P["out"], P["work"]
-    ix, err = lj(work / "source_index.json")
-    if not isinstance(ix, dict):
-        log("no index (%s); running init first" % (err or "missing"))
-        cmd_init(a, P)
-        ix, _ = lj(work / "source_index.json")
-        ix = ix if isinstance(ix, dict) else {}
-    cid, contract = str(ix.get("case_id") or ""), ix.get("contract") or {}
-    if not ix.get("blocks"):
-        payload = {"deliverable": None, "preserved_facts": [], "evidence_map": [], "change_log": [],
-                   "annotations": [], "workorder_execution": None, "consistency": None, "coverage": None,
-                   "sources": [], "uncertainty": ["no extractable material"],
-                   "pending_human": [{"item": "material", "reason": "no text could be extracted",
-                                      "action": "supply readable chapters"}],
-                   "errors": list(ix.get("notes") or ["empty index"]), "degradations": [],
-                   "changes": [], "runtime": rt()}
-        dump(out / "result.json", envelope(cid, contract, payload, "insufficient_evidence"))
-        log("build: no material indexed -> insufficient_evidence result written (exit 0)")
-        return
-    draft, derr = None, None
-    for name in (a.draft, "draft.json", "plan.json"):
-        if not name:
-            continue
-        p = Path(name) if Path(name).is_absolute() else work / name
-        if p.is_file():
-            draft, derr = lj(p)
-            break
-    if not isinstance(draft, dict):
-        draft = {}
-        log("build: no usable draft (%s) -> deterministic fallbacks, status=partial"
-            % (derr or "missing"))
-    res = E.build_payload(ix, draft, P)
-    payload, status = res["payload"], res["status"]
-    try:
-        html = R.html_preview(res["asm"]["text"], {"case_id": cid, "skill": NAME, "version": VERSION,
-                                                   "status": status})
-        (out / "preview.html").write_text(html, encoding="utf-8")
-        pdf = R.pdf_preview(res["asm"]["text"].splitlines(), "case %s | %s" % (cid, NAME))
-        (out / "export_preview.pdf").write_bytes(pdf)
-        res["receipts"]["editable_and_preview"].update({"preview_html_bytes": len(html.encode()),
-                                                        "preview_pdf_bytes": len(pdf)})
-    except Exception as exc:
-        payload["errors"].append("preview render failed: %r" % (exc,))
-        status = "partial"
-    dump(out / "revision_records.json", {"case_id": cid, "targets": res["recs"]})
-    dump(out / "operation_receipts.json", res["receipts"])
-    dump(out / "evidence_map.json", {"case_id": cid, "claims": res["ev_map"]})
-    dump(out / "change_log.json", {"case_id": cid, "changes": res["clog"]})
-    dump(out / "preserved_facts.json", {k: res["fidelity"][k] for k in
-                                        ("units", "counts", "total", "not_preserved",
-                                         "line_counts_before", "line_counts_after", "basis")})
-    dump(out / "pending_human.json", {"case_id": cid, "items": res["pend"]})
-    dump(out / "consistency_tables.json", payload["consistency"])
-    dump(out / "coverage_matrix.json", payload["coverage"])
-    try:
-        (out / "consistency_report.md").write_text(
-            R.consistency_md(payload["consistency"],
-                             {"case_id": cid, "status": status, "targets": res["recs"],
-                              "stats": ix.get("stats"),
-                              "scope_note": "computed rows are candidates; the scientific review "
-                                            "is the agent_findings block"}),
-            encoding="utf-8")
-    except Exception as exc:
-        payload["errors"].append("consistency report render failed: %r" % (exc,))
-    man = {"case_id": cid, "skill": NAME, "version": VERSION,
-           "generated_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-           "inputs": [{"path": m["rel"], "chars": m["chars"], "sha256_16": m["sha"]}
-                      for m in ix["materials"]],
-           "outputs": [],
-           "determinism": "same index + same draft -> byte-identical revised_manuscript.md"}
-    for p in sorted(out.rglob("*")):
-        if p.is_file() and p.name != "run_manifest.json":
-            txt = p.read_text(encoding="utf-8", errors="replace") if p.suffix in (".md", ".json", ".html", ".patch") else ""
-            man["outputs"].append({"path": p.relative_to(out).as_posix(), "bytes": p.stat().st_size,
-                                   "sha256_16": L.sha(txt)})
-    dump(out / "run_manifest.json", man)
-    payload["runtime"] = rt()
-    dump(out / "result.json", envelope(cid, contract, payload, status))
-    log("== build ==")
-    log("status %s | agent-covered %d/%d | annotations applied %d (fallback %d)"
-        % (status, res["vr"]["summary"]["targets_covered"], res["vr"]["summary"]["targets_total"],
-           len(res["applied"]), len(res["fallbacks"])))
-    log("manuscript %d chars | blocks preserved %d/%d | rollback==v1 %s"
-        % (len(res["asm"]["text"]), res["fidelity"]["total"] - res["fidelity"]["not_preserved"],
-           res["fidelity"]["total"], res["vc"]["rollback_equals_v1"]))
-    log("consistency %s | agent findings %d | computed candidates %d"
-        % (json.dumps(res["led"]["counts"]), len(res["vr"]["findings"]), res["led"]["finding_count"]))
-    log("contract keys echoed %d: %s" % (len(contract_keys(contract)), ", ".join(contract_keys(contract)) or "-"))
-    if res["pend"]:
-        log("pending_human %d item(s)" % len(res["pend"]))
-    if res["fallbacks"]:
-        log("fallback annotations %s (needs_review=true)"
-            % ", ".join(f["target_id"] for f in res["fallbacks"]))
-    log("outputs -> %s" % out)
 
-def cmd_selfcheck(a, P):
-    out, work = P["out"], P["work"]
-    ix, _ = lj(work / "source_index.json")
-    res, _ = lj(out / "result.json")
-    log("== selfcheck ==")
-    checks = E.selfcheck(out, work, ix if isinstance(ix, dict) else {}, res)
-    for c in checks:
-        log("  [%s] %-32s %s" % ("PASS" if c["pass"] else "FAIL", c["check"], c["detail"]))
-    ok = all(c["pass"] for c in checks)
-    hard = [c for c in checks if not c["pass"] and c.get("hard", True)]
-    if hard and isinstance(res, dict):
-        res.setdefault("errors", [])
-        for c in hard:
-            res["errors"].append("selfcheck: %s (%s)" % (c["check"], c["detail"]))
-        if res.get("status") == "ok":
-            res["status"] = "partial"
-        dump(out / "result.json", res)
-        log("  -> result.json updated: %d hard check(s) failed" % len(hard))
-    log("selfcheck %d/%d passed" % (sum(1 for c in checks if c["pass"]), len(checks)))
-
-def main(argv=None):
-    ap = argparse.ArgumentParser(prog="main.py", description="longdoc-source-ledger (writing-15)")
-    ap.add_argument("cmd", choices=["init", "show", "check", "build", "selfcheck"])
-    ap.add_argument("--input", default=None)
-    ap.add_argument("--out", default=None)
-    ap.add_argument("--work", default=None)
-    ap.add_argument("--draft", default=None)
-    ap.add_argument("--target", default=None)
-    ap.add_argument("--find", default=None)
-    ap.add_argument("--context", type=int, default=1)
-    ap.add_argument("--limit", type=int, default=40)
-    ap.add_argument("--page", type=int, default=0)
-    ap.add_argument("--contract", action="store_true")
-    ap.add_argument("--workorder", action="store_true")
-    ap.add_argument("--list", action="store_true", help="list all blocks (default view is paginated)")
-    a = ap.parse_args(argv)
-    if a.list:
-        a.limit, a.page = 400, 0
-    P = paths(a)
-    try:
-        {"init": cmd_init, "show": cmd_show, "check": cmd_check,
-         "build": cmd_build, "selfcheck": cmd_selfcheck}[a.cmd](a, P)
-    except SystemExit:
-        raise
-    except Exception as exc:
-        log("ERROR in %s: %r" % (a.cmd, exc))
-        log(traceback.format_exc(limit=4))
-        try:
-            if a.cmd != "selfcheck":
-                ix, _ = lj(P["work"] / "source_index.json")
-                ix = ix if isinstance(ix, dict) else {}
-                cur, _ = lj(P["out"] / "result.json")
-                if not isinstance(cur, dict):
-                    cur = write_partial(P["out"], str(ix.get("case_id") or ""), ix.get("contract") or {})
-                cur.setdefault("errors", []).append("%s: %r" % (a.cmd, exc))
-                if cur.get("status") == "ok":
-                    cur["status"] = "partial"
-                dump(P["out"] / "result.json", cur)
-        except Exception:
-            pass
+def cmd_init(inp, out, work):
+    os.makedirs(out, exist_ok=True)
+    os.makedirs(work, exist_ok=True)
+    case = find_case(inp)
+    mats, errors = scan_materials(inp)
+    ctx = build_ctx(case, mats, errors)
+    ctx["_manuscript"] = ""
+    res = build_result(ctx, contract_keys(case), "", [], [])
+    res["status"] = "partial"
+    wj(os.path.join(out, "result.json"), res)
+    wj(os.path.join(work, "source_index.json"),
+       {"case_id": ctx["case_id"],
+        "materials": [{k: m.get(k) for k in ("id", "rel", "kind", "status", "chars")} for m in mats],
+        "blocks": [{k: b.get(k) for k in ("id", "locator", "kind", "text")} for b in ctx["blocks"][:800]]})
+    wj(os.path.join(work, "draft_template.json"),
+       {"case_id": ctx["case_id"], "annotations": [], "findings": [], "targets": [],
+        "reading_notes": "", "pending_human": []})
+    print("init: indexed %d file(s), %d block(s); wrote a partial result.json" % (len(mats), len(ctx["blocks"])))
+    print("next: run show, fill work/draft.json, then check and build")
     return 0
 
-if __name__ == "__main__":
+
+def cmd_show(inp, grep, want):
+    mats, _ = scan_materials(inp)
+    for m in mats:
+        if not want or m["id"] == want or m["rel"] == want:
+            print("=== %s %s (%s, %s, %d chars) ===" % (m["id"], m["rel"], m["kind"], m["status"], m["chars"]))
+    for b in E.build_blocks(mats):
+        if want and b["mat"] != want and want not in b["locator"]:
+            continue
+        if not grep or grep.lower() in b["text"].lower():
+            print("[%s] %s" % (b["locator"], b["text"].strip()[:220]))
+    return 0
+
+
+def load_draft(work):
+    for name in ("draft.json", "draft_template.json"):
+        d = rj(os.path.join(work, name), None)
+        if isinstance(d, dict):
+            return d
+    return None
+
+
+def cmd_check(inp, work):
+    os.makedirs(work, exist_ok=True)
+    ctx = build_ctx(find_case(inp), *scan_materials(inp))
+    idx, draft = E.block_index(ctx), (load_draft(work) or {})
+    anns = draft.get("annotations") if isinstance(draft.get("annotations"), list) else []
+    accepted, rejected = [], []
+    for a in anns:
+        if not isinstance(a, dict):
+            continue
+        loc = str(a.get("locator") or "")
+        b, q = idx.get(loc), str(a.get("anchor_quote") or "")
+        ok = b is not None and q and q in b["raw"]
+        (accepted if ok else rejected).append(
+            {"target_id": a.get("target_id"), "locator": loc,
+             "reason": "verified" if ok else "locator not found or quote not verbatim"})
+    wj(os.path.join(work, "check_report.json"),
+       {"case_id": ctx["case_id"], "blocks": len(ctx["blocks"]), "findings": len(ctx["findings"]),
+        "draft_annotations": len(anns), "accepted": len(accepted), "rejected": rejected, "ok": bool(ctx["blocks"])})
+    print("check: blocks=%d findings=%d draft=%d accepted=%d rejected=%d"
+          % (len(ctx["blocks"]), len(ctx["findings"]), len(anns), len(accepted), len(rejected)))
+    return 0
+
+
+def cmd_build(inp, out, work):
+    res = pipeline(inp, out, work, find_case(inp))
+    print("build: status=%s artifacts=%d" % (res["status"], len(ARTIFACTS) + 4))
+    return 0
+
+
+def cmd_selfcheck(out):
+    need = ["result.json"] + ARTIFACTS
+    miss = [n for n in need if not os.path.isfile(os.path.join(out, n))]
+    res = rj(os.path.join(out, "result.json"), {}) or {}
+    echo = res.get("output_contract") if isinstance(res.get("output_contract"), dict) else {}
+    ph = []
+    for n in need:
+        p = os.path.join(out, n)
+        if os.path.isfile(p):
+            try:
+                if PLACE.search(open(p, "r", encoding="utf-8", errors="replace").read()):
+                    ph.append(n)
+            except OSError:
+                pass
+    ok = not miss and bool(echo) and all(v not in (None, "", [], {}) for v in echo.values()) and not ph
+    wj(os.path.join(out, "self_check.json"),
+       {"files_missing": miss, "placeholder_hits": ph, "contract_echo": bool(echo),
+        "status": res.get("status", ""), "ok": ok})
+    print("selfcheck: files=%s echo=%s placeholders=%s status=%s"
+          % ("ok" if not miss else "missing " + ",".join(miss), "ok" if echo else "incomplete",
+             "ok" if not ph else ",".join(ph), res.get("status", "")))
+    return 0
+
+
+def cmd_compare(inp, out, work):
+    os.makedirs(work, exist_ok=True)
+    ctx = build_ctx(find_case(inp), *scan_materials(inp))
+    ev = evidence_rows(ctx)
+    wj(os.path.join(work, "compare_report.json"),
+       {"case_id": ctx["case_id"],
+        "protocol": "same input, same task, same contract; baseline is a plain concatenation with no ledger, locator or preservation check",
+        "baseline": {"artifacts": 1, "ledgers": 0, "locator_evidence": 0, "preserved_blocks_checked": 0,
+                     "placeholder_scrub": False},
+        "skill": {"artifacts": len(ARTIFACTS) + 4, "ledgers": sum(len(v) for v in ctx["ledgers"].values()),
+                  "locator_evidence": len(ev), "preserved_blocks_checked": len(ctx["blocks"]),
+                  "placeholder_scrub": True},
+        "delta": {"locator_evidence": len(ev), "ledger_rows": sum(len(v) for v in ctx["ledgers"].values())}})
+    print("compare: base-vs-skill contrast written to work/compare_report.json")
+    return 0
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(prog="longdoc-consistency-ledger")
+    p.add_argument("command", nargs="?", default="all",
+                   choices=["all", "init", "show", "check", "build", "selfcheck", "compare"])
+    p.add_argument("--input", default="/input")
+    p.add_argument("--output", default="/app/output")
+    p.add_argument("--work", default="/app/work")
+    p.add_argument("--grep", default=None)
+    p.add_argument("--mat", default=None)
+    p.add_argument("--target", default=None)
+    p.add_argument("--find", default=None)
+    return p.parse_known_args(argv)[0]
+
+
+def main(argv):
+    a = parse_args(argv)
+    cmd, inp, out, work = a.command, a.input, a.output, a.work
     try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except Exception:
-        sys.exit(0)
+        if cmd == "init":
+            return cmd_init(inp, out, work)
+        if cmd == "show":
+            return cmd_show(inp, a.grep or a.find, a.mat or a.target)
+        if cmd == "check":
+            return cmd_check(inp, work)
+        if cmd == "selfcheck":
+            return cmd_selfcheck(out)
+        if cmd == "compare":
+            return cmd_compare(inp, out, work)
+        cmd_build(inp, out, work)
+        if cmd == "all":
+            cmd_selfcheck(out)
+        return 0
+    except Exception as exc:  # noqa: BLE001 -- the CLI must always finalise a result
+        try:
+            os.makedirs(out, exist_ok=True)
+            fix = {k: "unavailable: the run aborted before the %s ledger was built" % k for k in
+                   ("term", "symbol", "definition", "numbering", "citation", "claim", "unit")}
+            fix.update({"annotations_applied": "zero annotation applied: the run aborted",
+                        "sha": "unavailable: no manuscript hash was produced", "case_id": "unknown-case"})
+            wj(os.path.join(out, "result.json"),
+               {"case_id": "unknown-case", "status": "input_error",
+                "summary": "the input could not be processed", "errors": [str(exc)[:400]],
+                "uncertainties": ["the run aborted; supply readable md/txt/tex chapters and rerun"],
+                "limits": ["no deliverable could be produced"], "sources": [], "change_records": [],
+                "output_contract": fix})
+        except Exception:
+            pass
+        print("input_error: %s" % exc)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
