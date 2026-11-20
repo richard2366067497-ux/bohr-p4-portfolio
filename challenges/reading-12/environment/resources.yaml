@@ -1,0 +1,76 @@
+# environment/resources.yaml - reading-12 / extraction-table-cleaner (v9)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: extraction-table-cleaner
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init --input /input --output /app/output --work /app/work
+    - "Agent: run show, read each extraction row with its locator, optionally write /app/work/draft.json"
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py compare --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all / init / show / check / build / selfcheck / compare (all = full pipeline)
+  - scripts/engine.py     # the cleaner: scan, classify, parse, convert, group (imported by main.py)
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  field_dictionary: "a JSON material with 'roles' (role -> name tokens), 'synonyms' (role -> {name: canonical}), 'target_fields' and 'missing_tokens'"
+  rule_catalog: "a JSON material with 'rules' (rule_id, priority, applies_to, owner, human_gate, condition, transform, failure_mode) and a 'tolerance' block"
+  unit_table: "a JSON material with 'prefixes', 'units' (dim, scale, offset, aliases), 'canonical', 'unknown_tokens' and 'ambiguous_tokens'"
+  extraction_records: "a JSON material with 'records' / 'rows' / 'measurements' / a bare JSON array, or JSONL; each row is a source extraction row"
+  combined_form: "a single JSON material {field_dictionary:{...}, rule_catalog:{...}, unit_table:{...}, records:[...]} is also accepted"
+  unusable_files: "binary / empty / placeholder-only files are recorded with a parse_status and never quoted"
+
+required_outputs:
+  - result.json
+  - cleaned.csv
+  - change_log.csv
+  - pending_review.csv
+  - anomaly_report.md
+  - rules.json
+  - field_mapping.json
+  - unit_table.json
+  - evidence_map.json
+  - coverage.json
+  - run_log.txt
+
+reusable_templates:
+  - templates/result_contract.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 120
+  max_output_files: 24
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, status, deliverable, evidence_map, change_log, coverage]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> challenges/<key>.json -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  placeholders: forbidden
+
+dependencies: []            # standard library only
+exit_code_policy: always 0 (usage error 2)
