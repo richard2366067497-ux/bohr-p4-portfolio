@@ -1,4 +1,4 @@
-# environment/resources.yaml — writing-12 / latex-edit-build-verify (v7)
+# environment/resources.yaml — writing-12 / latex-edit-build-verify (v9)
 # 资源入口声明。纯标准库、离线、确定性；无网络、无时钟读取。
 
 skill: latex-edit-build-verify
@@ -47,6 +47,18 @@ external_tools:
   absent_behavior: >-
     status=partial, build.status=missing_tool; result.json.limits carries an executable
     reproduction command; main.tex / source/ / diff.patch / packages.md are still written.
+
+required_outputs:
+  - main.tex
+  - source/
+  - diff.patch
+  - lint_report.json
+  - fixes.json
+  - build.json
+  - log-check.json
+  - packages.md
+  - comparison_report.md     # A/B self-assessment (explicitly not an official A/B result)
+  - result.json
 
 budget:
   wall_clock_seconds: 300
