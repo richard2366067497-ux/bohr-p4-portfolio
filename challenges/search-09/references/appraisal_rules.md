@@ -1,3 +1,8 @@
+<!-- references/appraisal_rules.md - the reusable appraisal rule library (MIT).
+     This is a generic, case-independent checklist corpus: keyword families (kw), check points (cp),
+     study types (type), generators (gen), a judgment-rule table and numbered grading thresholds.
+     scripts/qualib.py parses exactly these constructs; point --input at a material shaped like this. -->
+
 # appraisal_rules — 量表与关键词族（v2.0.0）
 
 `scripts/engine.py` 在 import 时解析下面的规则块；改量表只改这里，重跑 `python3 scripts/main.py` 生效。
