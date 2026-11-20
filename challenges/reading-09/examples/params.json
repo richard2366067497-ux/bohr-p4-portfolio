@@ -1,0 +1,8 @@
+{
+  "case_id": "example-reading-09",
+  "paper": "1. Research question\n\nWhich training choices drive the reported top-1 accuracy on the held-out split?\n\n2. Data and dataset\n\nWe use the public CorpusX benchmark with 50,000 training images and a 10,000 image held-out split.\n\n3. Method and training setup\n\nWe train a ResNet-18 with momentum 0.9 and learning rate 0.1 for 60 epochs, using random crops.\n\n4. Main results\n\nTop-1 accuracy 88.2% and macro F1 0.871 on the held-out split.\n\n5. Conclusion\n\nMomentum and a longer schedule explain most of the reported gain.\n\n6. Limitations and future work\n\nThe study covers one dataset only, so cross-domain transfer is left for future work.",
+  "candidates": [
+    {"name": "candidate_a", "metrics": {"top1_accuracy": 0.882, "macro_f1": 0.871}},
+    {"name": "candidate_b", "metrics": {"top1_accuracy": 0.879, "macro_f1": 0.860}}
+  ]
+}
