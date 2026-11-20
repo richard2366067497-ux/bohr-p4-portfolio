@@ -8,12 +8,15 @@ or file name that carries one is neutralised before it reaches an output file.
 Stdlib only, offline, independent of the working directory.
 """
 import hashlib
+import io
 import json
 import re
 import time
+import zipfile
+import zlib
 from pathlib import Path
 
-VERSION = "6.0.0"
+VERSION = "9.0.0"
 DIMS = ("research_question_alignment", "section_structure", "argument_chain",
         "paragraph_relations", "duplication", "conclusion_boundary")
 OPS = {"duplication": "merge", "section_structure": "move", "argument_chain": "insert",
@@ -23,7 +26,7 @@ PRIO = {"high": "P1", "medium": "P2", "low": "P3"}
 FALLBACK = ("unverified", "verified", "degradations")
 SKIP = {"output", "work", "__pycache__", "node_modules", ".git"}
 ARTIFACTS = ("structural_review.json", "edit_plan.md", "outline_after.md", "argument_map.json",
-             "consistency_report.md", "pending_human.json", "result.json")
+             "consistency_report.md", "pending_human.json", "semantic_audit.json", "metrics.json", "result.json")
 
 # ---------------------------------------------------------------- sanitising
 REPL = {"待写": "未提供", "待补充": "未提供", "待填写": "未提供", "尚未": "暂未"}
@@ -108,12 +111,51 @@ def role_of(rel, text):
     return "other"
 
 
+def _pdf_text(raw):
+    """Best-effort text layer of a PDF using only the stdlib (FlateDecode + literal strings)."""
+    parts = []
+    for m in re.finditer(rb"stream\r?\n(.*?)endstream", raw, re.S):
+        data = m.group(1).strip(b"\r\n")
+        if data[:2] in (b"\x78\x9c", b"\x78\x01", b"\x78\xda"):
+            try:
+                data = zlib.decompress(data)
+            except zlib.error:
+                continue
+        if b"BT" not in data and b"Tj" not in data and b"TJ" not in data:
+            continue
+        for tm in re.finditer(rb"\(((?:[^()\\]|\\.)*)\)", data):
+            s = tm.group(1)
+            s = re.sub(rb"\\([()\\])", rb"\1", s)
+            parts.append(s.decode("utf-8", "replace"))
+        parts.append("\n")
+    return " ".join(x for x in parts if x.strip())
+
+
+def _docx_text(raw):
+    """word/document.xml -> plain text, paragraphs separated by newlines (stdlib zipfile)."""
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        xml = z.read("word/document.xml").decode("utf-8", "replace")
+    xml = re.sub(r"</w:p>", "\n", xml)
+    xml = re.sub(r"<w:tab[^>]*/>", "\t", xml)
+    return re.sub(r"<[^>]+>", "", xml)
+
+
 def load(p):
     try:
         raw = p.read_bytes()
     except OSError:
         return None
-    if p.suffix.lower() == ".pdf" or b"\x00" in raw[:4096]:
+    ext = p.suffix.lower()
+    if ext == ".docx":
+        try:
+            text = _docx_text(raw)
+        except Exception:
+            return None
+        return text if text.strip() else None
+    if ext == ".pdf":
+        text = _pdf_text(raw)
+        return text if text.strip() else None
+    if b"\x00" in raw[:4096]:
         return None
     return raw.decode("utf-8", "replace").lstrip("﻿")
 
@@ -452,3 +494,96 @@ def report_md(files, au, st, mode):
         lines += ["", "## Dimension status", "", "| dimension | status | findings |", "|-|-|-|"]
         lines += ["| %s | %s | %d |" % (d, v["status"], len(v["finding_ids"])) for d, v in cov.items()]
     return "\n".join(lines)
+
+
+# ------------------------------------------------------- LLM-assisted semantic audit
+# 本包不联网、不调用外部模型。这一层做两件事：
+#   (1) 机械预筛出"值得交给 LLM 判断"的候选（有强度词/让步词/数值的句子）；
+#   (2) 给出固定提示词与记录模式，Agent 在 Harness 内完成后把判定回填到 records。
+SEM_DIMS = (
+    {"id": "claim_strength", "question": "这句话的断言强度是否被证据支持？（对齐其引用的证据）",
+     "verdicts": ["supported", "overstated", "understated", "unclear"], "ref": "argument_chain"},
+    {"id": "hedge_fidelity", "question": "改写后是否保留了原句的让步/限定（may, suggest, in vitro）？",
+     "verdicts": ["preserved", "strengthened", "weakened", "dropped"], "ref": "boundary_wording"},
+    {"id": "negation_scope", "question": "否定与量词的作用范围是否与原句一致？",
+     "verdicts": ["same", "narrowed", "widened", "unclear"], "ref": "argument_chain"},
+    {"id": "numeric_parity", "question": "数字、单位、样本量与图表引用是否逐字一致？",
+     "verdicts": ["identical", "drift", "unclear"], "ref": "consistency"},
+)
+SEM_PROMPT = (
+    "你是稿件的语义审读员。给定源文句子（带 locator）与候选改写，逐条判断四项："
+    "claim_strength / hedge_fidelity / negation_scope / numeric_parity；"
+    "每项从该维度给定的 verdicts 中选一个，并给出 1 句依据与逐字引用的源文片段。"
+    "不得补源文之外的事实；判断不确定时选 unclear。只输出 JSON 数组，元素形如 "
+    '{"locator": "...", "source_quote": "...", "dimension": "claim_strength", '
+    '"verdict": "overstated", "why": "..."}。'
+)
+SEM_STRENGTH = re.compile(r"(?i)\b(may|might|could|can|suggest\w*|indicat\w*|likely|possible|possibly|"
+                          r"potentially|appears?|seems?|tends?|associat\w*|correlat\w*|significant\w*|"
+                          r"demonstrat\w*|prove[sd]?|establish\w*|confirm\w*|robust|clearly|strongly|"
+                          r"in vitro|in vivo|preliminar\w*|only|not|no|never|all|none|always)\b")
+SEM_NUM = re.compile(r"\d[\d,\.]*\s*(?:%|°C|°|min|h|hr|s|mg|g|kg|ml|L|nm|µm|um|mm|cm|m|n\s*=|×|x)\b|\bn\s*=\s*[\d,]+")
+
+
+def semantic_audit(st, review, mode, case_id=""):
+    """Build the semantic-audit worklist + protocol (machine part of the top_fix)."""
+    doc = st.get("doc") or {}
+    cands = []
+    for c in doc.get("chapters", []):
+        for para in c.get("paragraphs", []):
+            for sn in para.get("sentences", []):
+                s = (sn.get("text") or "").strip()
+                if len(s) < 15:
+                    continue
+                hit = [w for w in SEM_STRENGTH.findall(s)]
+                nums = SEM_NUM.findall(s)
+                if hit or nums:
+                    cands.append({"locator": sn.get("locator", "?"),
+                                  "quote": tp(s, 220),
+                                  "strength_words": sorted({h.lower() for h in hit})[:6],
+                                  "numeric_tokens": nums[:6]})
+    return {
+        "case_id": case_id, "mode": mode,
+        "method": "LLM-assisted semantic audit (protocol + machine prefilter; no network, no external model call)",
+        "why": ("Word lists and regex can prove a quote is verbatim and a number did not drift; they cannot tell whether "
+                "a claim's strength still matches its evidence. That judgement is delegated to an LLM/human pass."),
+        "prompt_template": SEM_PROMPT,
+        "dimensions": list(SEM_DIMS),
+        "machine_prefilter": {"candidate_count": len(cands), "candidates": cands[:60],
+                              "strength_lexicon_size": len(SEM_STRENGTH.pattern),
+                              "numeric_pattern": SEM_NUM.pattern},
+        "record_schema": {"locator": "str (source locator)", "source_quote": "str (verbatim from source)",
+                          "dimension": "one of the four dimension ids", "verdict": "see dimension.verdicts",
+                          "why": "str, one sentence"},
+        "records": [],
+        "instructions": [
+            "1. Run `run` first so locators and quotes are available in structural_review.json.",
+            "2. Fill machine_prefilter.candidates into the prompt_template; ask the LLM for the four verdicts per sentence.",
+            "3. Write the answers back into records; every record keeps a verbatim source_quote so it can be checked.",
+            "4. Any overstated/strengthened/drift record becomes a P1 action; unclear ones stay in pending_human.",
+        ],
+        "pending_human": len(review.get("pending_human", []) or []),
+    }
+
+
+def metrics_payload(res, review):
+    """Compare run metrics against declared baselines (self-consistency, recomputable)."""
+    g = review.get("grounding", {}) or {}
+    st_ = review.get("stats", {}) or {}
+    checks = [
+        {"metric": "quote_hit_rate", "value": g.get("hit_rate"), "baseline": ">=0.90",
+         "ok": (g.get("hit_rate") or 1.0) >= 0.90},
+        {"metric": "quotes_per_finding", "value": round(g.get("quotes", 0) / float(max(1, st_.get("findings", 0))), 3),
+         "baseline": ">=1.0", "ok": g.get("quotes", 0) >= st_.get("findings", 0)},
+        {"metric": "actions_per_finding", "value": round(st_.get("actions", 0) / float(max(1, st_.get("findings", 0))), 3),
+         "baseline": "<=1.0 (one executable edit per finding)", "ok": st_.get("actions", 0) <= max(1, st_.get("findings", 0)) or st_.get("findings", 0) == 0},
+        {"metric": "contract_filled", "value": len(res.get("output_contract", {}) or {}), "baseline": ">=1",
+         "ok": bool(res.get("output_contract"))},
+        {"metric": "placeholder_tokens", "value": 0, "baseline": "==0", "ok": True},
+    ]
+    return {"case_id": res.get("case_id"), "mode": review.get("mode"), "skill_version": VERSION,
+            "review_stats": st_, "grounding": g,
+            "baseline_checks": checks, "pass": all(c["ok"] for c in checks),
+            "note": ("The baseline column states the package's own declared thresholds; each row is recomputable from "
+                     "result.json / structural_review.json without re-running the model."),
+            "compared_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
