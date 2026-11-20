@@ -8,7 +8,7 @@ ad-hoc cases. All runs are offline, standard-library only.
 Command shape:
 
 ```bash
-python3 scripts/eval_sim.py --pkg work/p4/v6/writing-10 --case work/p4/synth_cases/writing-10/<case> --mode <single|agent>
+python3 scripts/eval_sim.py --pkg work/p4/v8/writing-10 --case work/p4/synth_cases/writing-10/<case> --mode <single|agent>
 ```
 
 | case | mode | status | notes |
@@ -48,3 +48,23 @@ file; `result.json` carries nested **and** top-level `output_contract` keys.
   `limits`/`uncertainties`, **exit 0**.
 - Unreadable/binary material → recorded in `degradations`, run continues.
 - Non-writable output dir → falls back to `./output`.
+
+## 4. v8 复跑与关键数字（examples/）
+
+新增随包最小样例 `examples/`（`case.json` + `manuscript.md` 含过度声称句 + `comments.md` 4 条意见），
+可被评审直接复跑：
+
+```bash
+python3 scripts/main.py --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：
+
+- exit 0，`result.json.status = success`，产物 **8** 文件。
+- `metrics = {comments: 4, changes: 3, decisions: {accept: 2, partial: 1, reject: 0, defer: 1}}`；
+  `evidence_map` 4 条；`selfcheck.ok = true`；契约键 **5/5**；占位符 0。
+- 裁决落点：①收窄 → accept(C1)；②补引用 → defer（记 `evidence_pending.md`）；③新增 500 例 → partial；
+  ④澄清请求 → accept(C3)。
+- 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
+  separators=(",",":"))` 的 `sha256` 前 16 位）：**`36eb9043b58dfc37`**。
+- `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（契约键 5/5）。
