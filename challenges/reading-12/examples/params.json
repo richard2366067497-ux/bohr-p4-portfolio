@@ -1,0 +1,121 @@
+{
+  "field_dictionary": {
+    "version": "1.0.0",
+    "purpose": "column roles, name synonyms and missing markers for the mini batch in records.json",
+    "policy": {"unit_normalisation": "majority"},
+    "roles": {
+      "row_id": ["row_id", "id", "record_id", "entry", "条目"],
+      "source_document_id": ["source_document_id", "doi", "paper", "reference", "ref"],
+      "source_locator": ["source_locator", "locator", "page", "table", "位置"],
+      "indicator": ["indicator", "quantity", "property", "measured", "solubility", "melting point", "concentration"],
+      "material": ["material", "substance", "analyte", "sample", "物质"],
+      "value": ["value", "measurement", "result", "数值"],
+      "unit": ["unit", "units", "单位"],
+      "value_err": ["value_err", "error", "sd", "stdev"],
+      "value_low": ["value_low", "lower"],
+      "value_high": ["value_high", "upper"]
+    },
+    "target_fields": {
+      "value": {"dtype": "float"},
+      "unit": {"dtype": "string"},
+      "indicator": {"dtype": "string"},
+      "material": {"dtype": "string"}
+    },
+    "synonyms": {
+      "material": {
+        "sodium chloride": "NaCl",
+        "sodium chloride (nacl)": "NaCl",
+        "table salt": "NaCl",
+        "potassium chloride": "KCl"
+      },
+      "indicator": {
+        "solubility": "solubility",
+        "solubility limit": "solubility",
+        "melting point": "melting_point",
+        "m.p.": "melting_point",
+        "concentration": "concentration",
+        "molarity": "concentration"
+      }
+    },
+    "missing_tokens": ["", "-", "--", "n/a", "na", "n.a.", "nr", "nd", "none", "null", "nan",
+                       "not reported", "not given", "not available", "?", "??", "tbd", "无", "缺", "未报告"]
+  },
+  "rule_catalog": {
+    "precedence": "Lower priority number wins; a case-supplied rule replaces a builtin rule with the same id.",
+    "tolerance": {"replicate_relative_spread": 0.05,
+                  "note": "replicates within 5% of the group mean are kept individually and flagged, never averaged"},
+    "rules": [
+      {"rule_id": "R001", "name": "id_present", "priority": 101, "applies_to": "row", "owner": "script", "human_gate": false,
+       "condition": "the row carries a non-blank identifier", "transform": "use it as row_id",
+       "failure_mode": "rows cannot be cited back to the source"},
+      {"rule_id": "R002", "name": "id_missing_or_duplicate", "priority": 102, "applies_to": "row", "owner": "script", "human_gate": true,
+       "condition": "no identifier column, a blank identifier, or two rows sharing one identifier",
+       "transform": "derive an id, or append a #k suffix", "failure_mode": "two physical rows collapse into one"},
+      {"rule_id": "R005", "name": "number_format", "priority": 105, "applies_to": "value", "owner": "script", "human_gate": false,
+       "condition": "scientific notation or thousands separators", "transform": "normalise then parse",
+       "failure_mode": "1,500 read as 1.5"},
+      {"rule_id": "R006", "name": "unparsed_value", "priority": 106, "applies_to": "value", "owner": "script", "human_gate": false,
+       "condition": "the cell is text or a mixed expression", "transform": "queue for review, never coerce",
+       "failure_mode": "a word becomes a number"},
+      {"rule_id": "R007", "name": "range_value", "priority": 107, "applies_to": "value", "owner": "script", "human_gate": false,
+       "condition": "the cell is a to b range", "transform": "keep low/high, leave the point value empty",
+       "failure_mode": "a range midpoint is presented as measured"},
+      {"rule_id": "R008", "name": "missing_value", "priority": 108, "applies_to": "value", "owner": "script", "human_gate": false,
+       "condition": "empty cell or a missing marker", "transform": "leave empty, log the marker",
+       "failure_mode": "a missing measurement is written as 0"},
+      {"rule_id": "R009", "name": "error_term", "priority": 109, "applies_to": "value", "owner": "script", "human_gate": false,
+       "condition": "the cell carries a plus/minus error", "transform": "split the error into value_err",
+       "failure_mode": "the error is folded into the value"},
+      {"rule_id": "R011", "name": "unit_conversion", "priority": 111, "applies_to": "unit", "owner": "script", "human_gate": false,
+       "condition": "source and target share a dimension", "transform": "after = before * factor + offset; scale the error only",
+       "failure_mode": "an offset is applied to the error"},
+      {"rule_id": "R012", "name": "unknown_or_ambiguous_unit", "priority": 112, "applies_to": "unit", "owner": "agent", "human_gate": true,
+       "condition": "the unit is unknown, or dimensionless and polysemous (%, ppm, rpm)",
+       "transform": "queue for review", "failure_mode": "a mole basis is assumed"},
+      {"rule_id": "R013", "name": "missing_unit", "priority": 113, "applies_to": "unit", "owner": "agent", "human_gate": true,
+       "condition": "a numeric value carries no unit", "transform": "queue for review",
+       "failure_mode": "the value is treated as dimensionless"},
+      {"rule_id": "R014", "name": "synonym_exact", "priority": 114, "applies_to": "name", "owner": "script", "human_gate": false,
+       "condition": "an exact synonym-table hit", "transform": "replace with the canonical name",
+       "failure_mode": "near matches are merged by fuzzy distance"},
+      {"rule_id": "R016", "name": "duplicate", "priority": 116, "applies_to": "group", "owner": "script", "human_gate": false,
+       "condition": "same judgment key and identical value", "transform": "merge, keep the first, link duplicate_of",
+       "failure_mode": "one measurement is counted twice"},
+      {"rule_id": "R017", "name": "replicate", "priority": 117, "applies_to": "group", "owner": "script", "human_gate": false,
+       "condition": "same judgment key, spread within the tolerance", "transform": "keep all, flag replicate",
+       "failure_mode": "replicates are silently averaged"},
+      {"rule_id": "R018", "name": "conflict", "priority": 118, "applies_to": "group", "owner": "agent", "human_gate": true,
+       "condition": "same judgment key, spread beyond the tolerance", "transform": "keep both, queue for adjudication",
+       "failure_mode": "a disagreement is resolved by picking the larger value"},
+      {"rule_id": "R020", "name": "dimension_mismatch", "priority": 120, "applies_to": "unit", "owner": "agent", "human_gate": true,
+       "condition": "source and target differ in dimension", "transform": "queue; a molar mass is required",
+       "failure_mode": "mass is converted to moles without one"},
+      {"rule_id": "R023", "name": "empty_input_degrade", "priority": 123, "applies_to": "file", "owner": "script", "human_gate": false,
+       "condition": "no extraction records were supplied", "transform": "status insufficient_evidence, keep the contract keys",
+       "failure_mode": "an empty run looks like a success"},
+      {"rule_id": "R026", "name": "no_change", "priority": 126, "applies_to": "change_log", "owner": "script", "human_gate": false,
+       "condition": "no value needed a change", "transform": "write one explicit no-change row",
+       "failure_mode": "an empty change log is read as a silent edit"}
+    ]
+  },
+  "unit_table": {
+    "note": "value_in_base = value * scale + offset; only same-dimension conversions are performed",
+    "prefixes": {"n": 1e-9, "u": 1e-6, "m": 1e-3, "k": 1e3, "M": 1e6},
+    "units": {
+      "g": {"dim": {"mass": 1}, "scale": 1.0, "aliases": ["gram", "grams"]},
+      "mg": {"dim": {"mass": 1}, "scale": 1e-3, "aliases": ["milligram"]},
+      "ug": {"dim": {"mass": 1}, "scale": 1e-6, "aliases": ["µg", "μg", "microgram"]},
+      "M": {"dim": {"amount": 1, "volume": -1}, "scale": 1000.0, "aliases": ["mol/L", "mol/l", "molar"]},
+      "mM": {"dim": {"amount": 1, "volume": -1}, "scale": 1.0, "aliases": ["mmol/L", "mmol/l"]},
+      "uM": {"dim": {"amount": 1, "volume": -1}, "scale": 1e-3, "aliases": ["µmol/L", "umol/L"]},
+      "s": {"dim": {"time": 1}, "scale": 1.0, "aliases": ["sec", "second"]},
+      "min": {"dim": {"time": 1}, "scale": 60.0, "aliases": ["minute"]},
+      "h": {"dim": {"time": 1}, "scale": 3600.0, "aliases": ["hr", "hour"]},
+      "K": {"dim": {"temperature": 1}, "scale": 1.0, "aliases": ["kelvin"]},
+      "C": {"dim": {"temperature": 1}, "scale": 1.0, "offset": 273.15, "aliases": ["°C", "degC", "celsius"]}
+    },
+    "canonical": {"mass:1": "g", "amount:1,volume:-1": "mM", "time:1": "min", "temperature:1": "K"},
+    "unknown_tokens": ["a.u.", "au", "arb. units", "counts", "arbitrary units"],
+    "ambiguous_tokens": ["%", "wt%", "vol%", "ppm", "rpm"]
+  }
+}
