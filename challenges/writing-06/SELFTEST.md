@@ -20,6 +20,9 @@ python3 <pkg>/scripts/main.py probe     --input /input --work /tmp/wk
 python3 <pkg>/scripts/main.py build     --input /input --output /tmp/out --work /tmp/wk
 python3 <pkg>/scripts/main.py check     --input /input --output /tmp/out --work /tmp/wk
 python3 <pkg>/scripts/main.py selfcheck --input /input --output /tmp/out --work /tmp/wk
+
+# 离线自测（15 项，不联网、无第三方包）
+python3 <pkg>/scripts/main.py selftest
 ```
 
 ## 2. eval_sim 矩阵
@@ -90,5 +93,19 @@ python3 scripts/main.py run --input examples --output /tmp/out --work /tmp/work
   两条具名发现：`duplication`（medium，`C04-P002-S01`）与 `conclusion_boundary`（high，`C05-P001-S01`）；
   契约键 **3/3**；占位符 0。
 - 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
-  separators=(",",":"))` 的 `sha256` 前 16 位）：**`a52a2c074b730131`**。
+  separators=(",",":"))` 的 `sha256` 前 16 位）：**`3dd6416642418f3a`**。
 - `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（契约键 3/3）。
+
+## 7. v9 新增能力与自测
+
+| 新增 | 落点 | 自测项 |
+|-|-|-|
+| PDF 文本层解析（FlateDecode + 字面串） | `scripts/core.py:_pdf_text` | `pdf_text_layer` |
+| DOCX 解析（`word/document.xml`） | `scripts/core.py:_docx_text` | `docx_text_layer` |
+| 损坏件降级并记名 | `scripts/review.py` `degradations` | `broken_docx_degrades` / `unparsed_named_in_degradations` |
+| 语义审读协议 | `semantic_audit.json`（预筛候选 + 提示词 + 四维度 + 记录模式） | `semantic_protocol` |
+| 基线对照 | `metrics.json`（阈值逐项复算） | `baseline_metrics` |
+| 离线自测入口 | `scripts/main.py selftest` | 全 15 项 |
+
+v9 实测（`examples/`，离线）：产物 **9** 文件；`metrics.json.pass=true`；`semantic_audit.json`
+`dimensions` 长度 4；`scripts/main.py selftest` → `SELFTEST PASS (15 checks)`，退出码 0。
