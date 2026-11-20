@@ -1,0 +1,80 @@
+# environment/resources.yaml — writing-04 / citation-ledger-sync (v8)
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟、不写全局状态。
+skill: citation-ledger-sync
+version: 4.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/cite_engine.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/cite_engine.py probe --input /input --output /app/output --work /app/work
+    - "Agent: read /app/output/inventory.json, optionally write /app/work/draft.json (key->number 或条目裁决)"
+    - python3 /skills/weekly-skill/scripts/cite_engine.py build --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/cite_engine.py check --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/cite_engine.py selftest
+    --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/cite_engine.py    # CLI：all / probe / check / build / selftest（单命令 all = 全流程）
+  - scripts/citelib.py        # 解析（BibTeX/RIS/JSON/CSV/正文文献表）、DOI/题名/作者年 归一与去重
+  - scripts/citerender.py     # GB/T 7714-2015 与 APA 7 渲染器
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  material_roles_by_extension:
+    ".bib": "BibTeX 文献库"
+    ".ris": "RIS 文献库"
+    ".json": "结构化文献/契约（含 case.json）"
+    ".csv": "表格型文献表"
+    ".md"/".txt": "正文（可选内联文献表 / 引用标记）"
+  discovery: "walk 输入目录；角色由扩展名决定；缺失物料即降级而非报错"
+
+required_outputs:
+  - references.deduped.json
+  - references.gbt.md
+  - references.apa.md
+  - references.both.md
+  - citation_map.csv
+  - claim_support.csv
+  - dedup_decisions.csv
+  - verification.csv
+  - uncertainty.json
+  - audit.json
+  - changes.csv
+  - inventory.json
+  - document_edit.json
+  - sources.json
+  - unknown_keys.csv
+  - manuscript.revised.md
+  - result.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 60
+  max_output_files: 24
+  max_output_bytes: 2097152
+
+contract:
+  keys: [numbering_policy, key_to_number, references, duplicates, unknown_keys, sources, uncertainty, change_records]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> tasks/<key>.json -> SKILL.md json 样例 -> references/*.md 样例 -> 默认产物键"
+  echo: "每个契约键既写在顶层，也写进 result.json.output_contract"
+  placeholders: forbidden
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
