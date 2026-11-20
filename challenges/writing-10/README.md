@@ -33,7 +33,11 @@ draft the deterministic extractor produces the same shape. See `references/usage
 ## Outputs
 
 `revised_manuscript.md`, `response_letter.md`, `comment_ledger.json`, `change_locator.json`,
-`evidence_pending.md`, `version_notes.md`, `selfcheck.json`, `result.json`.
+`evidence_pending.md`, `version_notes.md`, `quality_metrics.json`, `selfcheck.json`, `result.json`.
+
+`quality_metrics.json` reports `comment_coverage`, `locator_verifiable_rate`, `evidence_completeness`
+and `tone_compliance`, plus a `baseline_vs_skill` self-assessment (explicitly **not an official
+A/B result**); the same numbers appear in `result.json.metrics`.
 
 ## Decisions
 
