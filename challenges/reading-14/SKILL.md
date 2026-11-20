@@ -1,108 +1,132 @@
 ---
-name: reading-14
-description: Build an evidence-bound literature knowledge graph from a small multi-paper corpus — nodes, typed edges, cross-paper alignment, conflicts, executed queries and a validated result.json — in one deterministic command.
+name: literature-knowledge-graph
+version: 1.0.0
+description: >-
+  Turn a small paper corpus into an evidence-bound literature knowledge graph: ground every
+  entity and relation as a node/edge that carries its own source_id#paragraph_id locator and a
+  verbatim short quote from the paragraph, merge aliases across papers only on an explicit,
+  recorded basis, refuse to fuse a generic term (e.g. "accuracy") that appears with differing
+  values or conditions, answer at least three real graph queries, and report what could not be
+  grounded instead of guessing. Use when a task asks for 文献知识图谱 / 实体关系抽取 /
+  跨文献实体对齐与冲突 with a reproducible path. Pure standard library, offline, deterministic.
 ---
 
-# Reading-14 — evidence-bound literature knowledge graph
+# literature-knowledge-graph
 
-Turn a small corpus (primary and secondary papers, a manifest, optional query
-bundle and candidate graph) into a knowledge graph whose every node and edge is
-welded to a verbatim paragraph excerpt, with cross-paper identity decisions
-stated rather than assumed.
+A knowledge graph is only worth as much as its provenance. Here every node and every edge carries
+the locator it came from and the sentence that supports it; a candidate that cannot be matched
+verbatim in the material is rejected rather than kept, and two papers that share a name are aligned
+by that name alone — never by assuming the same sample, model or condition.
 
-## 1. Run it
+## 0. result.json contract
 
-The one required command produces the complete `output_contract` and all
-artifacts:
+Every key below is echoed both at the top level of `result.json` and inside its
+`output_contract` object; `case_id` is passed through unchanged. When the case supplies its own
+`output_contract`, those keys are used instead and each is filled the same way (an artifact-like key
+resolves to the written file, any other key gets a real derived value).
 
-```sh
-python3 scripts/graph_build.py --input /input --out /app/output
+```json
+{
+  "output_contract": {
+    "case_id": "the input case id, passed through",
+    "status": "answered | partial | insufficient_evidence | input_error",
+    "graph": "graph.json",
+    "merges": "alignment_report.json",
+    "conflicts": "conflicts.json",
+    "queries": "query_results.json",
+    "sources": "sources.json",
+    "uncertainty": "uncertainty.json",
+    "change_records": "change_log.json"
+  }
+}
 ```
 
-`--work` defaults to `<out>/work`; pass `--work /app/work` to separate scratch
-files. Standard library only, no network. It always exits 0 and always writes a
-valid `result.json`, including for empty or corrupt input.
+## 1. Draft schema (JSON, optional)
 
-Optional follow-up on an already-built graph (not required for the contract):
+An agent may fill `/app/work/draft.json` with its own candidate nodes, edges and queries; `build`
+records that a draft was seen, and the deterministic grounding still runs regardless, so a thin
+draft cannot turn an ungrounded claim into a kept node.
 
-```sh
-python3 scripts/graph_query.py --graph /app/output/graph.json --type outgoing --surface WideNet
+```json
+{
+  "case_id": "",
+  "nodes": [],
+  "edges": [],
+  "queries": [],
+  "notes": ""
+}
 ```
 
-## 2. What it writes
+## 2. 单命令（等价入口，one-shot，评测入口）
 
-`/app/output/`
+Run this single command; with no draft it still writes every artifact and a complete
+`result.json`, and exits 0:
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+## 3. agent-first 增强路径（可选，质量更高）
+
+List the material with locators, fill the draft above, then check it before `build` grounds it:
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py init      --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py show      --input /input --work /app/work
+python3 /skills/weekly-skill/scripts/main.py check     --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py build     --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py selfcheck --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py compare   --input /input --output /app/output --work /app/work
+```
+
+`show` prints each material line with a `M02/p7` locator; `check` reports how many candidate nodes
+and edges ground; `compare` writes a base-vs-skill contrast to `/app/work/compare_report.json`.
+
+## 4. Pipeline
+
+1. Index every file under `/input` with its kind, size and parse status (`parsed` / `empty-file` /
+   `placeholder-only` / `unparsed-binary`).
+2. Read the corpus manifest (`documents`: source_id, doi, title, authors, license), each paragraph
+   material (`source_id` + `paragraphs`), the optional candidate graph (`nodes` + `edges`) and the
+   query list (`queries`).
+3. Ground every candidate node and edge: the paragraph must exist, the quote must be found
+   verbatim at `source_id#paragraph_id`, and the surface must appear there — otherwise the
+   candidate is rejected with the reason.
+4. Align aliases: merge only where the normalised surface and the type agree across sources; refuse
+   a merge when one surface carries two types, and refuse to fuse a generic metric term that appears
+   with differing values or conditions — that becomes a conflict, reported per source.
+5. Run the queries (find_surface / outgoing / incoming / conflicts) and record the subgraph,
+   the evidence and the undetermined part of each.
+6. Compute coverage (node/edge types, merges, refusals, conflicts, query hit rate, verbatim rate)
+   and write every artifact.
+
+The engine lives in `scripts/kglib.py`; `scripts/main.py` is the CLI entry that imports it.
+
+## 5. Artifacts written to `--output`
 
 | file | content |
-|---|---|
-| `result.json` | the full contract: case_id, status, graph, queries, alignment, conflicts, uncertainty, artifacts, sources, merges, change_records, validation, runtime_notes, output_contract |
-| `graph.json` | validated nodes/edges with mentions, stats, alignment, conflicts |
-| `nodes.csv` | `node_id,type,label,aliases,source_ids,paragraph_ids,degree` |
-| `edges.csv` | `edge_id,type,source,target,conditions,source_ids,quote` |
-| `query_results.json` | every executed query with subgraph and evidence |
-| `validation.json` | self-check: checks_total / checks_failed / checks / errors |
-| `work/corpus.json` | ingested blocks, papers, stats (audit trail) |
-| `work/extraction.json` | what was extracted, in which mode, what was rejected |
+|-|-|
+| `result.json` | every contract key (top level + `output_contract`), case_id, status, counts, conflicts, sources, uncertainties, change_records |
+| `graph.json` | nodes, edges and concepts, each with its locator, type and verbatim quote |
+| `annotations.jsonl` | one JSON line per node/edge: locator, quote, relation, conditions |
+| `query_results.json` | the executed queries with their hits and undetermined part |
+| `queries.md` | the same queries in a readable form |
+| `alignment_report.json` | the merges (with basis) and the refused merges |
+| `conflicts.json` | the conflicts found across sources, with the value/condition that diverged |
+| `sources.json` | source provenance from the corpus manifest |
+| `uncertainty.json` | what could not be grounded, with the rejection and refusal reasons |
+| `change_log.json` | the ordered build steps and their counts |
+| `coverage.json` | node/edge types, merges, refusals, conflicts, query hit rate, verbatim rate |
+| `self_check.json` | the grounding self-audit (nodes with evidence, rejects, refusals) |
+| `run_log.txt` | per-material parse status and the stage counts |
 
-`result.json` top-level keys are always present even when empty. Every key of
-the supplied `output_contract` is echoed at the top level (a contract `case_id`
-never overwrites the real one).
+## 6. Degradation rules
 
-## 3. Input discovery
-
-Picked up automatically from anywhere under `--input`: `case.json` (case_id and
-`output_contract`), the corpus (`material.json`, `primary-material.json`,
-`secondary-material.json`, a manifest, an index pointing at more files, or plain
-`.md`/`.txt`), `queries.json`, and either an agent `extraction.json` (highest
-priority) or a `candidates.json` graph hypothesis. `task.md` is read for
-context, not treated as evidence.
-
-`paragraph_id` is the organiser's JATS identifier — **never** a PDF page number.
-
-## 4. Vocabulary (closed)
-
-Node types: `researcher | material | method | task | metric | conclusion`.
-Relations: `uses | compares | outperforms | supports | contradicts`.
-Alignment decisions: `merge | keep_distinct | undetermined`.
-Status: `success | partial | undetermined | refused`.
-
-A type or relation outside these sets is a build error, never silently kept.
-
-## 5. Evidence rule
-
-Every node and edge needs at least one excerpt that is a verbatim substring of
-the paragraph it cites. If the quote cannot be found the candidate is dropped
-and the drop is logged; nothing is invented to fill the gap. See
-`references/schema.md` for the full record shapes and `references/method.md` for
-the extraction and query procedure.
-
-## 6. Two independent papers
-
-Keep both papers' nodes, edges and sources; do not collapse them into one. Record
-a `merge` only where identity is genuinely established; otherwise record
-`keep_distinct` or `undetermined` with a basis. A shared generic term is not proof
-of a shared sample, dataset or condition. Unreported facts and intra-source
-conflicts are preserved, not resolved by averaging.
-
-## 7. Status and failure handling
-
-| Condition | Status / action |
-|---|---|
-| No readable paragraph block | `undetermined`, empty graph, reason recorded |
-| Material read, no node bound to an excerpt | `partial` |
-| Some candidates rejected | `partial`, valid graph kept, drops logged |
-| No cross-paper alignment | `partial` |
-| Graph + alignment + conflicts + ≥3 queries | `success` |
-| Self-check fails after a would-be `success` | downgraded to `partial` |
-| Corrupt / missing JSON | warning, continue on what is readable, exit 0 |
-
-## 8. Files
-
-```
-SKILL.md
-scripts/graph_build.py      entry: ingest → extract → align → query → validate → write
-scripts/graph_query.py      optional single-query wrapper over graph.json
-scripts/graph_support.py    shared JSON/CSV helpers, query engine, delivery self-check
-references/schema.md        closed vocabularies, record shapes, result contract
-references/method.md        extraction tiers, alignment/conflict policy, status logic
-```
+- No groundable node or edge → `status=insufficient_evidence`; every artifact carries a structured
+  no-data record naming the searched locations; exit 0.
+- A supplied candidate whose paragraph, quote or surface cannot be matched verbatim → rejected with
+  the reason, listed in `uncertainty.json`, never kept as a node.
+- A shared generic term with differing values or conditions → a conflict, reported per source; the
+  two papers' samples are never assumed equal.
+- Empty / binary / placeholder-only file → recorded with its parse status, never quoted.
+- No network, no third-party package, no invented literature or numbers.
