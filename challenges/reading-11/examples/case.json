@@ -1,0 +1,20 @@
+{
+  "case_id": "example-not-a-formal-case",
+  "language": "en",
+  "materials_root": "materials",
+  "notes": "Minimal example (marked as an example, not a formal case). Point --input at a directory shaped like this to exercise the Skill end to end. The output directory will then contain result.json plus the cleaned table, the change log and the pending-review list.",
+  "example_files": {
+    "materials/extraction-records.json": "{\"records\": [{\"row_id\": \"R001\", \"material\": \"TiO2\", \"indicator\": \"bandgap\", \"value\": \"3.20\", \"unit\": \"eV\"}]}",
+    "materials/extra-rows.csv": "row_id,source_document_id,source_locator,material,indicator,value,unit",
+    "materials/case-number-rules.json": "{\"rules\": [{\"rule_id\": \"R010\", \"applies_to\": \"unit\", \"transform\": \"hold the row for a human; never convert\", \"human_gate\": true}]}"
+  },
+  "output_contract": {
+    "cleaned_table": "",
+    "change_log": "",
+    "pending_review": "",
+    "counts": {},
+    "rules_applied": [],
+    "unknown_units": [],
+    "duplicates": []
+  }
+}
