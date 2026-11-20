@@ -1,0 +1,76 @@
+# environment/resources.yaml - writing-15 / longdoc-consistency-ledger (v9)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: longdoc-consistency-ledger
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init --input /input --output /app/output --work /app/work
+    - "Agent: run show, read blocks with their locators, optionally write /app/work/draft.json"
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py compare --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all / init / show / check / build / selfcheck / compare
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  chapters: "md / markdown / txt / tex chapters; headings become sections and paragraphs become located blocks"
+  structured: "csv / tsv / json / yaml materials are listed and hashed, not read as prose"
+  binary: "pdf / docx / xlsx / pptx / images are recorded as unparsed-binary; no text is guessed"
+  ignored: "task.md, case.json, challenge.json, README.md, SKILL.md, resources.yaml are instruction metadata"
+  limits: "at most 120 files; at most 600k characters per text file; truncation is recorded"
+
+required_outputs:
+  - result.json
+  - revised_manuscript.md
+  - consistency_report.md
+  - consistency_tables.json
+  - evidence_map.json
+  - preserved_facts.json
+  - change_log.json
+  - coverage_matrix.json
+  - pending_human.json
+  - run_log.txt
+  - versions/rollback_check.json
+
+reusable_templates:
+  - templates/glossary-citation-checklist.md
+  - references/ledger-rules.md
+  - references/failure-modes.md
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 120
+  max_input_files: 120
+  max_chars_per_file: 600000
+
+contract:
+  keys: [term, symbol, definition, numbering, citation, claim, unit, annotations_applied, sha, case_id]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  placeholders: forbidden
+
+dependencies: []
+exit_code_policy: always 0 (usage error 2)
