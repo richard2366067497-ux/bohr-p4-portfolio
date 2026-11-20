@@ -1,0 +1,3 @@
+claim_id,slot,record_id,source_id,locator,quote,claim,strength
+"C001","T1","R001","M02","M02/records[0]","Adding ridge augmentation raised top-1 accuracy by 2.1 points on the held-out split.","Ridge augmentation improves top-1 accuracy","reported"
+"C002","T2","R002","M02","M02/records[1]","A cosine learning-rate schedule changed top-1 accuracy by 1.4 points among the modelling choices we compared.","Learning-rate schedule and top-1 accuracy","reported"
