@@ -1,0 +1,18 @@
+{
+  "record": "one line of note_units.jsonl",
+  "fields": {
+    "claim_id": "C001 - stable id, unique within the notes",
+    "field": "research_question | data | method_conditions | main_findings | conclusion | limitations",
+    "text": "the note sentence as written",
+    "anchor": "S4 ¶1/L14 - section id, paragraph index and source line",
+    "quote": "the verbatim sentence from the paper that grounds the note",
+    "has_number": true,
+    "verbatim": true
+  },
+  "rules": [
+    "anchor must point at the section and paragraph the quote was taken from",
+    "quote must be copied verbatim from the paper; a mismatch is reported verbatim=false, never passed as grounded",
+    "has_number is true only when the quoted sentence itself carries a numeric value",
+    "one JSON object per line, utf-8, no trailing commas, no placeholder values"
+  ]
+}
