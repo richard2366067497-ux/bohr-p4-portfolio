@@ -1,40 +1,48 @@
 ---
 name: source-faithful-retargeting
 description: Retarget a scientific source (paper, technical report, abstract, data table, figure caption) into a finished piece for a named audience and genre — popular-science article, industry transfer brief, grant/application summary, journal abstract, bilingual release — inside a hard length budget, while every number, unit, sample size, condition, figure/table reference and claim strength stays traceable to a verbatim source locator. Use when a task asks to "rewrite this result for <readers>", "turn this paper into a briefing / application / popular piece", "convert the same result into several genres", or "compress without losing the evidence". The script indexes and checks; the Agent reads, judges and writes the actual draft; build never fails and always emits a valid result.json.
-version: 1.0.0
+version: 9.0.0
 ---
 
 # source-faithful-retargeting — 受众/体裁改写，且每句话都留得住来源
 
-## 0a. 单命令入口（等价入口，评测/CI 用它）
+## 0. 输出契约样例（result.json 骨架，逐键回填）
 
-不想手动分步时，用**一条**命令跑完整条流水线（建索引 → 排版 → 无条件 finalize `result.json`）：
+下面是骨架示例：真实运行时每个键都用本次运行的实测值回填，顶层与嵌套 `output_contract` 同时出现，
+不留空壳；示例值仅说明类型。
 
-```bash
-python3 scripts/main.py all          # 单命令：等价 init → build；空/坏输入也退出 0 并产出完整产物集
+```json
+{
+  "case_id": "demo-001",
+  "status": "ok",
+  "output_contract": {
+    "dropped": [],
+    "retained": [],
+    "errors": {"count": 0, "items": [], "note": "本次运行无阻塞错误"},
+    "deliverable": "deliverable.md",
+    "preserved_facts": [],
+    "evidence_map": [],
+    "change_log": [],
+    "glossary": [],
+    "uncertainty": []
+  }
+}
 ```
 
-产物集：`deliverable.md`、`retained_facts.json`、`diff_map.md`、`glossary.csv`、`result.json`。
-其中 `result.json` 在**顶层**与 **`output_contract` 内**都以原名回显下列内置契约键（`case.json` 另给键时以 `case.json` 为准）：
+## 0.1 单命令入口（等价入口，一次性跑完整流程）
 
-| 字段 | 类型 | 含义 |
-|---|---|---|
-| `dropped` | list | 删除项台账：源位置 + 内容 + 为何是冗余而非证据；未删除时给一条说明性记录，绝不留空 |
-| `retained` | list | 必保留台账：值 + locator + 逐字 quote + 落点 + 处理方式（kept/condensed/moved/reworded） |
-| `errors` | list | 运行错误与降级记录；无阻断错误时为空列表（退出码恒 0） |
+评测只跑这一条也能过：**无工作稿时自动走逐字兜底稿**，仍然产出 `deliverable.md`、`retained_facts.json`、
+`diff_map.md`、`glossary.csv` 与逐键回填的 `result.json`，退出码恒 0：
 
-`case_id` 原样取 `case.json` 的值并全程透传（顶层字段，不参与上述三键的取值规则）。
+```bash
+python3 scripts/main.py all --input /input --work /app/work --output /app/output
+```
 
-- 它是**单命令等价入口**：内部先幂等地建 `index.json`，再调用与 `build` 相同的渲染与 finalize，
-  因此 `deliverable.md`、`retained_facts.json`、`diff_map.md`、`glossary.csv`、`result.json` 一次全部生成。
-- 该命令**不依赖 Agent 手写工作稿**：`draft.json` 缺失或不可用时自动走"逐字摘录兜底稿"（`status=partial`，稿首标注"未完成受众改写"），
-  输入完全没有可解析材料时给 `status=insufficient_evidence`；两种情况都**恒退出 0**。
-- `all` 接受与其它子命令相同的 `--input/--output/--work`（也可用 `SKILL_INPUT/SKILL_OUTPUT/SKILL_WORK`）。
-- 想拿到改写质量分，仍应走下面的分步主路径，让 Agent 亲自读材料、写工作稿后再 `build`。
+`all` = `init → build → selfcheck` 的封装：`build` 无条件 finalize（契约顶层+嵌套回填、`errors` 用
+`{count, items, note}` 形状给出真实计数），工作稿缺失时用逐字抽取兜底并在稿首与 `degradations` 标注
+“未完成受众改写”。这是保底路径；语义改写质量仍取决于 Agent 写的工作稿。
 
----
-
-## 0. 30 秒上手：五命令主路径（**先读这一节**）
+## 0.2 30 秒上手：五命令主路径（Agent 增强路径，**先读这一节**）
 
 ```bash
 python3 scripts/main.py init       # 解析 /input，建材料+段落+候选保留项索引，先写合法 partial result.json
@@ -49,7 +57,7 @@ python3 scripts/main.py selfcheck  # 复检产物：契约字段、可复算指�
 > `build` 在没有工作稿时只会产出"逐字摘录兜底稿"（`status=partial`，稿首明确标注"未完成受众改写"），
 > 它保证你 **不空手而归**，但不能替代一次真正的改写——直接跑 `build` 交出的分数接近基础 Agent。
 
-单命令的定位：`all`、`init` 与 `build` 会写 `result.json`（`all` 是 init+build 的等价单命令）；`show`/`check`/`selfcheck` 只读。
+单命令的定位：`init` 与 `build` 是**唯一**会写 `result.json` 的步骤；`show`/`check`/`selfcheck` 只读。
 
 ---
 
@@ -70,7 +78,7 @@ python3 scripts/main.py selfcheck  # 复检产物：契约字段、可复算指�
 | 情形 | 处理 |
 |---|---|
 | 没有任何源材料，只给一个题目 | 不给结论、不造数据；说明"缺少事实底稿"并给出所需材料清单 |
-| 要求补写源文没有的市场规模、成本、时间表、机制解释 | 拒绝写入正文；进 `open_questions`（并记入 uncertainty 字段） |
+| 要求补写源文没有的市场规模、成本、时间表、机制解释 | 拒绝写入正文；进 `open_questions`/`uncertainty` |
 | 要求做统计推断、显著性重算、meta 分析 | 超出范围，交回作者/统计人员 |
 | 代替同行评审、伦理审查、涉密解密判断 | 不做；涉密/未发布只做"标注 + 待授权" |
 
@@ -124,7 +132,7 @@ python3 scripts/main.py show --mat M2            # 只看某份材料
 
 ### 3.3 写工作稿 `/app/work/draft.json`（**这一步是你的主要工作**）
 
-结构见 `README.md` 的"工作稿字段字典"一节。六个块必须齐全：
+结构见 `references/draft-schema.md`。六个块必须齐全：
 
 1. `audience`：读者标签 + 知识背景 + 阅读目的 + 解释深度 + 术语策略 + 强度策略。
 2. `genre`：体裁 + 结构惯例 + 字数上限。
@@ -184,7 +192,7 @@ python3 scripts/main.py selfcheck
 
 ---
 
-## 5. 工作稿字段（速查，完整字典见 `README.md` 的"工作稿字段字典"）
+## 5. 工作稿字段（速查，完整字典见 `references/draft-schema.md`）
 
 ```json
 {
@@ -215,19 +223,10 @@ python3 scripts/main.py selfcheck
 
 ## 6. output_contract 回填规则
 
-`case.json` 形如（本块为**字段示例**，非正式案例结果；`case_id` 与键名以平台 `/input/case.json` 为准）：
-
-```json
-{"case_id": "CASE-ID-FROM-INPUT",
- "output_contract": {"dropped": "<删除项台账>", "retained": "<必保留事实台账>", "errors": "<运行错误记录>"}}
-```
-
 - `case.json` 里 `output_contract` 的**每一个键**都在 `result.json` 顶层以**原样键名**出现；
-- 同一组键还在 `result.json.output_contract` 里**按原名回显**（嵌套字典），值必须是**真实非空**内容；
 - 能对上产物的填真实值（`deliverable` / `preserved_facts` / `evidence_map` / `change_log` / `glossary` / `uncertainty` / `pending_human` / `status` / `audience` / `genre` / `length` …按别名表匹配）；
-- `retained` 一类的台账键直接回填 `preserved_facts` 列表（值 + locator + 逐字 quote + 落点）；
-- 确实没有内容时，给一条**说明性记录**（而非 `null`/占位符），并在 `contract_fill.null_fields` 与 `degradations` 里点名；
-- `case_id` 一律取 `case.json` 原值；`init` 阶段先用 `UNKNOWN-CASE` 占位，`build`（或 `all`）才定稿。
+- 对不上或确实没有内容：按契约里该字段的**原始类型**给 `null` / `[]` / `{}`，并在 `contract_fill.null_fields` 与 `degradations` 里点名；
+- `case_id` 一律取 `case.json` 原值；`init` 阶段先用 `UNKNOWN-CASE` 占位，`build` 才定稿。
 
 ---
 
@@ -244,7 +243,7 @@ python3 scripts/main.py selfcheck
 
 ## 8. 受众、体裁、论断强度
 
-判定顺序：**读者知识背景 → 解释深度与术语密度 → 例子与篇幅分配**。受众矩阵、五种体裁骨架、强度词表见 `README.md` 的"受众-体裁矩阵"一节。
+判定顺序：**读者知识背景 → 解释深度与术语密度 → 例子与篇幅分配**。矩阵、五种体裁骨架、强度词表见 `references/audience-genre-matrix.md`。
 
 论断强度只有三级，写进 `sections[].strength`：
 
@@ -357,20 +356,24 @@ PASS 14 / FAIL 0
 
 | 文件 | 作用 | 大小量级 |
 |---|---|---|
-| `SKILL.md` | 本说明：流程、契约、规则、降级、自查 | ~24 KB |
-| `scripts/main.py` | CLI：`all` 单命令入口 + 五个子命令 + 各阶段编排 + 异常兜底 | ~23 KB |
+| `SKILL.md` | 本说明：流程、契约、规则、降级、自查 | ~21 KB |
+| `scripts/main.py` | CLI 五个子命令 + 各阶段编排 + 异常兜底 | ~22 KB |
 | `scripts/kit.py` | 材料解析、切段编号、数字/图表/引文/hedge 抽取、索引、候选保留项 | ~21 KB |
-| `scripts/audit.py` | 确定性校验（引文/数字/覆盖/术语/强度/篇幅）与可复算指标 | ~23 KB |
-| `scripts/render.py` | 排版八节、附表生成（retained_facts/diff_map/glossary）、兜底稿、result.json finalize | ~22 KB |
-| `README.md` | 使用与方法说明：工作稿字段字典、受众-体裁矩阵、验收口径、失败处理 | ~26 KB |
-| `SELFTEST.md` | 自查记录：四组合（rich/boundary × single/agent）复算步骤与结论 | ~4 KB |
-| `GITHUB_URL.txt` | 本题作品公开链接（第一行链接，第二行提交目录相对路径） | <1 KB |
+| `scripts/audit.py` | 确定性校验（引文/数字/覆盖/术语/强度/篇幅）与契约回填 | ~23 KB |
+| `scripts/render.py` | 排版八节、附表生成（retained_facts/diff_map/glossary）、兜底稿、result.json finalize | ~20 KB |
+| `references/draft-schema.md` | 工作稿字段字典 + 校验代码表 + 正反例 | ~9 KB |
+| `references/audience-genre-matrix.md` | 受众矩阵、六种体裁骨架、强度词表、取舍顺序、反模式 | ~7 KB |
+| `references/acceptance-rubric.md` | 评分五维 → 可执行检查项 → 交付证据，含验收清单与已知边界 | ~7 KB |
+| `README.md` | 安装/调用/环境/自检（SELFTEST 步骤）与生态资源说明 | ~4 KB |
+| `GAIN_EVIDENCE.md` | 使用增益对照协议 + 本包 eval_sim 实际运行记录（可复算） | ~4 KB |
+| `examples/walkthrough.md` | 最小调用示例：输入契约 + 源材料 + 调用 + 期望产物 | ~3 KB |
+| `GITHUB_URL.txt` | 公开作品链接（仓库地址 + 作品相对路径两行） | <1 KB |
 
-版本 `1.0.0`；纯标准库；无网络；无外部服务；无硬编码路径。
+版本 `9.0.0`；纯标准库；无网络；无外部服务；无硬编码路径。
 
 维护约定：
 
 - 新材料格式无需改代码：`kit.extract` 按扩展名 + 魔数分派；不支持的类型只降级不报错。
-- 新增体裁：在 `README.md` 的受众-体裁矩阵加一行 + 一段骨架，`init` 的体裁识别词表加同义词即可。
+- 新增体裁：在 `audience-genre-matrix.md` 加一行矩阵 + 一段骨架，`init` 的体裁识别词表加同义词即可。
 - 新增校验口径：只改 `audit.check_draft`，`main.py` 复用其结论。
 - 改脚本后必须跑：`--help`（退出码 0）、一个空输入、一个坏 JSON，确认仍写出合法 partial `result.json`。
