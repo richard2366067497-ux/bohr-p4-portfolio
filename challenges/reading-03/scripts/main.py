@@ -20,6 +20,8 @@ import re
 import sys
 import time
 
+sys.dont_write_bytecode = True  # 不落地 __pycache__：包体保持 12 个文件、可离线搬运
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
