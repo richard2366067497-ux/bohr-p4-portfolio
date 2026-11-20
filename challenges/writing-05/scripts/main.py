@@ -7,6 +7,11 @@ render an editable draft and the evidence artifacts -> write result.json.
 
     python3 scripts/main.py --input /input --output /app/output --work /app/work
 
+Agent-first enhancement: if ``--draft FILE``, ``$WORK/draft.json`` or ``$INPUT/draft.json``
+exists, its optional ``evidence_overrides`` (claim_id -> {source_id, strength}) are applied on
+top of the deterministic pipeline and recorded in change_log / uncertainties. Without a draft
+the single command is complete on its own.
+
 Standard library only, offline, always exits 0 (a usage error exits 2).
 """
 import argparse
@@ -19,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import kit as K  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 SKILL = "writing-05-evidence"
 MAIN_FILE = "evidence_driven_draft.md"
 
@@ -63,6 +68,52 @@ def read_case(ind):
             instr += " " + p.read_text(encoding="utf-8", errors="ignore")[:4000]
             break
     return case, instr
+
+
+def read_draft(args, ind):
+    """Load an optional agent-written draft (evidence overrides). Absent -> None."""
+    cands = []
+    if getattr(args, "draft", None):
+        cands.append(Path(args.draft))
+    if getattr(args, "work", None):
+        cands.append(Path(args.work) / "draft.json")
+    cands.append(Path(ind) / "draft.json")
+    for c in cands:
+        try:
+            if c and c.is_file():
+                obj = json.loads(c.read_text(encoding="utf-8", errors="ignore"))
+                return obj if isinstance(obj, dict) else None
+        except Exception:
+            continue
+    return None
+
+
+def apply_draft(draft, rows):
+    """Apply agent evidence_overrides onto the deterministic evidence rows."""
+    if not isinstance(draft, dict):
+        return 0
+    ov = draft.get("evidence_overrides")
+    if not isinstance(ov, dict):
+        return 0
+    applied = 0
+    for r in rows:
+        o = ov.get(r.get("claim_id"))
+        if not isinstance(o, dict):
+            continue
+        touched = False
+        if o.get("source_id"):
+            r["source_id"] = str(o["source_id"])
+            touched = True
+        if o.get("locator"):
+            r["locator"] = str(o["locator"])
+            touched = True
+        if o.get("strength") in ("高", "中", "低", "不足"):
+            r["strength"] = o["strength"]
+            touched = True
+        if touched:
+            r["rationale"] = (r.get("rationale", "") + " | agent override").strip(" |")
+            applied += 1
+    return applied
 
 
 def build_claims(units, docs, instr):
@@ -185,7 +236,7 @@ def render(claims, rows, facts, lg, cid="UNKNOWN"):
 def runtime_result(cid, status, lg, filled, main_text, claims, rows, facts, refs, docs, changed, errs, deg):
     outputs = {n: None for n in ("evidence_driven_draft.md", "claims.json", "evidence_table.json",
                                  "evidence_strength.md", "reference_check.md", "uncertainty_notes.md",
-                                 "human_review.json", "verification.json")}
+                                 "human_review.json", "verification.json", "diff_report.md")}
     sources = [{"source_id": d["doc_id"], "path": d["path"], "bytes": d["bytes"], "kind": d["kind"],
                 "read_method": d["method"], "sha256": d["sha256"]} for d in docs]
     if not sources:
@@ -231,7 +282,12 @@ def runtime_result(cid, status, lg, filled, main_text, claims, rows, facts, refs
            "outputs": outputs,
            "metrics": {"claims": len(claims), "evidence_rows": len(rows),
                        "rows_with_source": sum(1 for r in rows if r.get("source_id")),
-                       "references": len(refs), "downgrades": len(changed)},
+                       "references": len(refs), "downgrades": len(changed),
+                       "verified_quote_rate": round(sum(1 for r in rows if r.get("verified"))
+                                                    / max(1, len(rows)), 3),
+                       "claim_coverage": round(sum(1 for r in rows if r.get("source_id"))
+                                               / max(1, len(claims)), 3),
+                       "pending_human_count": len(human), "overclaim_flags": len(changed)},
            "sources": sources, "uncertainties": uncertainties, "change_records": change_log,
            "limits": limits, "human_review": human, "degradations": deg, "errors": errs,
            "runtime": {"script": "scripts/main.py", "version": VERSION, "python": sys.version.split()[0],
@@ -240,6 +296,45 @@ def runtime_result(cid, status, lg, filled, main_text, claims, rows, facts, refs
 
 
 CON = {}
+
+
+def diff_report(cid, lg, claims, rows, res, refs, deg, errs):
+    """Expected vs actual: contract backfill, coverage metrics, remaining gaps."""
+    m = res["metrics"]
+    zh = lg == "zh"
+    t = lambda a, b: a if zh else b
+    out = ["# " + t("差异报告（期望 vs 实际）", "Diff report (expected vs actual)") + " — " + str(cid), "",
+           "> " + t("离线、确定性的自查：契约要求了什么，本次真实产出了什么。",
+                    "Offline deterministic self-check: what the contract asked for vs what this run produced."), "",
+           "## " + t("契约回填", "Contract backfill"), "",
+           "| key | " + t("已给值", "requested") + " | " + t("本次取值类型", "filled as") + " | " +
+           t("状态", "state") + " |", "|---|---|---|---|"]
+    for k, v in (res.get("output_contract") or {}).items():
+        if isinstance(v, list):
+            state = "ok" if v else "empty"
+        elif v in (None, ""):
+            state = "empty"
+        else:
+            state = "ok"
+        out.append("| `%s` | %s | %s | %s |" % (k, "yes" if state == "ok" else "no", type(v).__name__, state))
+    out += ["", "## " + t("覆盖指标", "Coverage metrics"), "",
+            "| metric | value |", "|---|---|"]
+    for k in ("claims", "evidence_rows", "rows_with_source", "references", "downgrades",
+              "verified_quote_rate", "claim_coverage", "pending_human_count", "overclaim_flags"):
+        out.append("| `%s` | %s |" % (k, m.get(k)))
+    out += ["", "## " + t("剩余缺口", "Remaining gaps"), ""]
+    unsup = sorted({r["claim_id"] for r in rows if not r.get("source_id")})
+    weak = sorted({r["claim_id"] for r in rows if r["strength"] in ("低", "不足")})
+    out.append("- " + t("未匹配来源的论断：", "Claims without a located source: ") + (", ".join(unsup) or t("无", "none")))
+    out.append("- " + t("低/不足强度论断：", "Low/insufficient claims: ") + (", ".join(weak) or t("无", "none")))
+    out.append("- " + t("待人工确认项：%d；降级记录：%d；错误：%d" %
+                        (len(res.get("human_review") or []), len(deg), len(errs)),
+                        "Pending human items: %d; degradations: %d; errors: %d" %
+                        (len(res.get("human_review") or []), len(deg), len(errs))))
+    out.append("- " + t("参考文献著录：%d 条（未联网核验）" % len(refs),
+                        "Reference records: %d (not verified online)" % len(refs)))
+    out.append("")
+    return "\n".join(out)
 
 
 def run(args):
@@ -288,6 +383,8 @@ def run(args):
     lg = lang_of(case, docs)
     claims, mode = build_claims(units, docs, instr)
     rows = build_rows(claims, units)
+    draft = read_draft(args, ind)
+    n_ov = apply_draft(draft, rows)
     all_text = "\n".join(d["text"] for d in docs)
     facts = K.numbers_in(all_text)
     refs = K.ref_entries("\n".join(d["text"] for d in docs if d["kind"] == "references"))
@@ -328,11 +425,25 @@ def run(args):
                "rows_with_source": sum(1 for r in rows if r.get("source_id")),
                "quotes_verified": sum(1 for r in rows if r.get("verified")),
                "distinct_sources": len({r["source_id"] for r in rows if r.get("source_id")}),
+               "verified_quote_rate": round(sum(1 for r in rows if r.get("verified")) / max(1, len(rows)), 3),
+               "claim_coverage": round(sum(1 for r in rows if r.get("source_id")) / max(1, len(claims)), 3),
                "limits": ["offline; records not verified online"]})
 
     status = "failed" if (not docs or not units) else \
         "partial" if (not claims or not any(r.get("source_id") for r in rows)) else "success"
     res = runtime_result(cid, status, lg, {}, main_text, claims, rows, facts, refs, docs, changed, errs, deg)
+    if n_ov:
+        rec = {"action": "applied agent draft evidence_overrides", "target": "evidence_table.json",
+               "reason": "agent-first path: %d row(s) overridden" % n_ov}
+        res["change_records"].append(rec)
+        res["change_log"].append(rec)
+        oc = res.get("output_contract")
+        if isinstance(oc, dict):
+            for k, v in oc.items():
+                if isinstance(v, list) and k.lower() in ("change_log", "change_records"):
+                    v.append(rec)
+        res["uncertainties"].append("Agent draft overrides were applied to %d evidence row(s)." % n_ov)
+    K.write_text(out / "diff_report.md", diff_report(cid, lg, claims, rows, res, refs, deg, errs))
     # make sure every artifact we advertise actually exists and has content
     sizes = {}
     for n in res["outputs"]:
@@ -395,6 +506,7 @@ def main(argv=None):
     ap.add_argument("--output", default="/app/output")
     ap.add_argument("--work", default="/app/work")
     ap.add_argument("--case", default=None)
+    ap.add_argument("--draft", default=None)
     ap.add_argument("--lang", default=None)
     ap.add_argument("--version", action="version", version=SKILL + " " + VERSION)
     args = ap.parse_args(argv)
