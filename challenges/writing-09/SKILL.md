@@ -1,7 +1,7 @@
 ---
 name: writing-09-results-discussion
 description: Results and Discussion section writer. Reads data tables, figures-as-data and statistics output, extracts numeric readouts with their units, writes a Results section that reports only observations, a Discussion that checks each interpretation against the data or a located source, and a Limitations block with causal boundaries. Use when a manuscript needs a submittable Results/Discussion chapter built from materials already in hand.
-version: 1.0.0
+version: 9.0.0
 ---
 
 # 结果与讨论章节写作 / Results and Discussion writing
@@ -41,7 +41,9 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 | `evidence_map.json` | 讨论中的论断到数据或文献定位的映射 |
 | `preserved_facts.json` | 保留的数值、单位与来源 |
 | `change_log.json` | 本次写作动作与边界处理记录 |
-| `result.json` | 结构化结果，含 output_contract 回填 |
+| `preview.svg` | 成稿离线预览（文本渲染，CJK 可用浏览器直接打开） |
+| `metrics.json` | 与包内声明阈值的基线对照（单位保留率、证据定位率、因果措辞、契约字段） |
+| `result.json` | 结构化结果，含 output_contract 回填、`figure_inventory` 与预览路径 |
 
 ## result.json 字段
 
@@ -65,9 +67,27 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 - 坏文件（坏 JSON / 空文件 / 二进制）：记入 `degradations`，不阻断。
 - 输出目录不可写：回退到当前目录下的 `output/`。
 
+## 材料解析（v9）
+
+| 类型 | 处理 |
+|---|---|
+| `.md .txt .tex .bib .html .csv .tsv .json` | 直接读取；JSON 扁平化为可检索文本 |
+| `.docx .xlsx .pptx` | 从 OOXML 解出正文 / 共享字符串 / 幻灯片文本 |
+| **PDF** | 标准库解出**文本层**（FlateDecode 流 + 字面串）；无文本层的扫描件记 `no_text_layer` |
+| **PNG / JPEG** | 读文件头记录尺寸（PNG IHDR / JPEG SOFn），内容进 `figure_inventory` 并转 `human_review` 人工读数 |
+| 位图或扫描件存在时 | 记 `png_skipped`：离线无字体渲染器，预览改为 `preview.svg`，不伪造 PNG |
+
+## 自检与增益（v9）
+
+- 离线自测：`python3 scripts/main.py --selftest` → 19 项（PDF 文本层、位图清点、坏件降级、8 件产物、
+  SVG 预览、契约回填、基线指标、因果措辞、占位符扫描），退出码 0。
+- 评分口径到检查项的映射见 `references/rubric.md`；基线对照怎么读见 `references/benchmark.md`；
+  骨架模板见 `references/templates/results_discussion_template.md`。
+
 ## 适用条件与限制
 
 - 适用：已有数据表/图表/统计输出，需要写成结果段与讨论段的章节写作。
-- 限制：离线，不联网查询文献；PDF 正文需外部解析器；显著性仅在材料给出时报告；数值分级为启发式，最终以人工复核为准。
+- 限制：离线，不联网查询文献；位图与扫描 PDF 无 OCR（只能清点并转人工）；显著性仅在材料给出时报告；
+  数值分级为启发式，最终以人工复核为准。
 
-结构约定见 `references/schema.md`，撰写口径见 `references/writing-rules.md`。
+结构约定见 `references/schema.md`，撰写口径见 `references/writing-rules.md`，增益证据见 `GAIN_EVIDENCE.md`。
