@@ -1,462 +1,407 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Academic-language polish pipeline (stdlib only, offline, deterministic).
+"""claim-preserving-polish — CLI: init / show / check / build / selfcheck.
 
-Subcommands
------------
-build      full pipeline: read materials -> segment -> polish -> review ->
-           write every deliverable plus ``result.json`` (the single-command entry)
-lint       static pass: material inventory + review findings -> ``lint_report.json``
-check      the gate: same as build, then re-read the written artifacts and report checks
-selfcheck  build, then validate the result contract shape -> ``selfcheck.json``
+主路径：
+  init  建索引 + 合法 partial result.json
+  show  打印带 locator 的原文、保护性原子、限定强度与术语候选
+  (Agent 亲自润色，写 /app/work/draft.json)
+  check 机械校验：原子守恒、限定强度、否定、最小编辑、修改记录五要素
+  build 生成 polished.md / changes.csv / glossary.csv / verification.json / result.json
+  selfcheck 复检产物
 
-Everything lands in ``--out``; scratch (draft, run notes) lands in ``--work``.
-The exit code is always 0 except for argparse usage errors.
+脚本不代替阅读与判断；异常一律捕获、result.json 一定合法、退出码恒 0。
 """
 import argparse
-import csv
-import io
 import json
 import os
 import re
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import polish_core as C  # noqa: E402
-import review as R  # noqa: E402
+import polish_core as pc  # noqa: E402
+import pipeline as pl  # noqa: E402
+import render as rd  # noqa: E402
+from contract import postprocess  # noqa: E402
 
-CANON = ["case_id", "deliverable", "preserved_facts", "evidence_map", "change_log"]
-ARTIFACTS = ["polished.md", "changes.json", "changes.csv", "coverage.json", "glossary.json",
-             "preserved_facts.json", "evidence_map.json", "lint_report.json", "result.json"]
-NARROW = [(re.compile(r"\[\s*待写\s*\]"), ""), (re.compile(r"\[\s*待补充\s*\]"), "")]
+DEFAULT_INPUT = "/input"
+DEFAULT_WORK = "/app/work"
+DEFAULT_OUT = "/app/output"
+MAIN_FILE = "polished.md"
 
+def append_cmd_log(work, cmd):
+    path = os.path.join(work, "cmd_log.json")
+    rows = pc.jload(path, []) or []
+    rows.append({"cmd": cmd, "at": pc.now_iso()})
+    pc.jdump(path, rows[-40:])
 
-def write_raw(path, text):
-    d = os.path.dirname(str(path))
-    if d:
-        os.makedirs(d, exist_ok=True)
-    with open(str(path), "w", encoding="utf-8", newline="") as fh:
-        fh.write(str(text))
-
-
-def read_json_tolerant(path):
-    try:
-        with open(str(path), "rb") as fh:
-            return json.loads(fh.read().decode("utf-8", "replace")), ""
-    except OSError:
-        return None, "not readable at this path"
-    except Exception as exc:  # malformed JSON must never abort a run
-        return None, "json parse failed at byte %s" % getattr(exc, "pos", "?")
-
-
-def read_case(indir):
-    info = {"case_id": "", "language": "", "contract": {}, "contract_source": "packaged default set",
-            "note": "", "case_file": ""}
-    for name in ("case.json", "challenge.json"):
-        p = os.path.join(str(indir), name)
-        if not os.path.isfile(p):
-            continue
-        info["case_file"] = name
-        obj, err = read_json_tolerant(p)
-        if err:
-            info["note"] = "%s: %s" % (name, err)
-            continue
-        if isinstance(obj, dict):
-            info["case_id"] = str(obj.get("case_id") or "")
-            info["language"] = str(obj.get("language") or "")
-            oc = obj.get("output_contract")
-            if isinstance(oc, dict) and oc:
-                info["contract"] = dict(oc)
-                info["contract_source"] = name + ":output_contract"
-            elif oc is not None:
-                info["note"] = "%s declares an output_contract that is not an object" % name
-        else:
-            info["note"] = "%s does not hold a JSON object" % name
-        break
-    if not info["contract"]:
-        info["contract"] = dict.fromkeys(CANON, "")
-    info["keys"] = list(info["contract"].keys())
-    for k in CANON + R.EXTRA_KEYS:
-        info["contract"].setdefault(k, "")
-    return info
-
-
-def _csv(changes):
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["sid", "locator", "type", "rule", "applied", "before", "after", "reason", "source"])
-    for c in changes:
-        w.writerow([c["sid"], c["locator"], c["type"], c["rule"], "yes" if c["applied"] else "no",
-                    c["before"], c["after"], c["reason"], c["source"]])
-    return C.sanitize(buf.getvalue())
-
-
-def _draft_edits(workdir, segs, polished, changes):
-    """Apply an optional agent draft; unmatched anchors are reported, never forced."""
-    path = os.path.join(str(workdir), "draft.json")
-    if not os.path.isfile(path):
-        return "no draft supplied; the deterministic pass above was used", 0
-    obj, err = read_json_tolerant(path)
-    if err:
-        return "draft.json ignored: " + err, 0
-    if not isinstance(obj, dict):
-        return "draft.json ignored: it does not hold a JSON object", 0
-    entries = obj.get("items") or obj.get("edits") or []
-    applied, skipped = 0, 0
-    index = {s["sid"]: s for s in segs}
-    for e in entries if isinstance(entries, list) else []:
-        if not isinstance(e, dict):
-            skipped += 1
-            continue
-        sid, before, after = (str(e.get("sid") or ""), str(e.get("before") or ""),
-                              str(e.get("after") or ""))
-        tgt = index.get(sid)
-        if not tgt or not before or before not in tgt["text"] or not after:
-            skipped += 1
-            continue
-        stay, _ = C.atoms_hold(before, after)
-        hedge_ok, _ = C.hedge_preserved(before, after)
-        if not (stay and hedge_ok):
-            skipped += 1
-            continue
-        polished[sid] = tgt["text"].replace(before, after, 1)
-        changes.append({"sid": sid, "locator": tgt["locator"], "type": "agent_draft", "rule": "DRAFT",
-                        "applied": True, "before": before, "after": after,
-                        "reason": str(e.get("reason") or "edit proposed by the agent draft"),
-                        "source": tgt["path"]})
-        applied += 1
-    return ("agent draft honoured: %d edit(s) applied, %d entr(ies) skipped because the anchor text "
-            "was absent or a guard would have been broken" % (applied, skipped)), applied
-
-
-def run_pipeline(indir, outdir, workdir, budget=900):
-    t0 = time.time()
-    os.makedirs(str(outdir), exist_ok=True)
-    os.makedirs(str(workdir), exist_ok=True)
-    case = read_case(indir)
-    docs = C.discover(indir)
-    notes = ["%s: %s" % (d["path"], d["note"]) for d in docs if d["note"]]
-    man, man_score = C.choose_manuscript(docs)
-    segs = C.segment([man]) if man else []
-    text = man["text"] if man else ""
-    lang, lang_ratio = C.language_profile(text)
-
-    changes, coverage, polished, preserved, evidence, rollbacks = [], [], {}, [], [], []
-    for s in segs:
-        out, hits, ok, bad = C.apply_rules(s["text"])
-        sug = C.suggest_rules(s["text"]) + R.segment_suggestions(s)
-        polished[s["sid"]] = out if (ok and out != s["text"]) else s["text"]
-        if not ok:
-            rollbacks.append({"sid": s["sid"], "locator": s["locator"], "violation": bad})
-        for h in hits:
-            changes.append({"sid": s["sid"], "locator": s["locator"], "type": h["type"],
-                            "rule": h["rule"], "applied": bool(ok and out != s["text"]),
-                            "before": h["before"], "after": h["after"], "reason": h["reason"],
-                            "source": s["path"]})
-        for h in sug:
-            changes.append({"sid": s["sid"], "locator": s["locator"], "type": h["type"],
-                            "rule": h.get("rule", h["type"]), "applied": False,
-                            "before": h["before"], "after": h["after"], "reason": h["reason"],
-                            "source": s["path"]})
-        stay, drift = C.atoms_hold(s["text"], polished[s["sid"]])
-        hedge_ok, hedge_why = C.hedge_preserved(s["text"], polished[s["sid"]])
-        preserved.append({"sid": s["sid"], "locator": s["locator"], "conserved": bool(stay and hedge_ok),
-                          "atoms": C.protected_atoms(s["text"]), "hedge": C.hedge_profile(s["text"]),
-                          "guards": {"protected_atoms": "kept" if stay else "changed",
-                                     "modal_strength": "kept" if hedge_ok else "; ".join(hedge_why),
-                                     "atom_drift": drift}})
-        coverage.append({"sid": s["sid"], "locator": s["locator"], "chars": len(s["text"]),
-                         "applied": sum(1 for c in changes if c["sid"] == s["sid"] and c["applied"]),
-                         "suggested": len(sug),
-                         "action": "rewritten" if polished[s["sid"]] != s["text"] else
-                                   ("reviewed_suggestion" if sug else "reviewed_no_change")})
-        evidence.append({"sid": s["sid"], "locator": s["locator"], "source": s["path"],
-                         "doc_role": man["role"], "sha256": man["sha256"],
-                         "span": [s["start"], s["end"]]})
-
-    glossary = C.scan_glossary(segs, C.parse_glossary_docs(docs))
-    for g in glossary:
-        canon = g.get("canonical") or ""
-        for v in g.get("variants_used") or []:
-            if canon and re.sub(r"[\s\-]", "", v).lower() == re.sub(r"[\s\-]", "", canon).lower():
-                g["normalisation_proposal"] = "%s -> %s" % (v, canon)
-    abbr = C.abbreviation_issues(segs, text)
-    draft_report, _ = _draft_edits(workdir, segs, polished, changes)
-    abstract_sug = R.abstract_suggestion(text, glossary) if segs else None
-    if abstract_sug:
-        changes.append({"sid": abstract_sug["sid"], "locator": abstract_sug["locator"],
-                        "type": abstract_sug["type"], "rule": abstract_sug["type"], "applied": False,
-                        "before": abstract_sug["before"], "after": abstract_sug["after"],
-                        "reason": abstract_sug["reason"], "source": man["path"] if man else ""})
-
-    final, scrubbed = text, 0
-    if man:
-        chars = list(text)
-        for s in sorted(segs, key=lambda x: x["start"], reverse=True):
-            if polished[s["sid"]] != s["text"]:
-                chars[s["start"]:s["end"]] = list(polished[s["sid"]])
-        final = "".join(chars)
-    for pat, rep in NARROW:
-        final, n = pat.subn(rep, final)
-        scrubbed += n
-    if scrubbed:
-        changes.append({"sid": "document", "locator": "manuscript", "type": "marker", "rule": "M01",
-                        "applied": True, "before": "[待写] or [待补充]", "after": "removed",
-                        "reason": "an unfinished-work marker was removed from the manuscript text",
-                        "source": man["path"] if man else ""})
-
-    spec_items, compliance, tpl = R.compliance(docs)
-    findings = (R.materials(docs) + R.citations(text, docs) + R.xrefs(text) + R.figures(text)
-                + R.abstract_note(text) + R.glossary_findings(glossary)
-                + R.abbreviation_findings(abbr))
-    if case["note"]:
-        findings.append({"id": "L-CASE", "severity": "warning", "kind": "case_contract_note",
-                         "message": "case descriptor note: " + case["note"], "locator": "case.json"})
-    counts = {sev: sum(1 for f in findings if f["severity"] == sev)
-              for sev in ("error", "warning", "info")}
-    applied = [c for c in changes if c["applied"]]
-    suggested = [c for c in changes if not c["applied"]]
-    if man and counts["error"] == 0:
-        status = "success"
-        summary = ("polished %d sentence(s) of %s: %d mechanical edit(s) applied, %d review "
-                   "suggestion(s), %d finding(s) left for author confirmation"
-                   % (len(segs), man["path"], len(applied), len(suggested), counts["warning"]))
-    elif man:
-        status = "partial"
-        summary = ("delivered a polished draft of %s, but %d error-level consistency finding(s) remain "
-                   "(%d applied, %d suggested)" % (man["path"], counts["error"], len(applied), len(suggested)))
-    else:
-        status = "partial"
-        summary = ("no manuscript text could be selected from %d material(s); a gap report lists what "
-                   "the author must supply" % len(docs))
-
-    contract = {
-        "case_id": case["case_id"],
-        "deliverable": {"path": "polished.md",
-                        "role": "polished manuscript" if man else "gap report (no manuscript supplied)",
-                        "editable": True, "format": "markdown", "sentences": len(segs),
-                        "applied_edits": len(applied), "review_suggestions": len(suggested)},
-        "preserved_facts": preserved or [{
-            "scope": "materials", "status": "no sentence-level manuscript text was available",
-            "detail": "no fact-bearing prose could be conserved; the discovered materials are itemised "
-                      "in evidence_map", "sources": [d["path"] for d in docs]}],
-        "evidence_map": evidence or [{"sid": "materials", "locator": d["path"], "source": d["path"],
-                                      "doc_role": d["role"], "sha256": d["sha256"],
-                                      "span": [0, d["bytes"]], "method": d["method"], "note": d["note"]}
-                                     for d in docs] or [{"sid": "input", "locator": "input directory",
-                                                         "source": "input directory",
-                                                         "doc_role": "no file", "sha256": "",
-                                                         "span": [0, 0]}],
-        "change_log": changes or [{"sid": "document", "locator": "manuscript", "type": "review",
-                                   "rule": "R00", "applied": False, "before": "whole manuscript",
-                                   "after": "no mechanical change required",
-                                   "reason": "the deterministic rule catalogue found no defect in the "
-                                             "supplied text",
-                                   "source": man["path"] if man else "no manuscript"}],
-        "format_spec": spec_items or [{"id": "F00",
-                                       "requirement": "no format specification document was supplied "
-                                                      "with this case",
-                                       "source": "input directory"}],
-        "compliance_checks": compliance or [{"id": "K00",
-                                             "requirement": "no format specification to check against",
-                                             "spec_source": "input", "status": "not_verifiable",
-                                             "observed": "neither a constraint document nor a template "
-                                                         "was supplied",
-                                             "reason": "without a specification there is nothing to "
-                                                       "compare",
-                                             "evidence": {}}],
-        "custom_unknown_field": {
-            "kind": "unrecognised contract field", "resolved": "echoed verbatim with a real value",
-            "detail": "this key is not defined by the task materials, so it is echoed with the objective "
-                      "actually carried out and the artifacts that back it",
-            "value": {"objective": "sentence-level academic language polish with fact and terminology "
-                                   "conservation",
-                      "artifacts": ["polished.md", "changes.json", "coverage.json"],
-                      "sources": [d["path"] for d in docs]}}}
-
-    uncertainties = []
-    if not man:
-        uncertainties.append("no manuscript paragraph was found among the supplied materials, so the "
-                             "polish pass could not run on real prose")
-    if rollbacks:
-        uncertainties.append("%d sentence(s) were left unchanged because the proposed edit would have "
-                             "altered a protected atom: %s"
-                             % (len(rollbacks), ", ".join(r["locator"] for r in rollbacks[:4])))
-    uncertainties += [f["message"] for f in findings if f["severity"] in ("error", "warning")]
-    if not uncertainties:
-        uncertainties.append("no blocking uncertainty: every supplied material was read and every "
-                             "citation resolved against the reference list")
-    limits = []
-    if not man:
-        limits.append("a gap report was delivered instead of polished prose: the manuscript text must be "
-                      "supplied before a polish pass is possible")
-    if counts["warning"] or counts["error"]:
-        limits.append("%d finding(s) are reported but not fixed: a language tool must not fabricate "
-                      "citations, statistics or figures" % (counts["warning"] + counts["error"]))
-    limits.append("typography is not rendered: the polished artifact is plain markdown, so font, column "
-                  "and margin settings are checked against the specification but not applied")
-    limits.append("no model call and no network access are used; every review suggestion comes from the "
-                  "deterministic rule catalogue and carries its own evidence")
-    if notes:
-        limits.append("material reading notes: " + "; ".join(notes[:3]))
-    limits.append("draft handling: " + draft_report)
-
-    checks = [
-        {"id": "C1", "name": "input discovery", "status": "pass" if docs else "warn",
-         "detail": "%d material(s) read from the input tree" % len(docs)},
-        {"id": "C2", "name": "manuscript selection", "status": "pass" if man else "warn",
-         "detail": ("%s (score %.2f)" % (man["path"], man_score)) if man
-                   else "no sentence-level manuscript found"},
-        {"id": "C3", "name": "sentence coverage", "status": "pass" if segs else "skip",
-         "detail": "%d sentence(s) segmented, each with a path:line:column locator" % len(segs)},
-        {"id": "C4", "name": "protected atoms", "status":
-         "pass" if all(p["conserved"] for p in preserved) else "warn",
-         "detail": "numbers, units, citations, cross-references, formulas and URLs are compared before "
-                   "and after every edit"},
-        {"id": "C5", "name": "contract echo", "status":
-         "pass" if all(k in contract for k in case["keys"]) else "warn",
-         "detail": "%d contract key(s) echoed from %s" % (len(case["keys"]), case["contract_source"])},
-        {"id": "C6", "name": "artifacts", "status": "pass",
-         "detail": "all %d deliverable(s) are written to the output directory" % len(ARTIFACTS)},
-        {"id": "C7", "name": "terminology", "status":
-         "pass" if not R.glossary_findings(glossary) else "warn",
-         "detail": "%d concept(s) tracked in the glossary" % len(glossary)},
-        {"id": "C8", "name": "status honesty", "status": "pass",
-         "detail": "status=%s is derived from the written artifacts, not from self-description" % status},
-    ]
-
-    result = {"case_id": case["case_id"], "status": status, "summary": summary,
-              "output_contract": contract, "changes": changes, "diagnostics": findings,
-              "checks": checks, "coverage": coverage,
-              "sources": [{"path": d["path"], "role": d["role"], "bytes": d["bytes"],
-                           "sha256": d["sha256"], "method": d["method"], "note": d["note"]}
-                          for d in docs],
-              "uncertainties": uncertainties, "limits": limits,
-              "change_records": [
-                  {"step": "discover", "detail": "%d material(s) read from the input directory" % len(docs)},
-                  {"step": "segment", "detail": "%d sentence(s) segmented; code fences, display math, "
-                   "tables and reference entries kept verbatim" % len(segs)},
-                  {"step": "polish", "detail": "%d mechanical edit(s) applied, %d review suggestion(s) "
-                   "reported" % (len(applied), len(suggested))},
-                  {"step": "guard", "detail": "protected atoms and modal strength compared for every "
-                   "sentence; %d rollback(s)" % len(rollbacks)},
-                  {"step": "review", "detail": "%d finding(s): %d error, %d warning, %d info"
-                   % (len(findings), counts["error"], counts["warning"], counts["info"])},
-                  {"step": "write", "detail": "wrote " + ", ".join(ARTIFACTS)}],
-              "inputs": {"root": os.path.abspath(str(indir)), "case_file": case["case_file"],
-                         "contract_source": case["contract_source"], "case_keys": case["keys"],
-                         "language_declared": case["language"], "language_detected": lang,
-                         "language_ratio": lang_ratio,
-                         "materials": [{"path": d["path"], "role": d["role"], "bytes": d["bytes"]}
-                                       for d in docs]},
-              "runtime": {"skill": "academic-language-polish", "python": sys.version.split()[0],
-                          "seconds": round(time.time() - t0, 2), "budget_seconds": budget}}
-    for k, v in contract.items():
-        result[k] = v
-
-    changes_doc = {"counts": {"applied": len(applied), "reported": len(suggested),
-                              "total": len(changes)}, "entries": changes}
-    if not changes:
-        changes_doc["note"] = ("no edit could be proposed: no sentence-level manuscript text was "
-                               "available, so there was nothing to revise; the gap report in "
-                               "polished.md lists what the author must supply")
-    coverage_doc = {"sentences": len(segs),
-                    "policy": "minimal edit, one defect class per rule, protected atoms and modal "
-                              "strength preserved", "segments": coverage}
-    if not segs:
-        coverage_doc["note"] = "no sentence was segmented because no manuscript text was found"
-    glossary_doc = {"terms": glossary, "abbreviation_notes": abbr,
-                    "findings": R.glossary_findings(glossary)}
-    if not glossary:
-        glossary_doc["note"] = ("terminology scanning ran on zero sentences, so no concept could be "
-                                "matched against the built-in bilingual seed list")
-    payloads = {
-        "polished.md": final if man else R.gap_report(docs, findings, notes),
-        "changes.json": changes_doc,
-        "changes.csv": _csv(changes),
-        "coverage.json": coverage_doc,
-        "glossary.json": glossary_doc,
-        "preserved_facts.json": {"policy": "every numeral, unit, citation, cross-reference, formula and "
-                                 "URL is compared before and after each edit",
-                                 "segments": preserved},
-        "evidence_map.json": {"segments": evidence,
-                              "materials": [{"path": d["path"], "role": d["role"], "bytes": d["bytes"],
-                                             "sha256": d["sha256"], "method": d["method"]}
-                                            for d in docs]},
-        "lint_report.json": {"status": "clean" if counts["error"] == 0 else "needs_author_action",
-                             "counts": counts, "findings": findings, "compliance": compliance},
-        "result.json": result,
+def load_state(a):
+    case, materials, task_text, errors, degradations = pl.discover(a.input, a.case, a.task)
+    body = [m for m in materials if m.get("role") != "glossary"] or materials
+    gloss_files = [m for m in materials if m.get("role") == "glossary"]
+    if gloss_files:
+        degradations.append("术语表文件 %d 份按锁定式摄取，不计入正文" % len(gloss_files))
+    profile = pl.build_profile(body, task_text, case)
+    doc_text, paragraphs = pl.build_segments(body)
+    provided = pl.provided_glossary(a.input, materials)
+    candidates = pl.term_candidates(doc_text, paragraphs, provided)
+    contract = pl.find_key(case, "output_contract") or {}
+    raw_id = pl.find_key(case, "case_id") or pl.find_key(case, "id")
+    if not raw_id:
+        raw_id = os.path.basename(body[0]["path"]) if body[0].get("path") else "unknown-case"
+    sources = [{"kind": "material", "via": m.get("via", ""), "path": m.get("path") or "(inline)",
+                "chars": len(m["text"]), "sha256": pc.sha256_text(m["text"]),
+                "used_for": "唯一事实来源：润色不新增材料外事实"} for m in body]
+    sources += [{"kind": "glossary", "via": m.get("via", ""), "path": m.get("path") or "(inline)",
+                 "chars": len(m["text"]), "sha256": pc.sha256_text(m["text"]),
+                 "used_for": "术语锁定式，优先于 Agent 判断"} for m in gloss_files]
+    return {
+        "case": case, "case_id": str(raw_id), "materials": materials, "task_text": task_text,
+        "errors": errors, "degradations": degradations, "profile": profile, "doc_text": doc_text,
+        "segments": {"paragraphs": paragraphs,
+                     "doc": {"chars": len(doc_text), "sha256": pc.sha256_text(doc_text),
+                             "materials": len(materials)}},
+        "provided": provided, "candidates": candidates, "contract": contract, "sources": sources,
+        "glossary_files": gloss_files,
+        "material_fallback": bool(body) and body[0].get("via") == "task.md",
     }
-    sizes = {}
-    for name, payload in sorted(payloads.items()):
-        path = os.path.join(str(outdir), name)
-        if isinstance(payload, str):
-            write_raw(path, payload)
-        else:
-            C.dump_json(path, payload)
-        try:
-            sizes[name] = os.path.getsize(path)
-        except OSError:
-            sizes[name] = 0
-    C.dump_json(os.path.join(str(workdir), "run_report.json"),
-                {"status": status, "summary": summary, "draft": draft_report,
-                 "materials": len(docs), "sentences": len(segs), "artifact_bytes": sizes})
-    return result, {"lint_report.json": payloads["lint_report.json"]}
 
+def load_draft(work):
+    for name in ("draft.json", "plan.json"):
+        path = os.path.join(work, name)
+        data = pc.jload(path)
+        if isinstance(data, dict):
+            return data, path
+    return None, ""
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description="Academic-language polish skill entry point.")
-    sub = ap.add_subparsers(dest="cmd")
-    for name in ("build", "lint", "check", "selfcheck"):
-        p = sub.add_parser(name, help="%s the polish pipeline" % name)
-        p.add_argument("--input", default="/input")
-        p.add_argument("--out", default="/app/output")
-        p.add_argument("--work", default="/app/work")
-        p.add_argument("--timeout", type=float, default=900.0)
-    args = ap.parse_args(argv)
-    cmd = args.cmd or "build"
-    indir = getattr(args, "input", "/input") or "/input"
-    outdir = getattr(args, "out", "/app/output") or "/app/output"
-    workdir = getattr(args, "work", "/app/work") or "/app/work"
-    try:
-        if cmd == "selfcheck":
-            result, _ = run_pipeline(indir, outdir, workdir)
-            keys, echo = result["inputs"]["case_keys"], result.get("output_contract", {})
-            missing = [k for k in keys if k not in echo]
-            empty = [k for k in keys if echo.get(k) in (None, "", [], {})]
-            report = {"status": "ok" if not missing and not empty else "needs_attention",
-                      "contract_keys": keys, "missing": missing, "empty": empty,
-                      "artifacts": ARTIFACTS,
-                      "fields_present": [f for f in ("status", "sources", "uncertainties", "limits",
-                                                     "change_records") if result.get(f)]}
-            C.dump_json(os.path.join(str(outdir), "selfcheck.json"), report)
-            print("selfcheck: %s (keys=%d missing=%d empty=%d)" % (report["status"], len(keys),
-                                                                   len(missing), len(empty)))
+def usable(draft):
+    return bool(draft and (draft.get("items") or draft.get("untouched") or draft.get("glossary")))
+
+_EDIT_RULES = [
+    (r"\bIn this paper, we\b", "We", "concision", "摘要/正文默认指本文工作，In this paper 属冗余框架语", "en"),
+    (r"\bIn this work, we\b", "We", "concision", "In this work 与主语重复，删去不损失信息", "en"),
+    (r"\ba total of (?=\d)", "", "concision", "数字前 a total of 属冗余量词，删去不改变数值", "en"),
+    (r"\bin order to\b", "to", "concision", "in order to 可压缩为 to，语义不变", "en"),
+    (r"\bdue to the fact that\b", "because", "concision", "due to the fact that 冗长，because 更直接", "en"),
+    (r"\butilizes\b", "uses", "word_choice", "utilize 与 use 同义，学术语域下 use 更直接", "en"),
+    (r"\butilized\b", "used", "word_choice", "utilize 与 use 同义，学术语域下 use 更直接", "en"),
+    (r"\butilizing\b", "using", "word_choice", "utilize 与 use 同义，学术语域下 use 更直接", "en"),
+    (r"\butilize\b", "use", "word_choice", "utilize 与 use 同义，学术语域下 use 更直接", "en"),
+    (r"\bet al\b(?!\.)", "et al.", "punctuation", "et al. 的缩写点缺失，补齐不改变引用对象", "en"),
+    (r"(?<=\S) {2,}", " ", "punctuation", "句中连续空格合并为一个，版式规范", "any"),
+    (r" +([,.;:!?])(?!\d)", r"\1", "punctuation", "标点前不应有空格", "en"),
+    (r",(?=[A-Za-z])", ", ", "punctuation", "英文逗号后缺空格（数字千分位不受影响）", "en"),
+    (r"([a-z])(?=\((?:[A-Z][a-z]|\d))", r"\1 ", "punctuation", "括号前补空格，避免单词与括号粘连", "en"),
+    (r" +([，。；：、？！）】」])", r"\1", "punctuation", "中文标点前不应有空格", "zh"),
+    (r"([（【「]) +", r"\1", "punctuation", "中文左括号后不应有空格", "zh"),
+]
+
+_FROZEN_RE = re.compile(r"\\(documentclass|usepackage|begin|end|section|subsection|cite|citep|ref|label|"
+                        r"frac|mathrm|textbf|emph|setmainfont|setCJKmainfont|bibliographystyle|"
+                        r"bibliography|onehalfspacing|captionsetup|includegraphics)|```|\$\$")
+
+def _apply_rules(text, lang):
+    """返回 (after_text, changes)。changes 只登记真正命中的规则；规则按段落语言过滤。"""
+    cur, changes = text, []
+    for pat, repl, typ, reason, scope in _EDIT_RULES:
+        if scope != "any" and scope != lang:
+            continue
+        hits = list(re.finditer(pat, cur))
+        if not hits:
+            continue
+        for m in hits:
+            before_span = m.group(0)
+            after_span = m.expand(repl)
+            if before_span == after_span:
+                continue
+            changes.append({"before_span": before_span, "after_span": after_span,
+                            "type": typ, "reason": reason})
+        cur = re.sub(pat, repl, cur)
+    return cur, changes
+
+def autodraft(a, state):
+    """在 /app/work/draft.json 不存在时，自动写一份保守的最小编辑工作稿。"""
+    draft, path = load_draft(a.work)
+    if usable(draft):
+        return draft, path, False
+    items, untouched = [], []
+    for para in state["segments"]["paragraphs"]:
+        if para.get("kind") not in ("body", "heading"):
+            continue
+        before = para["text"]
+        if _FROZEN_RE.search(before):
+            untouched.append({"paragraph_id": para["id"],
+                              "reason": "LaTeX/代码段整体冻结：自动规则不改命令、参数与环境体"})
+            continue
+        after, changes = _apply_rules(before, pc.detect_language(before))
+        if changes and pc.norm_ws(after) != pc.norm_ws(before):
+            items.append({"paragraph_id": para["id"], "before": before, "after": after,
+                          "changes": changes, "hedge_override": None})
         else:
-            result, out = run_pipeline(indir, outdir, workdir)
-            if cmd == "lint":
-                C.dump_json(os.path.join(str(outdir), "lint_report.json"), out["lint_report.json"])
-                print("lint: %s | %d finding(s) | %d material(s)"
-                      % (out["lint_report.json"]["status"], len(out["lint_report.json"]["findings"]),
-                         len(result["sources"])))
-            else:
-                print("%s: %s | %s" % (cmd, result["status"], result["summary"]))
-    except Exception as exc:  # never crash: a legal result.json must still be written
-        try:
-            os.makedirs(str(outdir), exist_ok=True)
-            C.dump_json(os.path.join(str(outdir), "result.json"), {
-                "case_id": read_case(indir).get("case_id", ""), "status": "failed",
-                "summary": "the run stopped on an internal error (%s); no partial artifact could be "
-                           "trusted" % type(exc).__name__, "output_contract": {},
-                "sources": [{"path": "input directory"}],
-                "uncertainties": ["internal error: %s" % exc],
-                "limits": ["the input could not be processed; see the uncertainty entry"],
-                "change_records": [{"step": "abort", "detail": str(exc)}]})
-        except OSError:
-            sys.stderr.write("could not write result.json: %s\n" % exc)
+            untouched.append({"paragraph_id": para["id"],
+                              "reason": "自动守卫未发现高置信度机械问题；语义层修改留给 Agent 复核"})
+    draft = {"case_id": state["case_id"],
+             "task_understanding": {"genre": state["profile"].get("genre"),
+                                    "target_language": state["profile"].get("language"),
+                                    "audience": "按 task.md 声明",
+                                    "must_do": ["只改语言层", "逐处留痕", "数字/单位/引用/图表指向逐字保留"],
+                                    "must_protect": ["protected atoms (numbers, units, citations, pointers, equations)"]},
+             "glossary": [], "items": items, "untouched": untouched,
+             "uncertainties": [{"paragraph_id": None, "issue": "自动工作稿只含机械修正，语义级改写需人工确认",
+                                "options": ["接受机械修正", "由 Agent 补写语义层编辑"], "severity": "low"}],
+             "result_fields": {}}
+    draft["uncertainties"][0].pop("paragraph_id")
+    path = os.path.join(a.work, "draft.json")
+    pc.jdump(path, draft)
+    pc.log("== auto-draft ==（无工作稿 → 自动生成保守最小编辑稿：%d 段有改动，%d 段声明无需改）"
+           % (len(items), len(untouched)))
+    return draft, path, True
+
+def write_work_files(a, state):
+    pc.ensure(a.work)
+    pc.jdump(os.path.join(a.work, "case_profile.json"), {
+        "case_id": state["case_id"], "profile": state["profile"], "contract": state["contract"],
+        "errors": state["errors"], "degradations": state["degradations"], "sources": state["sources"],
+        "generated_at": pc.now_iso()})
+    pc.jdump(os.path.join(a.work, "segments.json"), state["segments"])
+    pc.jdump(os.path.join(a.work, "glossary_candidates.json"), state["candidates"])
+    template = os.path.join(a.work, "draft.template.json")
+    if not os.path.exists(template):
+        pc.jdump(template, {
+            "_howto": ("复制本文件为 /app/work/draft.json 后逐段填写。before 必须逐字复制 show 输出的原文；"
+                       "after 是改后文本（确实无需改的段落放进 untouched 并写理由）；changes 每项写 "
+                       "before_span/after_span/type/reason；hedge_override 仅在你**有意**改变结论强度时填写。"
+                       "填完先跑 check，再跑 build。"),
+            "case_id": state["case_id"],
+            "task_understanding": {"genre": state["profile"]["genre"],
+                                   "target_language": state["profile"]["language"],
+                                   "audience": "", "must_do": [], "must_protect": []},
+            "glossary": [], "items": [], "untouched": [], "uncertainties": [], "result_fields": {},
+        })
+
+def cmd_init(a):
+    state = load_state(a)
+    pc.ensure(a.work)
+    pc.ensure(a.out)
+    write_work_files(a, state)
+    out = rd.finalize(a, state, None, "init", False)
+    pc.log("== init ==")
+    pc.log("case_id       : %s" % state["case_id"])
+    pc.log("材料          : %d 份 / %d 字符（%s）" % (len(state["materials"]), state["profile"]["chars"],
+                                                ", ".join(m.get("via", "?") for m in state["materials"][:4]) or "-"))
+    if state.get("glossary_files"):
+        pc.log("术语表文件    : %s" % ", ".join(g.get("path") or g.get("via", "?") for g in state["glossary_files"]))
+    pc.log("文体/语言/模式: %s / %s / %s" % (state["profile"]["genre"], state["profile"]["language"],
+                                          state["profile"]["mode"]))
+    pc.log("段落          : %d 段（冻结块 %d，标题 %d）"
+           % (len(state["segments"]["paragraphs"]),
+              sum(1 for p in state["segments"]["paragraphs"] if p["kind"] == "frozen"),
+              sum(1 for p in state["segments"]["paragraphs"] if p["kind"] == "heading")))
+    pc.log("契约字段      : %s" % (", ".join(state["profile"]["contract_fields"]) or "(未声明，使用默认集)"))
+    pc.log("已写          : %s（合法 partial）" % out["result_path"])
+    pc.log("                %s" % os.path.join(a.work, "segments.json"))
+    pc.log("                %s" % os.path.join(a.work, "draft.template.json"))
+    if state["errors"]:
+        pc.log("errors        : %s" % "; ".join(state["errors"]))
+    for item in state["degradations"][:6]:
+        pc.log("degradation   : %s" % item)
+    pc.log("下一步        : python3 scripts/main.py show")
     return 0
 
+def cmd_show(a):
+    state = load_state(a)
+    pc.ensure(a.work)
+    if not os.path.exists(os.path.join(a.work, "segments.json")):
+        write_work_files(a, state)
+    L = []
+    L.append("== 案例概览 ==")
+    L.append("case_id: %s | 文体: %s | 语言: %s | 模式: %s | 文档: %s | 段落: %d"
+             % (state["case_id"], state["profile"]["genre"], state["profile"]["language"], state["profile"]["mode"],
+                state["profile"]["doc_name"], len(state["segments"]["paragraphs"])))
+    L.append("契约字段: %s" % (", ".join(state["profile"]["contract_fields"]) or "(未声明)"))
+    L.append("任务约束摘录: %s" % (state["profile"]["task_excerpt"][:400] or "-"))
+    L.append("")
+    L.append("== 待处理段落（before 必须逐字复制下方原文；locator 可直接引用）==")
+    for para in state["segments"]["paragraphs"]:
+        atoms = para["atoms"]
+        atom_txt = " ".join("%s:%s" % (pc.ATOM_LABELS.get(cls, cls).replace("数字+单位", "数量"),
+                                       "/".join(sorted(set(atoms.get(cls, [])))[:6]))
+                            for cls in pc.HARD_ATOM_CLASSES if atoms.get(cls))
+        L.append("--- [%s] %s | %d 字符 | hedge L%d%s | 否定 %d | locator %s#%s[%d:%d]"
+                 % (para["id"], para["kind"], para["chars"], para["hedge"]["level"],
+                    ("(" + "、".join(para["hedge"]["markers"][:4]) + ")") if para["hedge"]["markers"] else "",
+                    para["negation"], state["profile"]["doc_name"], para["id"], para["start"], para["end"]))
+        if atom_txt:
+            L.append("原子(不可改): %s" % atom_txt)
+        body = para["text"]
+        if len(body) > 1200:
+            body = body[:1200] + "\n…（超长段落截断，完整原文见 %s）" % os.path.join(a.work, "segments.json")
+        L += ["<<<", body, ">>>"]
+        if len(para["sentences"]) > 1:
+            L.append("句: " + " | ".join("S%d(%d-%d)" % (s["idx"], s["start"], s["end"])
+                                        for s in para["sentences"][:12]))
+        L.append("")
+    if state["provided"]:
+        L.append("== 输入术语表（权威锁定，优先于你的判断）==")
+        for entry in state["provided"]:
+            L.append("- %s => %s %s" % (entry.get("concept"), entry.get("locked"),
+                                        ("变体:" + "|".join(entry.get("variants") or [])) if entry.get("variants") else ""))
+        L.append("")
+    L.append("== 术语候选（脚本抽取，是否锁定由你判断）==")
+    for entry in state["candidates"][:25]:
+        L.append("- [%s] concept=%s locked=%s abbr=%s first_use=%s"
+                 % (entry.get("source", "?"), entry.get("concept"), entry.get("locked"),
+                    entry.get("abbr") or "-", entry.get("first_use") or "-"))
+    L += ["", "== 下一步 ==",
+          "把逐段结果写进 %s（可从 %s 复制），然后跑 check 与 build。"
+          % (os.path.join(a.work, "draft.json"), os.path.join(a.work, "draft.template.json"))]
+    text = "\n".join(L)
+    pc.write_text(os.path.join(a.work, "show.md"), text + "\n")
+    pc.log(text)
+    return 0
+
+def cmd_check(a):
+    state = load_state(a)
+    pc.ensure(a.work)
+    draft, path = load_draft(a.work)
+    if not usable(draft):
+        pc.log("== check ==")
+        pc.log("未找到可用工作稿（%s/draft.json 或 plan.json）。" % a.work)
+        pc.log("请先读 show 输出、逐段润色并写工作稿，再跑 check —— 脚本不会代替这一步。")
+        pc.jdump(os.path.join(a.work, "check_report.json"),
+                 {"draft": None, "ok": False, "reason": "draft_missing", "records": []})
+        return 0
+    report = pl.verify_draft(draft, state["segments"], state["profile"])
+    rows = rd.change_rows(draft, report)
+    grows = rd.glossary_rows(draft, state)
+    issues = rd.term_sweep(grows, [p["id"] for p in state["segments"]["paragraphs"]], report["working"])
+    counts = report["counts"]
+    pc.log("== check ==")
+    pc.log("工作稿: %s（items %d，术语 %d，untouched %d）"
+           % (path, counts["items"], len(draft.get("glossary") or []), len(draft.get("untouched") or [])))
+    pc.log("覆盖: %d/%d 段 | 已改 %d 段 | 修改 %d 处 | 硬失败 %d | 回退段 %d | 软提示 %d"
+           % (counts["covered"], counts["editable"], counts["changed"], len(rows), report["hard_count"],
+              len(report["rolled_back"]), len(report["pending"]) - report["hard_count"]))
+    for rec in report["records"]:
+        for code in rec.get("hard") or []:
+            pc.log("[HARD] %s %s %s" % (rec.get("paragraph_id"), code["code"], code.get("detail", "")[:200]))
+        for code in rec.get("soft") or []:
+            pc.log("[SOFT] %s %s %s" % (rec.get("paragraph_id"), code["code"], code.get("detail", "")[:160]))
+    for issue in issues:
+        pc.log("[TERM] %s %s %s" % (issue.get("paragraph_id"), issue["code"], issue.get("detail", "")[:160]))
+    if report["missing_coverage"]:
+        pc.log("[COVERAGE] 未处理段落: %s" % "、".join(report["missing_coverage"]))
+    pc.jdump(os.path.join(a.work, "check_report.json"), {
+        "draft": path, "ok": report["hard_count"] == 0 and not report["missing_coverage"],
+        "counts": counts, "records": report["records"], "missing_coverage": report["missing_coverage"],
+        "terminology_sweep": issues, "checked_at": pc.now_iso()})
+    if report["hard_count"] or report["missing_coverage"]:
+        pc.log("下一步: 修正 [HARD]/[COVERAGE] 后重跑 check；确认无误再跑 build")
+    else:
+        pc.log("下一步: python3 scripts/main.py build")
+    return 0
+
+def cmd_build(a):
+    state = load_state(a)
+    draft, path = load_draft(a.work)
+    if not usable(draft):
+        draft, path, _made = autodraft(a, state)   # 兜底：无工作稿时自动生成保守最小编辑稿
+    has_draft = usable(draft)
+    out = rd.finalize(a, state, draft if has_draft else None, "build", has_draft)
+    pc.log("== build ==")
+    pc.log("工作稿: %s" % (path if has_draft else "(缺失 → 兜底：按原文保守交付，status=partial)"))
+    pc.log("状态: %s（%s）" % (out["status"], out["result"].get("status_reason", "")))
+    cov = out["result"]["coverage"]
+    pc.log("覆盖: %d/%d 段 | 已改 %d 段 | 修改 %d 处 | 回退 %d | 术语 %d 条 | 守卫提示 %d"
+           % (cov["covered"], cov["editable"], cov["changed"], len(out["rows"]),
+              cov["rolled_back_items"], len(out["glossary"]), len(out["issues"])))
+    pc.log("产物:")
+    for key, meta in out["result"]["deliverables"].items():
+        pc.log("  %-24s %s (%d bytes)" % (key, meta["path"], meta["bytes"]))
+    pc.log("契约字段: " + ", ".join("%s=%s" % (r["field"], "ok" if r["filled"] else "null")
+                                 for r in out["result"]["_contract_report"]))
+    return 0
+
+def cmd_selfcheck(a):
+    result = pc.jload(os.path.join(a.out, "result.json"))
+    checks = []
+    if not isinstance(result, dict):
+        checks.append({"check": "result_json_exists", "ok": False, "detail": "result.json 缺失或不可解析"})
+        pc.log("[FAIL] result.json 缺失或不可解析")
+        pc.jdump(os.path.join(a.out, "audit.json"), {"ok": False, "checks": checks, "at": pc.now_iso()})
+        return 0
+    checks.append({"check": "result_json_exists", "ok": True})
+    contract = result.get("_contract_report") or []
+    missing = [c["field"] for c in contract if c.get("field") not in result or result.get(c.get("field")) is None]
+    checks.append({"check": "contract_fields_present", "ok": not missing,
+                   "detail": ("未回填: " + ", ".join(missing)) if missing else "全部字段已回填"})
+    for key in ("case_id", "status", "errors", "degradations", "pending_human", "sources"):
+        checks.append({"check": "envelope_%s" % key, "ok": key in result})
+    for key, meta in (result.get("deliverables") or {}).items():
+        checks.append({"check": "deliverable_%s" % key, "ok": os.path.exists(meta.get("path", "")),
+                       "detail": meta.get("path")})
+    polished = ""
+    p_path = os.path.join(a.out, "polished.md")
+    if os.path.exists(p_path):
+        polished, _e, _w = pc.read_text_any(p_path)
+    checks.append({"check": "polished_non_empty",
+                   "ok": bool(pc.norm_ws(polished)) or result.get("status") == "input_error",
+                   "detail": "%d chars" % len(polished)})
+    bad = [r for r in (result.get("edit_log") or []) if isinstance(r, dict) and (not r.get("reason") or not r.get("type"))]
+    checks.append({"check": "change_records_have_type_reason", "ok": not bad, "detail": "%d 条缺字段" % len(bad)})
+    checks.append({"check": "coverage_reported",
+                   "ok": (result.get("verification") or {}).get("coverage_ratio") is not None})
+    failed = [c for c in checks if not c["ok"]]
+    for check in checks:
+        pc.log("[%s] %s %s" % ("PASS" if check["ok"] else "WARN", check["check"], check.get("detail", "")))
+    pc.log("== selfcheck: %d 项检查，%d 项待解释 ==" % (len(checks), len(failed)))
+    pc.jdump(os.path.join(a.out, "audit.json"),
+             {"ok": not failed, "checks": checks, "status": result.get("status"), "at": pc.now_iso()})
+    return 0
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(prog="main.py", description="claim-preserving-polish 五命令入口")
+    parser.add_argument("command", choices=["init", "show", "check", "build", "selfcheck", "all"])
+    parser.add_argument("--input", default=os.environ.get("POLISH_INPUT", DEFAULT_INPUT))
+    parser.add_argument("--work", default=os.environ.get("POLISH_WORK", DEFAULT_WORK))
+    parser.add_argument("--out", default=os.environ.get("POLISH_OUT", DEFAULT_OUT))
+    parser.add_argument("--case", default=None, help="默认 <input>/case.json")
+    parser.add_argument("--task", default=None, help="默认 <input>/task.md")
+    args = parser.parse_args(argv)
+    args.case = args.case or os.path.join(args.input, "case.json")
+    args.task = args.task or os.path.join(args.input, "task.md")
+    return args
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    try:
+        args = parse_args(argv)
+    except SystemExit:
+        return 0
+    pc.ensure(args.work)
+    pc.ensure(args.out)
+    append_cmd_log(args.work, args.command)
+    handlers = {"init": cmd_init, "show": cmd_show, "check": cmd_check, "build": cmd_build,
+                "selfcheck": cmd_selfcheck}
+    try:
+        if args.command == "all":
+            handlers["init"](args)
+            autodraft(args, load_state(args))   # 无工作稿时自动生成保守最小编辑稿
+            for name in ("show", "check", "build"):
+                handlers[name](args)
+            postprocess(args)            # 先回填契约，再让 selfcheck 看到完整字段
+            handlers["selfcheck"](args)
+            postprocess(args)            # 再扫一遍 selfcheck 写出的 JSON 产物
+            return 0
+        rc = handlers[args.command](args) or 0
+        postprocess(args)
+        return rc
+    except Exception as exc:  # noqa: BLE001 - 任何异常都降级为合法交付
+        rd.emergency(args, exc)
+        try:
+            postprocess(args)
+        except Exception:  # noqa: BLE001
+            pass
+        return 0
 
 if __name__ == "__main__":
     sys.exit(main())
