@@ -1,0 +1,41 @@
+skill: multi-doc-comparison
+version: 3.0.0
+runtime: python3
+python_min: "3.9"
+dependencies: []          # stdlib only: csv json re zipfile zlib unicodedata hashlib pathlib
+network: false
+external_models: false
+timeout_seconds: 120
+
+entry:
+  primary:
+    cmd: "python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work"
+    produces: [comparison_matrix.csv, comparison_table.md, evidence_cards.jsonl, result.json]
+  subcommands:
+    - {name: build,     cmd: "python3 /skills/weekly-skill/scripts/main.py build     --input /input --output /app/output --work /app/work"}
+    - {name: show,      cmd: "python3 /skills/weekly-skill/scripts/main.py show      --input /input --output /app/output --work /app/work --doc D1"}
+    - {name: check,     cmd: "python3 /skills/weekly-skill/scripts/main.py check     --input /input --output /app/output --work /app/work"}
+    - {name: selfcheck, cmd: "python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --output /app/output --work /app/work"}
+  agent_first:
+    draft: "/app/work/draft.json"
+    note: "build -> show -> agent writes draft.json -> check -> selfcheck; each rewrites a full result.json"
+
+paths:
+  install_root: /skills/weekly-skill
+  input: /input
+  output: /app/output
+  work: /app/work
+
+defaults:
+  input: /input
+  output: /app/output
+  work: /app/work
+
+budget:
+  max_output_bytes: 3000000
+  max_wall_seconds: 120
+
+notes: >-
+  All paths are resolved from __file__; the current working directory is irrelevant.
+  Exit code is always 0, including every degraded path (empty input, unreadable PDF/DOCX,
+  malformed case.json, unwritable output). Only argparse usage errors return 2.
