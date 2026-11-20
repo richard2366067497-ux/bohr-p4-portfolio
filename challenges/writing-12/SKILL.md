@@ -125,8 +125,22 @@ python3 /skills/weekly-skill/scripts/latex_build.py check --input /input --outpu
 | `diff.patch` | 统一 diff：输入源码 → `main.tex`（before/after 逐行可核验） |
 | `lint_report.json` / `fixes.json` / `build.json` / `log-check.json` | 体检、修复清单、构建报告、日志检查 |
 | `packages.md` | 所需宏包说明 + **固定编译命令** + 引擎选择（ASCII→pdflatex，CJK→xelatex+ctex） |
+| `comparison_report.md` | 对照实验记录：基础 Agent（无 Skill）vs 加载本 Skill 的**确定性自评表**（明确标注非官方 A/B） |
 | `compile.sh` | 可执行编译脚本（他人按此可复现同一产物） |
 | `result.json` | 契约回填 + 结构化结果（见 §0） |
+
+## 7.5 对照实验记录（使用增益证据）
+
+每次运行都会额外写出 `comparison_report.md`：把**同一输入、同一环境**下「基础 Agent（不加载本 Skill）」
+与「加载本 Skill」的差异逐项并排，全部取自本次真实运行的 `lint_report.json` / `fixes.json` /
+`build.json` / `log-check.json` / `result.json`：
+
+- 是否有可编辑 `.tex` 源文件树、是否有 `diff.patch` 原值快照、是否保留编译日志；
+- 静态检查条数（error / warning）、真实落地（applied）的修复条数（每条带 `locator`）；
+- 是否取得**真实 PDF**（无引擎时如实写「未验证」，不冒充通过）；
+- `result.json` 是否逐键回填契约键。
+
+报告首行显式声明这是**确定性自评表，不是官方 A/B 结果**，也不引用任何外部对照数据。
 
 ## 8. 诚实规则与降级（每次都必须 exit 0 且留下合法 result.json）
 
@@ -145,6 +159,7 @@ python3 /skills/weekly-skill/scripts/latex_build.py check --input /input --outpu
 ## 9. 交付前自查
 
 - [ ] `result.json` 可解析，`case_id` 在，`output_contract` 逐键回填且无类型占位符。
+- [ ] `comparison_report.md` 已写出，且明确标注为自评（非官方 A/B）。
 - [ ] `main.tex` 存在且非空；`lint_report.json`/`fixes.json`/`build.json`/`diff.patch` 结构合法。
 - [ ] 有引擎时 `main.pdf` 落在 `--output` 且头为 `%PDF-`；无引擎时 `status=partial` 且 `limits` 含编译建议。
 - [ ] `fixes[]` 每条有 `before`/`after`/`locator`/`applied`；`diff.patch` 可逐行核验改动。
@@ -163,7 +178,7 @@ See equation~\ref{eq:sum}.
 ```
 
 ```bash
-python3 /skills/weekly-skill/scripts/latex_build.py build --input <dir> --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/latex_build.py build --input INPUT_DIR --output /app/output --work /app/work
 ```
 
 有引擎时：`status=success`，`build.status=passed`，`main.pdf` 落在输出目录，`checks` 全 pass。
