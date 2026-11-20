@@ -121,5 +121,13 @@ SELFTEST.md                  eval_sim 与脚本级降级的自测记录
 GITHUB_URL.txt               公开仓库与本挑战的目录
 ```
 
-- 依赖：Python 3.9+ 标准库；无第三方包、无网络。包体 8 文件，单文件 ≤30KB，主脚本 ≤25KB。
+- 依赖：Python 3.9+ 标准库；无第三方包、无网络。包体 12 文件，单文件 ≤30KB，主脚本 ≤25KB。
 - 版本 6.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与本表。
+
+## 随包文件（v8 新增）
+
+```
+environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                    最小可复跑样例（case.json + manuscript.md），评审可直接复跑
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
