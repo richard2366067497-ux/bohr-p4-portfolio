@@ -1,0 +1,68 @@
+# environment/resources.yaml — writing-06 / paper-structure-logic-review (v8)
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟。
+skill: paper-structure-logic-review
+version: 6.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py run
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py probe --input /input --work /app/work
+    - "Agent: read /app/work/structural_review.json, optionally write /app/work/draft.json（修改计划裁决）"
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py        # CLI：run / probe / build / check / selfcheck（单命令 run = 全流程）
+  - scripts/core.py        # 章节/段落/句子切分与 C01-P002-S03 定位符、契约回填
+  - scripts/review.py      # 六维检测器 + 可执行修改计划 + 一致性报告
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  material_roles_by_extension:
+    ".md"/".txt": "正文稿件（必需，结构审读对象）"
+    ".json": "结构化稿件/契约（含 case.json）"
+    ".bib"/".ris"/".csv": "参考文献（用于 argument_chain 的引用核对）"
+  discovery: "walk 输入目录；角色由扩展名决定；无正文则降级并记录 limits"
+
+required_outputs:
+  - structural_review.json
+  - edit_plan.md
+  - outline_after.md
+  - argument_map.json
+  - consistency_report.md
+  - pending_human.json
+  - result.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 60
+  max_output_files: 16
+  max_output_bytes: 1048576
+
+contract:
+  keys: [unverified, verified, degradations]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> tasks/<key>.json -> SKILL.md json 样例 -> references/dimensions.md 样例 -> 默认产物键"
+  echo: "每个契约键既写在顶层，也写进 result.json.output_contract"
+  placeholders: forbidden
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
