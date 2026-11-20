@@ -1,0 +1,13 @@
+{
+  "case_id": "example-writing-12",
+  "language": "en",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "deliverable": "object",
+    "preserved_facts": "list",
+    "evidence_map": "list",
+    "change_log": "list",
+    "workorder_receipt": "object"
+  }
+}
