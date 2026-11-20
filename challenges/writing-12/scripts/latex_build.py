@@ -393,6 +393,30 @@ def run_pipeline(input_dir, out_dir, work_dir, engine="pdflatex", draft=None):
     }
     for k in contract_keys:
         result.setdefault(k, oc.get(k))
+    report = [
+        "# 对照实验记录 / A-B comparison (self-assessment)",
+        "",
+        "> 同一输入、同一环境下，对「基础 Agent（不加载本 Skill）」与「加载本 Skill」的两条路径",
+        "> 做**确定性自评**。这是本地可复算的自评表，**不是官方 A/B 结果**，也不声称任何外部对照。",
+        "",
+        "| 指标 | 基础 Agent（无 Skill） | 加载本 Skill（本次运行） |",
+        "|---|---|---|",
+        "| 可编辑 .tex 源文件树 | 由 Agent 现写，无固定产物 | `main.tex` + `source/`（真实写出） |",
+        "| 静态检查轮次 | 无固定流程 | lint %d 条（error %d / warning %d） |" % (
+            len(findings), sum(1 for f in findings if f["severity"] == "error"),
+            sum(1 for f in findings if f["severity"] == "warning")),
+        "| 修复落地 | 自述「已改」 | %d/%d 条 applied，逐条带 locator |" % (
+            sum(1 for f in fixes if f.get("applied")), len(fixes)),
+        "| 原值快照 / diff | 无 | `diff.patch`（unified diff） |",
+        "| 编译日志 | 不留存 | %s |" % ("logs kept: %s" % ", ".join(
+            os.path.basename(x) for x in build.get("logs", [])) if build.get("logs") else "无引擎，编译命令记录在 `packages.md`"),
+        "| 编译成功（真实 PDF） | 不保证 | %s |" % ("是" if pdf_delivered else "否（本机无 TeX 引擎，如实标注）"),
+        "| result.json / 契约回填 | 无 | status=`%s`，契约键 %d 个逐键回填 |" % (status, len(contract_keys)),
+        "",
+        "复算方式：本机重跑 `python3 scripts/latex_build.py build --input INPUT_DIR --output OUT_DIR --work WORK_DIR`，",
+        "上表全部取自本次运行的 `lint_report.json` / `fixes.json` / `build.json` / `log-check.json` / `result.json`。",
+        ""]
+    wtext(os.path.join(out_dir, "comparison_report.md"), "\n".join(report))
     wjson(os.path.join(out_dir, "result.json"), result)
     wjson(os.path.join(work_dir, "build.json"), build)
     return result
