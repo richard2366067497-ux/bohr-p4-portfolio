@@ -1,0 +1,22 @@
+{
+  "case_id": "example-research-02",
+  "research_question": "Which modelling choices drive reported top-1 accuracy across the reviewed studies?",
+  "outline_basis": "Themes are grouped by the leading non-stopword term shared across the included records, not by a background/method/challenge/outlook template.",
+  "pre_written_criteria": {
+    "include": [
+      "the record states a research object and a result sentence",
+      "the record is not a duplicate of an earlier record",
+      "at least one term overlaps the stated research question"
+    ],
+    "exclude": [
+      "repeated: identical normalised title + abstract",
+      "abstract-only: a heading without a body sentence",
+      "low-relevance: no term overlap with the research question",
+      "metadata-incomplete: missing title or abstract"
+    ]
+  },
+  "slots": [
+    {"slot": "T1", "theme": "augmentation", "records": ["R001"], "support": 1},
+    {"slot": "T2", "theme": "schedule", "records": ["R002"], "support": 1}
+  ]
+}
