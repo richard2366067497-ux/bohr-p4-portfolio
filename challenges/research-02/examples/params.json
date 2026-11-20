@@ -1,0 +1,15 @@
+{
+  "records": [
+    {"title": "Ridge augmentation improves top-1 accuracy",
+     "abstract": "Adding ridge augmentation raised top-1 accuracy by 2.1 points on the held-out split.",
+     "year": 2021},
+    {"title": "Learning-rate schedule and top-1 accuracy",
+     "abstract": "A cosine learning-rate schedule changed top-1 accuracy by 1.4 points among the modelling choices we compared.",
+     "year": 2020},
+    {"title": "Ridge augmentation improves top-1 accuracy",
+     "abstract": "Adding ridge augmentation raised top-1 accuracy by 2.1 points on the held-out split.",
+     "year": 2021},
+    {"title": "Metadata incomplete entry",
+     "abstract": ""}
+  ]
+}
