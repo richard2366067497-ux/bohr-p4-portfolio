@@ -1,0 +1,13 @@
+{
+  "$comment": "Reusable result.json contract skeleton for reading-02 (figure-data-extractor). Copy and fill; every key is echoed at the top level and inside output_contract.",
+  "case_id": "the input case id, passed through unchanged",
+  "status": "answered | partial | insufficient_evidence | input_error",
+  "result": "readings.md",
+  "figures": "figure_structure.json",
+  "digitized_series": "digitized_series.csv",
+  "tables": "tables.json",
+  "evidence_map": "evidence_map.json",
+  "claims": ["locator-anchored claims, each with a quote and a verbatim flag"],
+  "uncertainties": ["what the reading could not ground"],
+  "coverage": "coverage.json"
+}
