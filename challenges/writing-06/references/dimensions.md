@@ -67,3 +67,27 @@ action：每条 finding 一条，`action_id` 形如 `A01`，带 `priority`（hig
 - 跨文档术语：长度 >4 且出现在 ≥2 份文档的词，按文档数与字母序排序。
 
 同时 `outline_after.md` 给出作者应当补齐的目标稿件骨架，`edit_plan.md` 列出下一步需要的材料。
+
+## 6 记录模板（v9）
+
+### 6.1 修改动作模板（`edit_plan.md` 每条一行）
+
+```
+[P1] C05-P001-S01 · narrow · 结论边界
+  原文: "The cooling rate causes the observed improvement in weld quality in every case."
+  诊断: 相关性研究写成因果 + 绝对化（corr=True 且 ctrl=False）
+  期望: 收窄为 "was associated with"，删去 "in every case"
+  风险: 若确有对照实验支持因果，则不应收窄——先与作者确认
+```
+
+### 6.2 语义审读记录模板（`semantic_audit.json.records[]`）
+
+```
+{"locator": "<C01-P002-S03>", "source_quote": "<逐字引文，必须能回验>",
+ "dimension": "claim_strength | hedge_fidelity | negation_scope | numeric_parity",
+ "verdict": "<见该维度 verdicts>", "why": "<一句依据>"}
+```
+
+- `overstated` / `strengthened` / `drift` → 升级为 P1 动作；
+- `unclear` → 留在 `pending_human.json`，不当作结论；
+- 每条记录必须带 `source_quote`，否则丢弃（与 finding 的逐字命中规则一致）。
