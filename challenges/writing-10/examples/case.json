@@ -1,0 +1,11 @@
+{
+  "case_id": "example-writing-10",
+  "language": "en",
+  "output_contract": {
+    "case_id": "example-writing-10",
+    "deliverable": "revised_manuscript.md",
+    "preserved_facts": [],
+    "evidence_map": [],
+    "change_log": []
+  }
+}
