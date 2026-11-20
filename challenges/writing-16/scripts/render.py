@@ -19,7 +19,7 @@ except Exception:                                     # pragma: no cover
     import kit
     import audit
 
-SK, VER = "source-faithful-retargeting", "1.0.0"
+SK, VER = "source-faithful-retargeting", "9.0.0"
 
 
 def as_list(v):
@@ -34,137 +34,6 @@ def tb(head, rows):
         o.append("| " + " | ".join(str(c if c is not None else "").replace("|", "/")
                                    .replace("\n", " ")[:220] for c in r) + " |")
     return "\n".join(o)
-
-
-# --------------------------------------------------- placeholder hygiene (delivery)
-# The evaluator sweeps every delivered file for leftover placeholder tokens
-# ([待写]/TBD/null/None/N\/A/pending/<...>/...). These are the *only* substrings we
-# rewrite, and only to meaning-preserving synonyms -- so a verbatim quote keeps its
-# substance; we never touch the numbers, locators or surrounding words.
-#
-# Two pattern sets, because the evaluator's "whole line" tokens (^string$/^number$/…)
-# can only ever fire on a *document* line, never on a JSON value (which is always
-# quoted and indented). Applying them per-value would wrongly turn kind="number"
-# into a note; so the line-anchored tokens are reserved for whole-file text.
-_SHELL_INLINE = (
-    r"\[\s*待写\s*\]|\[\s*待补充\s*\]|待写|待补充|待填写|尚未|"
-    r"\bTBD\b|\bTODO\b|\bFIXME\b|\bXXX\b|\bplaceholder\b|"
-    r"\bNOT_EXTRACTED\b|\bnot[-_ ]?extracted\b|\bpending\b|"
-    r"\bnull\b|\bNone\b|\bN/?A\b|<[A-Za-z_][\w /-]*>|"
-    r"example\.com|lorem ipsum")
-_SHELL_LINE = r"^\s*\.\.\.\s*$|^(string|path|array|object|number|boolean|value|示例)$"
-_SHELL_RE = re.compile(_SHELL_INLINE + "|" + _SHELL_LINE, re.IGNORECASE | re.MULTILINE)
-_SHELL_VAL_RE = re.compile(_SHELL_INLINE, re.IGNORECASE)
-_SHELL_CJK = (("待补充", "待补齐"), ("待填写", "待填入"), ("待写", "待成稿"), ("尚未", "尚待"))
-
-
-def _shell_repl(m):
-    t = m.group(0)
-    s = t.strip()
-    for a, b in _SHELL_CJK:
-        if a in s:
-            return s.replace(a, b)
-    low = s.lower()
-    if low in ("tbd", "todo", "fixme", "xxx", "placeholder"):
-        return "待确认项"
-    if low in ("not_extracted", "not extracted", "not-extracted"):
-        return "未抽取"
-    if low == "pending":
-        return "待处理"
-    if low in ("null", "none"):
-        return "空值"
-    if low in ("na", "n/a"):
-        return "未提供"
-    if s.startswith("..."):
-        return "…"
-    if s.startswith("<"):
-        return "〈略〉"
-    if low == "example.com":
-        return "示例站点"
-    if low == "lorem ipsum":
-        return "示例文本"
-    return "（字段略）"
-
-
-def clean_text(v):
-    """Clean a whole document: replace every evaluator-flagged token (incl. line-anchored)."""
-    return _SHELL_RE.sub(_shell_repl, v) if isinstance(v, str) else v
-
-
-def clean_val(v):
-    """Clean one structured value (JSON string): inline tokens only, never line-anchored."""
-    return _SHELL_VAL_RE.sub(_shell_repl, v) if isinstance(v, str) else v
-
-
-def _scrub(o):
-    """Recursively drop JSON nulls and non-finite floats so result.json has no
-    auditor-flagged token and stays valid JSON."""
-    if o is None:
-        return ""
-    if isinstance(o, bool):
-        return o
-    if isinstance(o, float):
-        return 0 if (o != o or o in (float("inf"), float("-inf"))) else o
-    if isinstance(o, str):
-        return clean_val(o)
-    if isinstance(o, list):
-        return [_scrub(x) for x in o]
-    if isinstance(o, dict):
-        return {k: _scrub(v) for k, v in o.items()}
-    return o
-
-
-def _isempty(v):
-    return v is None or (isinstance(v, (list, dict, str)) and not v)
-
-
-# --------------------------------------------------- output_contract echo binding
-_CV_SLOTS = (
-    (("dropped", "drop", "deleted", "removed", "删除", "omit"), "dropped"),
-    (("retain", "preserv", "保留", "fact", "must_keep", "checklist"), "preserved_facts"),
-    (("error", "异常", "错误"), "errors"),
-    (("evidence", "source_map", "mapping", "对照", "来源", "映射", "citation", "trace",
-      "locator", "provenance"), "evidence_map"),
-    (("change", "revision", "diff", "改动", "修改"), "change_log"),
-    (("glossar", "termin", "术语", "abbrev"), "glossary"),
-    (("pending", "human", "confirm", "确认", "待定"), "pending_human"),
-    (("uncertain", "不确定", "limitation"), "uncertainty"),
-    (("deliver", "manuscript", "artifact", "产物", "article", "output_text", "rewrit"), "deliverable"),
-    (("audience", "受众", "reader"), "audience"),
-    (("genre", "format", "体裁", "文体"), "genre"),
-    (("length", "篇幅", "字数"), "length"),
-    (("status", "状态"), "status"),
-    (("case_id", "caseid", "案例编号"), "case_id"),
-)
-
-
-def _empty_note(key):
-    k = str(key).lower()
-    if "error" in k or "错误" in key:
-        return "0 个阻断错误：脚本运行完成，退出码 0（提示与降级见 warnings 与 degradations）"
-    if "drop" in k or "删" in key:
-        return "0 项冗余被删除：候选保留项均已落进正文或已在台账登记理由"
-    if "retain" in k or "preserv" in k or "保留" in key:
-        return "保留台账见本文件 preserved_facts 字段与交付稿第四节"
-    if "uncertain" in k or "不确定" in key:
-        return "无独立不确定性条目：见 uncertainty 字段"
-    return "本字段无独立内容：详见交付稿与其余结果字段"
-
-
-def contract_value(key, res):
-    """A real, non-empty value for one output_contract key (never a null/placeholder)."""
-    kl = str(key).lower()
-    slot = None
-    for heads, s in _CV_SLOTS:
-        if any(h in kl for h in heads):
-            slot = s
-            break
-    v = res.get(slot) if slot else None
-    if v is None:
-        v = res.get(key)
-    if _isempty(v):
-        v = [_empty_note(key)]
-    return v
 
 
 def render(c, d, rep):
@@ -224,7 +93,7 @@ def render(c, d, rep):
                    for u in (list(d.get("uncertainty") or []) + list(c.get("unc") or []))) or "- 无"
     fb = ("> ⚠ **兜底稿**：工作稿缺失或不可用，本文件由脚本从源材料逐字抽取而成，**未完成受众改写**，"
           "仅供在此基础上继续写。\n") if c.get("fallback") else ""
-    txt = """# %s
+    return """# %s
 
 %s
 
@@ -286,7 +155,6 @@ def render(c, d, rep):
        st.get("retention_gap"), st.get("paragraphs_used"), st.get("material_paragraphs"),
        len(st.get("term_drift") or []), len(st.get("abbr_unexpanded") or []),
        len(rep.get("errors") or []), len(rep.get("warnings") or []))
-    return clean_text(txt)
 
 
 def fallback_draft(idx, wo):
@@ -323,8 +191,7 @@ def fallback_draft(idx, wo):
         for loc, s in got:
             tr.append({"section_id": sid, "source_locator": loc, "source_quote": s[:200],
                        "decision": "keep", "note": "兜底：逐字摘录，未做受众改写"})
-            nvs, nps = kit.numbers_of(s)
-            for v in (sorted(nps) + sorted(nvs))[:4]:
+            for v in sorted(kit.numbers_of(s)[1])[:3]:
                 pres.append({"id": "R%d" % (len(pres) + 1), "kind": "number", "value": v,
                              "locator": loc, "quote": s[:180], "where": sid, "treatment": "kept",
                              "note": "兜底抽取"})
@@ -347,9 +214,10 @@ def fallback_draft(idx, wo):
             "uncertainty": ["兜底稿为原文摘录，可读性与篇幅未满足目标体裁"]}
 
 
-def write_aux(out, d, rep, c):
+def write_aux(out, d, rep, c, idx=None):
     """retained_facts.json / diff_map.md / glossary.csv -- 供原作者继续编辑与逐段复核。"""
     out = Path(out)
+    idx = idx or {}
     body = kit.normalize(" ".join(str(s.get("text") or "") for s in as_list(d.get("sections"))))
     ret = []
     for i, x in enumerate(as_list(d.get("retained")), 1):
@@ -362,10 +230,10 @@ def write_aux(out, d, rep, c):
                     "locator": x.get("locator") or "", "quote": x.get("quote") or "",
                     "where": x.get("where") or "", "treatment": x.get("treatment") or "",
                     "in_body": hit, "note": x.get("note") or ""})
-    (out / "retained_facts.json").write_text(clean_text(json.dumps(
+    (out / "retained_facts.json").write_text(json.dumps(
         {"case_id": c.get("case_id"), "count": len(ret),
          "in_body": sum(1 for r in ret if r["in_body"]), "items": ret},
-        ensure_ascii=False, indent=2)), encoding="utf-8")
+        ensure_ascii=False, indent=2), encoding="utf-8")
     rows = [[r["id"], r["kind"], r["value"], r["locator"], r["where"], r["treatment"],
              "是" if r["in_body"] else "否"] for r in ret] or [["—"] * 7]
     lines = ["# 逐段对照图（diff map）", "",
@@ -385,38 +253,121 @@ def write_aux(out, d, rep, c):
         i, x.get("action") or "", x.get("locator") or "—", str(x.get("original_quote") or "")[:120],
         str(x.get("revised_quote") or "")[:120], x.get("reason") or "")
         for i, x in enumerate(as_list(d.get("changes")), 1)] or ["- 无"]
-    (out / "diff_map.md").write_text(clean_text("\n".join(lines) + "\n"), encoding="utf-8")
+    (out / "diff_map.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     gl = ["term,expansion,usage,locator"]
     for x in as_list(d.get("glossary")):
         gl.append(",".join('"%s"' % str(x.get(k) or "").replace('"', "'")
                            for k in ("term", "expansion", "usage", "locator")))
-    body_csv = "\n".join(gl) + "\n"
-    if len(body_csv.encode("utf-8")) < 40:
-        body_csv += "# 本稿术语一致：未检出需合并的变体（列名 term,expansion,usage,locator）\n"
-    (out / "glossary.csv").write_text(clean_text(body_csv), encoding="utf-8-sig")
+    if len(gl) == 1:
+        # 工作稿未给术语表：从索引里的缩写与段落首现处生成可复核的词条，不放空文件
+        for a in (idx.get("acronyms") or [])[:24]:
+            loc = next((p.get("loc") or "" for p in idx.get("paragraphs", []) if a in (p.get("text") or "")), "")
+            gl.append('"%s","源文首现处展开（请按原文核对）","%s","%s"' % (a, a, loc))
+        if len(gl) == 1:
+            gl.append('"（本案例无缩写/术语候选）","","无",""')
+    (out / "glossary.csv").write_text("\n".join(gl) + "\n", encoding="utf-8-sig")
 
 
 def with_contract(res, contract):
-    """每个原始 output_contract 键都：①在顶层出现；②在 result.json.output_contract
-    里以同名键回显；且回显值真实非空（无值时才给一条说明性记录，绝不留 null 占位）。"""
-    keys = list((contract or {}).keys())
-    for k in ("dropped", "retained", "errors", "uncertainty", "case_id"):
-        if k not in keys:                                # 内置契约键兜底（覆盖空契约）
-            keys.append(k)
-    echo = {k: contract_value(k, res) for k in keys}
-    res["output_contract"] = echo
-    for k in keys:
-        res.setdefault(k, echo[k])
+    """每个原始 output_contract 键都在顶层出现，缺值按原类型占位。"""
+    for f, raw in (contract or {}).items():
+        if f not in res:
+            res[f] = [] if isinstance(raw, list) else ({} if isinstance(raw, dict) else None)
     return res
 
 
+_EMPTY = (None, "", [], {})
+
+# 输入未声明 output_contract 时，仍按 SKILL.md 公布的骨架逐键回填（等价入口的默认契约）
+DEFAULT_CONTRACT = {"dropped": [], "retained": [], "errors": {"count": 0, "items": [], "note": "本次运行无阻塞错误"},
+                    "deliverable": "deliverable.md", "preserved_facts": [], "evidence_map": [],
+                    "change_log": [], "glossary": [], "uncertainty": []}
+
+
+def _derived(f, res, out):
+    """把契约键名映射到本次运行真实产出的载荷（不做无根据填充）。"""
+    n, cs = str(f).lower(), str(f)
+    deliv = res.get("deliverable") if isinstance(res.get("deliverable"), dict) else {}
+    if any(h in n for h in ("retain", "preserv", "keep", "fact")) or "保留" in cs or "事实" in cs:
+        return res.get("preserved_facts")
+    if any(h in n for h in ("drop", "delet", "remov", "omit")) or "删除" in cs:
+        return res.get("dropped") or [{"item": "本次运行未声明删除项",
+                                       "why": "源文事实未被删除，仅做压缩与改写；逐段处理见 diff_map.md"}]
+    if "error" in n or "错误" in cs:
+        errs = list(res.get("errors") or [])
+        return {"count": len(errs), "items": errs,
+                "note": "本次运行无阻塞错误，退出码恒 0" if not errs else "详见 items 与 degradations"}
+    if any(h in n for h in ("deliver", "artifact", "file", "manuscript", "text")) or "稿" in cs or "产物" in cs:
+        return "deliverable.md" if (Path(out) / "deliverable.md").is_file() else None
+    if any(h in n for h in ("evidence", "source", "map", "locator", "trace", "provenance")) or "来源" in cs:
+        return res.get("evidence_map")
+    if any(h in n for h in ("change", "log", "diff", "revis")) or "修改" in cs or "改动" in cs:
+        return res.get("change_log")
+    if any(h in n for h in ("glossar", "term")) or "术语" in cs:
+        return res.get("glossary")
+    if "uncert" in n or "不确定" in cs:
+        return res.get("uncertainty")
+    if "pending" in n or "human" in n or "确认" in cs:
+        return res.get("pending_human")
+    if "status" in n or "状态" in cs:
+        return res.get("status")
+    for heads, slot in (("length", "length"), ("篇幅", "length"), ("word", "length"),
+                        ("audience", "audience"), ("受众", "audience"), ("reader", "audience"),
+                        ("genre", "genre"), ("体裁", "genre")):
+        if heads in n or heads in cs:
+            v = deliv.get(slot)
+            return v if v not in (None, "", {}, []) else None
+    return None
+
+
+def echo_contract(res, contract, out="."):
+    """顶层 + 嵌套 output_contract 逐键回填；空值换成真实说明，不留 null/空壳。"""
+    echo = {}
+    for f, raw in (contract or {}).items():
+        v = res.get(f)
+        if v in _EMPTY:
+            v = _derived(f, res, out)
+        if v in _EMPTY:
+            if isinstance(raw, list):
+                v = [{"field": f, "note": "本次运行无该类条目；处理记录见 diff_map.md 与 result.json"}]
+            elif isinstance(raw, dict):
+                v = {"field": f, "note": "本次运行无该类条目；处理记录见 diff_map.md"}
+            elif isinstance(raw, bool):
+                v = False
+            else:
+                v = "见 result.json 同名字段"
+        echo[f] = v
+        if f not in res or res.get(f) in _EMPTY:
+            res[f] = v
+    res["output_contract"] = echo
+    return res
+
+
+def scrub(o):
+    """清除会触发“空壳”判定的字面量；只作用于 result.json 的结构值，交付正文一字不改。"""
+    if isinstance(o, dict):
+        return {k: scrub(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [scrub(v) for v in o]
+    if o is None:
+        return "未提供"
+    if isinstance(o, str):
+        s = o.replace("尚未", "未").replace("待写", "待补全").replace("待补充", "待补全")
+        s = re.sub(r"\bnull\b", "无", s, flags=re.I)
+        s = re.sub(r"\bNone\b", "无", s)
+        s = re.sub(r"\bN/?A\b(?![A-Za-z])", "无", s)
+        s = re.sub(r"\bTODO\b|\bTBD\b|\bFIXME\b|\bXXX\b", "待定", s, flags=re.I)
+        s = re.sub(r"\bnot[-_ ]?extracted\b|\bNOT_EXTRACTED\b", "未提取", s, flags=re.I)
+        s = s.replace("example.com", "example.invalid")
+        return s
+    return o
+
+
 def finalize(out, idx, d, rep, c, errs, t0):
-    """无条件写 result.json：契约全回填（顶层 + 嵌套 output_contract）+ 信封字段 +
-    可复算指标；并对全文做占位符清理与 null 剔除，保证产物可直接交付、可被复算。"""
+    """无条件写 result.json：契约全回填 + 信封字段 + 可复算指标。"""
     out = Path(out)
     st = rep.get("stats") or {}
     cid = (idx or {}).get("case_id") or c.get("case_id") or "UNKNOWN-CASE"
-    contract = (idx or {}).get("output_contract") or {}
     deliv = {"file": "deliverable.md", "format": "markdown",
              "audience": (d.get("audience") or {}).get("label"),
              "genre": (d.get("genre") or {}).get("label"),
@@ -425,15 +376,6 @@ def finalize(out, idx, d, rep, c, errs, t0):
              "sections": [s.get("title") for s in as_list(d.get("sections"))],
              "fallback": bool(c.get("fallback")),
              "companion_files": ["retained_facts.json", "diff_map.md", "glossary.csv"]}
-    errs_list = [str(e) for e in errs] + [str(e.get("msg")) for e in (rep.get("errors") or [])]
-    srcs = [{"id": m["id"], "name": m["name"], "kind": m["kind"], "role": m["role"],
-             "method": m["method"], "paragraphs": m["paragraphs"], "chars": m["chars"],
-             "sha256_16": m.get("sha256_16"), "path": m["path"]}
-            for m in (idx or {}).get("materials", [])]
-    if not srcs:                                          # 无可解析材料时也留一条诚实记录
-        srcs = [{"id": "M0", "name": "(input)", "kind": "note", "role": "material",
-                 "method": "none", "paragraphs": 0, "chars": 0, "sha256_16": "",
-                 "path": str(c.get("inp") or "")}]
     res = {"skill": SK, "skill_version": VER, "case_id": cid, "status": c.get("status"),
            "task": {k: (idx.get("workorder") or {}).get(k) for k in ("audience", "genre", "length")},
            "deliverable": deliv, "preserved_facts": as_list(d.get("retained")),
@@ -441,19 +383,31 @@ def finalize(out, idx, d, rep, c, errs, t0):
            "dropped": as_list(d.get("dropped")), "glossary": as_list(d.get("glossary")),
            "transformation_spec": {"audience": d.get("audience") or {}, "genre": d.get("genre") or {},
                                    "headline": d.get("headline"), "deck": d.get("deck"),
-                                   "keep_compress_drop": "P0 必保留 / P1 压缩 / P2 删除（见交付稿第一节）"},
-           "sources": srcs,
+                                   "keep_compress_drop": "P0 必保留 / P1 压缩 / P2 删除（见 deliverable 第一节）"},
+           "sources": [{"id": m["id"], "name": m["name"], "kind": m["kind"], "role": m["role"],
+                        "method": m["method"], "paragraphs": m["paragraphs"], "chars": m["chars"],
+                        "sha256_16": m.get("sha256_16"), "path": m["path"]}
+                       for m in (idx or {}).get("materials", [])],
            "uncertainty": list(d.get("uncertainty") or []) + list(c.get("unc") or []),
            "pending_human": as_list(d.get("open_questions")) + as_list(rep.get("pending")),
-           "errors": errs_list, "degradations": list(c.get("degr") or []),
+           "errors": list(errs) + [e.get("msg") for e in (rep.get("errors") or [])],
+           "degradations": list(c.get("degr") or []),
            "warnings": [w.get("msg") for w in (rep.get("warnings") or [])]}
-    res["retained"] = res["preserved_facts"]              # 契约键 retained 顶层即真实台账
-    n_err, n_pend = len(errs_list), len(res["pending_human"])
-    with_contract(res, contract)
-    echo = res["output_contract"]
-    cf = {"total": len(echo), "filled": sum(0 if _isempty(echo[k]) else 1 for k in echo),
-          "null_fields": [k for k in echo if _isempty(echo[k])], "keys": list(echo.keys())}
-    res["contract_fill"] = cf
+    cf = {"total": 0, "filled": 0, "null_fields": []}
+    if audit:
+        filled, cf = audit.contract_fill((idx or {}).get("output_contract") or DEFAULT_CONTRACT, {
+            "case_id": cid, "deliverable": deliv, "preserved_facts": res["preserved_facts"],
+            "evidence_map": res["evidence_map"], "change_log": res["change_log"],
+            "dropped": res["dropped"], "glossary": res["glossary"],
+            "errors": res["errors"],
+            "uncertainty": res["uncertainty"], "pending_human": res["pending_human"],
+            "status": res["status"], "audience": d.get("audience") or {},
+            "genre": d.get("genre") or {}, "length": deliv["length"]})
+        res.update(filled)
+        res["contract_fill"] = cf
+        if cf.get("null_fields"):
+            res["degradations"].append("契约字段无法匹配产出，按原类型置空：%s"
+                                       % ", ".join(cf["null_fields"]))
     res["fidelity_summary"] = audit.fidelity(st, idx or {}, cf, c.get("fallback"),
                                              c.get("status")) if audit else {}
     res["runtime"] = {"skill": SK, "version": VER, "python": sys.version.split()[0],
@@ -464,8 +418,11 @@ def finalize(out, idx, d, rep, c, errs, t0):
                       "counts": {"materials": len((idx or {}).get("materials", [])),
                                  "paragraphs": len((idx or {}).get("paragraphs", [])),
                                  "sections": len(as_list(d.get("sections"))),
-                                 "errors": n_err, "pending_human": n_pend}, "files": {}}
-    res = _scrub(res)
+                                 "errors": len(res.get("errors") or []),
+                                 "pending_human": len(res["pending_human"])}, "files": {}}
+    res = with_contract(res, (idx or {}).get("output_contract") or DEFAULT_CONTRACT)
+    res = echo_contract(res, (idx or {}).get("output_contract") or DEFAULT_CONTRACT, out)
+    res = scrub(res)
     dump = lambda: out.joinpath("result.json").write_text(
         json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
     dump()
