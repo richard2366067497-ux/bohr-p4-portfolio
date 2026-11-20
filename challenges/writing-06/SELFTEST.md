@@ -73,3 +73,22 @@ python3 <pkg>/scripts/main.py selfcheck --input /input --output /tmp/out --work 
 - 无正文时降级为包级审计，六个维度标为 `not_assessed`，不把包级审计写成正文审读。
 - 每条建议都附风险说明；机械执行仍可能改变原意。
 - 输入含 UTF-8 BOM 时按 `utf-8-sig` 读取，BOM 不进入定位符或引文。
+
+## 6. v8 复跑与关键数字（examples/）
+
+新增随包最小样例 `examples/`（`case.json` + `manuscript.md`：含逐字重复的 Results 段与越界结论句），
+可被评审直接复跑：
+
+```bash
+python3 scripts/main.py run --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：
+
+- exit 0，`result.json.status = ok`，产物 **7** 文件。
+- `metrics = {chapters: 6, words: 180, paragraphs: 11, findings: 2, actions: 2, duplicate_sentences: 1}`；
+  两条具名发现：`duplication`（medium，`C04-P002-S01`）与 `conclusion_boundary`（high，`C05-P001-S01`）；
+  契约键 **3/3**；占位符 0。
+- 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
+  separators=(",",":"))` 的 `sha256` 前 16 位）：**`a52a2c074b730131`**。
+- `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（契约键 3/3）。
