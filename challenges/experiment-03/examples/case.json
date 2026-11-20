@@ -1,0 +1,20 @@
+{
+  "case_id": "example-experiment-03",
+  "language": "en",
+  "output_contract": {
+    "case_id": "string",
+    "id": "string",
+    "answered": "string",
+    "partial": "string",
+    "insufficient_evidence": "string",
+    "input_error": "string",
+    "output_contract": "string",
+    "objective_specs": "string",
+    "unit": "string",
+    "value_source": "string",
+    "draft": "string",
+    "grid_best": "string",
+    "grid_nearest": "string",
+    "unavailable": "string"
+  }
+}
