@@ -1,0 +1,14 @@
+{
+  "output_contract": {
+    "case_id": "the input case id, passed through",
+    "status": "answered | partial | insufficient_evidence | input_error",
+    "graph": "graph.json",
+    "merges": "alignment_report.json",
+    "conflicts": "conflicts.json",
+    "queries": "query_results.json",
+    "sources": "sources.json",
+    "uncertainty": "uncertainty.json",
+    "change_records": "change_log.json"
+  },
+  "note": "echo every key both at the top level of result.json and inside its output_contract object; path keys must resolve to real non-empty files"
+}
