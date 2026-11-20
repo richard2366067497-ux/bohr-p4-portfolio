@@ -1,74 +1,42 @@
-# 清洗规则表（field-contract-cleaner 可编辑资源）
+# 清洗规则与问题码（可编辑）
 
-`references/cleaning-rules.md` 是包内唯一需要按课题调整的规则资源：改词表 / 单位 / 动作，不用改
-`scripts/engine.py`。未知键被忽略。脚本与本文不一致时，行为以脚本为准，本文给出可核对的清单。
+## 1. 问题码
 
-## 1. 缺失 / 无效 / 低于检出限词表（大小写不敏感，按全局词表处理）
-
-- **缺失码**：`` ` ``, `na`, `n/a`, `nan`, `nil`, `null`, `none`, `-`, `--`, `---`, `—`, `–`, `?`,
-  `.`, `/`, `-999`, `-9999`, `-99`, `9999`, `nd`, `n.d.`, `bdl`, `未检出`, `未检测`, `未测定`,
-  `缺失`, `无`, `空`, `待测`, `待补`, `tbd`, `#n/a`。命中即标 `MISSING_CODE`，**原值保留**。
-- **低于检出限**：`<lod`, `<loq`, `bdl`, `nd`, `未检出`, `低于检出限`, `低于定量限`。标 `BELOW_LOD`，
-  **不等于 0**。
-- **无效记号**：`?`, `#value!`, `#div/0!`, `err`, `error`, `void`, `inf`, `-inf`, `n.a`.
-
-> 说明：本文件正文与 JSON 产物中的这些令牌会被引擎在**文件文本层**中和，解码后仍为原文，以保证
-> 结果既保真又不出现占位符令牌。
-
-## 2. 缺省处理口径
-
-| 类别 | 动作 | 是否改值 |
+| 码 | 含义 | 改值 |
 |---|---|---|
-| 空单元格 | `mark_missing` | 否 |
-| 命中缺失码 | `mark_missing` | 否 |
-| 低于检出限 | `mark_missing` | 否 |
-| 非数值 / 无效记号 | `mark_invalid` | 否（原值保留） |
-| 超出物理上下限 | `mark_invalid` | 否（原值保留） |
-| 单位换算 | `convert_unit` | 是（可逆，记因子） |
-| 日期规范化 | `convert_date` | 是（可逆，原串入账本） |
-| 编码修复 | `fix_encoding` | 是（可逆，原串入账本） |
-| 近似重复次要行 | `dedupe` | 不删行（隔离保留） |
+| MISSING_BLANK | 单元格为空或仅空白 | 否 |
+| MISSING_CODE | 命中字典/工单声明的缺失码 | 否 |
+| BELOW_LOD | 低于检出限，不等于 0 | 否 |
+| NON_NUMERIC | 数值型字段出现无法解析的文本 | 否 |
+| INVALID_TOKEN | 命中无效码（#DIV/0!、err…） | 否 |
+| OUT_OF_RANGE | 超出字典物理上下限 | 否 |
+| OUTLIER | IQR/MAD 双侧栅栏诊断出的异常 | 否 |
+| UNIT_CONVERTED | 按注册表完成单位换算 | 可逆 |
+| DUP_DROPPED | 主键重复的次要行，隔离保留 | 不删行 |
+| NO_USABLE_VALUE | 整行所有实质字段均不可用 | 否 |
 
-## 3. 问题码（写入 `__flags` 与 `field_issues.csv`）
+## 2. 异常值判定
 
-`MISSING_BLANK` / `MISSING_CODE` / `BELOW_LOD` / `NON_NUMERIC` / `INVALID_TOKEN` / `OUT_OF_RANGE` /
-`UNIT_CONVERTED` / `UNIT_UNKNOWN` / `UNIT_ABSENT` / `ENCODING_FIXED` / `ENCODING_SUSPECT` /
-`DATE_CONVERTED` / `DUP_DROPPED` / `NO_USABLE_VALUE`。
+- **IQR**：栅栏 `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]`。
+- **MAD**：稳健离差 `|x − median| > 3.0·MAD`。
+- **物理上下限**：来自字典 `valid_range`（`0-2000`、`>=0`、`<=100`、`0..50`）。
+- 阈值 `IQR_K` / `MAD_K` 定义在 `scripts/engine.py`，可调整；越界与异常一律只标记。
 
-## 4. 单位注册表（摘录）
+## 3. 重复记录
 
-质量浓度 `g/l, mg/l, ug/l, ng/l, pg/l, g/ml, mg/ml, ug/ml, ng/ml, mg/dl, g/dl, ug/dl`；
-摩尔浓度 `mol/l, mmol/l, umol/l, nmol/l, pmol/l`；分数 `%, ppm, ppb, fraction`；温标 `K, °C, °F`；
-压力 `Pa, kPa, MPa, bar, atm, mmHg`；体积 `l, ml, ul, dl, m3`；质量 `g, mg, kg, ug, ng`；
-时间 `h, min, s, d`；计数/酶活 `cfu/ml, cfu/l, iu/l, u/l, iu/ml`。别名 `µ/μ → u`、
-`mol·l-1 → mol/l`、`℃ → degc` 等。
+可比较列（去除元列后）取值全等的行视为重复：保留首个出现，其余行 `status=quarantined`、
+flags 记 `DUP_DROPPED`，**不删除**，供人工复核。
 
-## 5. draft.json（Agent 工作稿，唯一需要人手写的文件）
+## 4. 单位换算
 
-```json
-{
-  "case_id": "synth-rich-analysis-01",
-  "field_contract": [
-    {"contract_id": "FC-01", "field": "glucose", "meaning": "葡萄糖浓度", "dtype": "numeric",
-     "unit": "mg/L", "valid_range": "0-2000", "missing_tokens": ["-999", "na"],
-     "invalid_rules": ["非数值文本", "超出 0-2000 mg/L"], "workorder_ref": "WO-1",
-     "planned_action": "convert_unit", "basis": "dictionary.md#L7"}
-  ],
-  "dedupe_plan": [{"key_fields": ["sample_id", "time_h"], "keep": "first", "basis": "workorder.md#L5"}],
-  "decisions": [{"decision": "0 是合法真值，不作缺失", "basis": "qc.md#L5"}]
-}
-```
+`units` 注册表给出 `单位 -> [量纲, 到基准的因子, 偏移]`；换算前先经 `unit_aliases` 归一
+（如 `μg/ml -> ug/ml`）。仅当量纲一致时换算，账本记录 `{from, to, factor, source_value}` 与逆映射。
 
-最小可用形状：只写 `field_contract`，每字段至少 `field` + `planned_action`。`all` 会合并它；缺失时
-以数据字典自动推导，产物仍完整。
+## 5. QC 不变式
 
-## 6. locator 规范
+逐条核验并在报告中给出证据：行数守恒、动作与账本一致、报告数字可回算、源文件 sha256 不变、
+被标记的字段值未被替换。
 
-`<file>#L<n>`（文本物理行）、`<file>#row<n>`（表数据行，表头为第 1 行）、`<file>#col:<field>`（列）、
-`case.json#<key>`。这些 locator 出现在 `basis` / `evidence` / 账本与报告中，评审可原文件定位。
+## 6. 降级
 
-## 7. 适用范围与限制
-
-适用：汇总/转写表（CSV/TSV/JSON/JSONL/SQLite）的缺失与异常标记、近似重复识别、单位与编码修复、
-字段级质量报告。不适用：统计建模与假设检验、总体推断、用模型补全缺失、图表美化、数据库运维、
-论文写作。
+无表 / 坏 JSON / 空文件：记入 `uncertainties`，`cleaned_table.csv` 写空表状态行，退出码仍为 0。
