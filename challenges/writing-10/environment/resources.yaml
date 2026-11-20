@@ -33,6 +33,7 @@ required_outputs:
   - change_locator.json
   - evidence_pending.md
   - version_notes.md
+  - quality_metrics.json
   - selfcheck.json
   - result.json
 
