@@ -29,7 +29,8 @@ def bc(case, mats):
                       "statement": "rule %s is human-gated: %s" % (x.get("rule_id"), x.get("condition"))}
                      for x in (cat or {}).get("rules") or [] if isinstance(x, dict) and x.get("human_gate")]
     n = lambda s: sum(1 for r in rows if r["st"] == s)
-    ctx["coverage"] = {"records_in": len(recs), "rows_out": len(rows), "converted": n("converted"), "missing": n("missing"),
+    ctx["coverage"] = {"records_in": len(recs), "rows_out": len(rows),
+                       "converted": sum(1 for r in rows if "R011" in (r.get("ru") or [])), "missing": n("missing"),
                        "needs_review": n("needs_review"), "merged_duplicate": n("merged_duplicate"), "replicate": n("replicate"),
                        "conflict": n("conflict"), "changes": len(ch), "queued_for_review": len(pd), "unmapped_columns": len(unm),
                        "rules_available": len((cat or {}).get("rules") or []), "units_available": len((ut or {}).get("units") or {})}
