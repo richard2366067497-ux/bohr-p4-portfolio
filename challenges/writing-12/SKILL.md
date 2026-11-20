@@ -183,3 +183,11 @@ README.md  SELFTEST.md  GITHUB_URL.txt   安装、用法、自测记录、仓库
 
 依赖：Python 3.9+ 标准库；`build/check/fix/selfcheck` 需要 `latexmk`（或直接引擎）与所选 TeX 发行版；
 中文稿需 `xelatex` + `ctex`/`xeCJK` + CJK 字体。
+
+## 随包文件（v8 新增）
+
+```
+environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                    最小可复跑样例（case.json + main.tex），评审可直接复跑
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
