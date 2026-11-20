@@ -1,2 +1,2 @@
-https://github.com/Richard-He-happy/bohr-p4-portfolio/tree/main/challenges/analysis-03
-challenges/analysis-03
+https://github.com/Richard-He-happy/bohr-p4-portfolio/tree/main/v6fix/analysis-03
+SKILL.md
