@@ -1,0 +1,72 @@
+# environment/resources.yaml — experiment-03 / bounded-param-optimizer (v8)
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟。
+skill: bounded-param-optimizer
+version: 6.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py show --input /input --output /app/output --work /app/work
+    - "Agent: read /app/output/parameter_table.json + /app/output/evidence.json, optionally write /app/work/draft.json"
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI：all / init / show / check / build / selfcheck（单命令 all = 全流程）
+  - scripts/extract.py    # 物料解析：参数域(min/max/step)、约束边界、历史、预算/资源，逐条带 locator+quote
+  - scripts/optimize.py   # 有限网格枚举、可行判定、岭回归响应面(RMSE/LOO)、Pareto 前沿
+  - scripts/render.py     # 产物渲染（表格/markdown/契约键回填）
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  material_roles_by_extension:
+    ".json": "结构化材料（case.json、parameters/domains、constraints/bounds、history/records/runs、resources/prices/budget）"
+    ".md"/".txt": "文字材料（含 not exceed / 不超过 / ≤ → le，at least / ≥ → ge 等边界词）"
+    ".csv": "表格历史（实验记录）"
+  discovery: "walk 输入目录；参数域/边界/历史/预算按 JSON 键名或文字正则识别；缺料降级为 insufficient_evidence"
+
+required_outputs:
+  - parameter_table.json
+  - evidence.json
+  - feasible_grid.json
+  - pareto_front.json
+  - search_plan.json
+  - cost_ledger.json
+  - infeasibility.json
+  - search_notes.md
+  - version_diff.md
+  - result.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 120
+  max_output_files: 24
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, id, answered, partial, insufficient_evidence, input_error, output_contract, objective_specs, unit, value_source, draft, grid_best, grid_nearest, unavailable]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> tasks/<key>.json -> SKILL.md json 样例 -> 默认产物键"
+  echo: "每个契约键既写在顶层，也写进 result.json.output_contract；状态键值取 answered/partial/insufficient_evidence/input_error 之一"
+  placeholders: forbidden
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
