@@ -1,0 +1,16 @@
+{
+  "case_id": "example-reading-14",
+  "language": "en",
+  "notes": "SYNTHETIC example shipped with the package. Two toy paragraphs + a candidate graph + three queries. Not a real case result.",
+  "output_contract": {
+    "case_id": "the input case id, passed through",
+    "status": "answered | partial | insufficient_evidence | input_error",
+    "graph": "graph.json",
+    "merges": "alignment_report.json",
+    "conflicts": "conflicts.json",
+    "queries": "query_results.json",
+    "sources": "sources.json",
+    "uncertainty": "uncertainty.json",
+    "change_records": "change_log.json"
+  }
+}
