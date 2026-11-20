@@ -1,0 +1,9 @@
+{
+  "case_id": "example-writing-06",
+  "language": "en",
+  "output_contract": {
+    "unverified": "string",
+    "verified": "string",
+    "degradations": "string"
+  }
+}
