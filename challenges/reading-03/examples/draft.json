@@ -1,0 +1,127 @@
+{
+ "case_id": "example-reading-03-osc",
+ "task_understanding": "把英文论文节选按语义切成 17 段（题名/摘要/方法/表/公式/图注/文献），做中英对照并保留图表编号、公式号与引用编号；术语按术语表统一译名。",
+ "segments": [
+  {
+   "sid": "S001",
+   "target": "# 氯化钠对种子萌发的剂量-反应建模",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S002",
+   "target": "## 摘要",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S003",
+   "target": "在 20 °C 下测定了经食盐（NaCl）处理样品的种子萌发情况，当浓度由 0 mM 升到 150 mM 时，萌发率由 92.4 % 降到 61.8 %。半抑制浓度为 74.6 mM（表 1），拟合系数为 r = -0.93（p < 0.01）[1]。这些结果提示，NaCl 可能延缓吸水，而不是损伤胚 [2]。",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S004",
+   "target": "## 2 方法",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S005",
+   "target": "种子在湿润滤纸上（5 mL 溶液）培养 7 天，萌发率每 24 h 记录一次（图 1）。",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S006",
+   "target": "表 1. 拟合的剂量-反应参数（均值 ± sd，n = 3）。",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S007",
+   "target": "浓度 (mM) 萌发率 (%) 速率 (day^-1)",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S008",
+   "target": "0 92.4 1.71",
+   "notes": "纯数值表行：按学术惯例保留数据原样，未译",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S009",
+   "target": "150 61.8 0.98",
+   "notes": "纯数值表行：按学术惯例保留数据原样，未译",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S010",
+   "target": "## 3 结果",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S011",
+   "target": "浓度与萌发率之间的关系在整个区间内并非线性，因此我们采用如下经验模型：",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S012",
+   "target": "G = G0 / (1 + C / IC50) (1)：式中 G 为萌发率，C 为浓度，该常数即半抑制浓度。",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S013",
+   "target": "式中 G 为萌发率，C 为浓度。去除盐分后萌发率没有恢复，这表明是渗透效应而非毒性效应。",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S014",
+   "target": "图 1. 萌发率（%）随浓度（mM）的变化；误差线为 ± sd（n = 3）。",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S015",
+   "target": "## 参考文献",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S016",
+   "target": "[1] Almeida RP, Costa LS. Osmotic stress and seed vigour. Journal of Seed Science, 2019.",
+   "notes": "文献条目按学术惯例保留原文，不译",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  },
+  {
+   "sid": "S017",
+   "target": "[2] Chen H, et al. Ion toxicity in germinating seeds. Plant Physiology Reports, 2021.",
+   "notes": "文献条目按学术惯例保留原文，不译",
+   "basis": "逐段对照翻译；数字与引用编号按原文保留"
+  }
+ ],
+ "glossary": [
+  {
+   "term": "germination rate",
+   "target": "萌发率",
+   "quote": "the germination rate decreased from 92.4 %",
+   "sid": "S003",
+   "basis": "术语表锁定：quote 在原文逐字命中"
+  },
+  {
+   "term": "NaCl",
+   "target": "NaCl",
+   "quote": "table salt (NaCl) treated samples",
+   "sid": "S003",
+   "basis": "术语表锁定：quote 在原文逐字命中"
+  },
+  {
+   "term": "half-maximal inhibitory concentration",
+   "target": "半抑制浓度",
+   "quote": "The half-maximal inhibitory concentration was 74.6 mM",
+   "sid": "S003",
+   "basis": "术语表锁定：quote 在原文逐字命中"
+  },
+  {
+   "term": "dose-response",
+   "target": "剂量-反应",
+   "quote": "Dose-Response Modelling of Sodium Chloride",
+   "sid": "S001",
+   "basis": "术语表锁定：quote 在原文逐字命中"
+  }
+ ],
+ "result_fields": {},
+ "uncertainties": []
+}
