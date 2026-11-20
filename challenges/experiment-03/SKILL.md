@@ -128,3 +128,11 @@ the nearest feasible grid point (the repair is recorded in `recommendation.viola
   and exits 0.
 - No significance testing is performed; with few rows the model is reported as indicative
   only, with its RMSE and n printed.
+
+## 随包文件（v8 新增）
+
+```
+environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                    最小可复跑样例（case.json + params.json），评审可直接复跑
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
