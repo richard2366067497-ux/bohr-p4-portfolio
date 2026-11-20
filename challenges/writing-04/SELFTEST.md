@@ -1,13 +1,13 @@
-# SELFTEST — 自测记录（writing-04 v7）
+# SELFTEST — 自测记录（writing-04 v9）
 
-包：`work/p4/v7/writing-04` · 引擎 `citation-ledger-sync/3.0.0` · 纯标准库、离线、确定性。
+包：`work/p4/v9/writing-04` · 引擎 `citation-ledger-sync/3.0.0` · 纯标准库、离线、确定性。
 评测模拟器：`scripts/eval_sim.py`。
 解释器：`D:\tool\DSH\resources\runtime\primary-runtime\dependencies\python\python.exe`（Python 3.12.14）。
 
 ## 一、eval_sim（rich/boundary × single/agent，本地门禁）
 
 ```
-python scripts/eval_sim.py --pkg work/p4/v7/writing-04 \
+python scripts/eval_sim.py --pkg work/p4/v9/writing-04 \
     --case work/p4/synth_cases/writing-04/<rich|boundary> --mode <single|agent>
 ```
 
@@ -34,7 +34,7 @@ agent 模式命令链 `all → probe → draft → check → build` 全程 exit 
 ## 二、算法自测（`selftest`，内存合成语料）
 
 ```
-python work/p4/v7/writing-04/scripts/cite_engine.py selftest
+python work/p4/v9/writing-04/scripts/cite_engine.py selftest
 ```
 
 结果（`ok=true`，exit 0）：解析 BibTeX 3 条 → 去重规范 2 组（1 组合并，判据 `identical DOI`）→
@@ -46,9 +46,9 @@ GB/T 与 APA 各渲染 1 条 → claim 匹配 2 条。关键断言 `parsed=3 / g
 输入：`manuscript.md`（含 `[2]`、`\cite{chen2019cool}`、悬空 `[9]`）+ `lib.bib`（3 条，其中 2 条同 DOI）。
 
 ```
-python work/p4/v7/writing-04/scripts/cite_engine.py all \
+python work/p4/v9/writing-04/scripts/cite_engine.py all \
     --input work/p4/v7/_scratch/full --output <out> --work <work>
-python work/p4/v7/writing-04/scripts/cite_engine.py check --input ... --output <out>
+python work/p4/v9/writing-04/scripts/cite_engine.py check --input ... --output <out>
 ```
 
 观察到的真实行为：
@@ -110,3 +110,11 @@ python3 scripts/cite_engine.py all --input examples --output /tmp/out --work /tm
 - 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
   separators=(",",":"))` 的 `sha256` 前 16 位）：**`50be7104cc5964f4`**。
 - `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（契约键 8/8）。
+
+
+## v9 交付状态
+
+- GITHUB_URL.txt 两行（公开仓库 + challenges/writing-04），补齐官方 5 分公开链接加分。
+- 随包生态齐备：examples/（case.json + lib.bib，可复跑）、environment/resources.yaml、README.md、
+  GAIN_EVIDENCE.md（含确定性 aseline_sim 诚实对照）、SELFTEST.md。
+- scripts/eval_sim.py rich/boundary × single/agent 四项全 **PASS**（契约键 8/8，placeholder_sweep 干净）。
