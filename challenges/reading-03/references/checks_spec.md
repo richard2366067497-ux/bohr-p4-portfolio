@@ -1,256 +1,91 @@
-# 核验规则表、字段字典与工作稿 schema
+# 核验口径规格（checks_spec）
 
-本文件是 `sci-lit-bilingual-audit` 的规范附件，被 `SKILL.md` 引用。三类读者：
+本文件是 `scripts/audit.py` 的行为规格，也是**可复用资源**：判据、术语表模板、题集与评分表模板都在这里，
+换学科只需替换材料与术语表。
 
-- **执行 Agent**：写 `draft.json` 前看 §4/§5，知道每个字段怎么填才会被判为 `locked`；
-- **脚本维护者**：改判定口径时看 §2/§3/§6，规则与代码一一对应；
-- **评审/复核人**：看 §2/§7，知道每个 fail 是怎么来的、能不能机械复算。
+## 1 状态与分档
 
----
+- `status`：`answered`（全覆盖且无 fail）｜`partial`（覆盖不足或有 fail）｜`insufficient_evidence`（无可用材料/无译文）｜`input_error`
+- 每条 check 的 `status ∈ {pass, warn, fail, skip}`：`fail`=确定性缺陷（丢了原文信息，必须修）；
+  `warn`=需人工判断；`skip`=原文未检出该类成分（既不是通过也不是失败）
+- `fail>0` 时 `status` 最高只到 `partial`；工作稿自报更高状态会被降级并写入 `degradations`
+- 有 `fail` 时 `result.json.human_review` 逐条给出 `sid` 与"怎么修"
 
-## 1. 对象模型
+## 2 核验项（17 项）
 
-一次运行产生 4 层对象，全部围绕"原文可定位"这一条：
+| check | 判据 | fail / warn | 怎么修 |
+|-|-|-|-|
+| `sid_integrity` | 段号与 `work/index.json` 一致 | fail：段号重复/不存在；warn：漏段 | 用 `show` 核对，不要自造段号 |
+| `source_verbatim` | 工作稿粘的原文与索引逐字一致 | fail：被改写/截断 | 直接复制索引 `text` |
+| `coverage` | 要素型段落与正文的译出比例 | fail：低于阈值 | 补齐缺失段译文后 `build` |
+| `element_coverage` | 题注/表头表行/公式/文献都要成段 | fail：整类缺失 | 不要只译正文 |
+| `glossary_quote` | 术语 `quote` 在原文逐字命中 | fail：未命中（含回译） | 换成原文片段（空白差异可容忍） |
+| `glossary_drift` | 同术语译名一致 | warn：多译名 | 统一译名或显式拆分义项 |
+| `glossary_lock` | locked 术语在每个出现段同名 | fail：漏用 | 按术语表回填全篇 |
+| `protected_numbers` | 数字/单位多重集一致 | fail：少/多数字；warn：仅格式差异 | 按原文回填 |
+| `citations` | `[1]` 与 `(Author, 2019)` 标记数量编号一致 | fail：减少/错号 | 引用标记原样保留 |
+| `figure_table_refs` | `Fig. 1`/`Table 1` 引用一致 | fail：缺失 | 保留编号与类型词 |
+| `equation_tags` | 公式编号 `(1)` 一致 | fail：缺失 | 公式与编号单独成段 |
+| `negation` | 否定关系逐句核对 | fail：原文否定译文变肯定（或反之） | 允许换措辞，不允许丢否定 |
+| `hedge` | 限定/可能性表达 | warn：语气丢失 | 别把"可能"写成"必然" |
+| `target_language` | 译文语言符合目标语言 | fail：有段落不符 | 数值表行与文献条目按惯例保留原样，不计入 |
+| `placeholder_policy` | 译文无占位符 | warn：出现 `TBD`/`待写`/`...` | 未译就留空 + `uncertain` |
+| `repeated_target` | 不同段落译文不应完全相同 | warn：疑似复制 | 逐段检查 |
+| `contract_fields` | 契约键都能给值 | fail：既未给值也无法派生 | 在 `draft.json.result_fields` 给值 |
 
-| 层 | 对象 | 标识 | 由谁产生 |
-|---|---|---|---|
-| 材料 | source（文件） | 相对 `/input` 的路径 | `init`（`index.json.sources`） |
-| 页面 | page | 自 1 递增的序号 | `init`（`index.json.pages`） |
-| 段落 | segment | `S001`…（3 位，按阅读顺序） | `init` 切段规则 R1–R7 |
-| 译段 | pair | 与 segment 同 sid | Agent 写 `draft.json`，`build` 渲染 |
+指标率：`coverage_rate`、`glossary_consistency`、`span_retention`、`element_coverage`、`negation_rate`、`hedge_rate`、
+`quote_verbatim`（进 `result.json.audit_summary.rates` 与 `bilingual_review.md`）。
 
-`locator` 形如 `p3:S012`；跨页续段写成 `p3-4:S012`，同时 `bridged=true`。
-**sid 只由脚本分配**，Agent 不得新增、重排或跳号——`sid_integrity` 会检查。
+## 3 切段规则（R1–R7）与要素判定
 
-段落 `type` 取值：`heading` / `abstract`（章节语境）/ `body` / `caption_figure` /
-`caption_table` / `formula` / `reference`。`section` 记录所属章节语境
-（`abstract` / `introduction` / `references` 等），用于判定"参考文献段保留原文"。
+R1 空行断段｜R2 句末兜底｜R3 行尾连字符拼接（记 `hyphen_joined`）｜R4 跨页续段（上页段末无终句标点且下页段首小写 →
+合并，`bridged=true`、`pages=[p1,p2]`）｜R5 页眉页脚丢弃（数字掩码后跨 ≥3 页相同的短行）｜R6 双栏投影切分（中部空白槽
+在 ≥60% 行成立才切）｜R7 标题自成块（编号标题、全大写短行、`摘要/方法/结果/讨论/参考文献` 等）。
 
----
+要素判定：`Fig./Figure/图`、`Table/表` 开头的短行 → 题注；含制表符或 ` | ` 的行 → 表头/表行；形如 `E = mc^2  (1)`
+→ `formula`；`[1] …` 或 `Author A, Author B. Title. Journal, Year.` → `reference`。
 
-## 2. 保护性 span 字典
-
-`init` 抽取、`audit` 校验的是同一套规则（`align.SPAN_RULES`）。含义：
-**这些片段在译文中必须逐字等值**（中文语境允许把 `Fig. 2` 写成 `图2`，但编号必须一致）。
-
-| kind | 匹配对象 | 例子 | 缺失判定 |
-|---|---|---|---|
-| `pct` | 百分数 | `87.3%`、`4.2 %` | fail |
-| `pvalue` | p 值 | `p < 0.05`、`P=0.01` | fail |
-| `stat` | 统计量 | `r = 0.82`、`F = 3.41` | fail |
-| `pm` | 误差 | `± 0.5` | fail |
-| `num_unit` | 数字+单位 | `12 kHz`、`5 dB`、`37 °C` | fail |
-| `cite_bracket` | 方括号引用 | `[12]`、`[3,5]`、`[7–9]` | fail |
-| `cite_author` | 作者-年份 | `(Smith et al., 2020)` | fail（数量减少即 fail） |
-| `eq_tag` | 公式编号 | `(1)`、`(12a)` | fail |
-| `fig_ref` | 图表/公式/章节指向 | `Fig. 2`、`Table 1`、`Eq. (3)`、`Section 4.1` | fail |
-| `greek` | 希腊字母与数学符号 | `α`、`±`、`≈` | 仅记录，不单独判 fail |
-
-比对方式：原文 span 集合（多重集合，保留重复计数）减去译文 span 集合，差集非空即
-`protected_numbers`/`citations`/`figure_table_refs`/`equation_tags` 判 fail，条目里带段号
-与缺失值。译文**多出**原文没有的数字 → `warn`（可能是译者补的章节号或编号，需人工确认）。
-
-数字归一化：千分位逗号删除（`1,200` → `1200`）、小数点保留、尾随 `.0` 归整、全角转半角。
-不做四舍五入、不做单位换算——换算即视为篡改。
-
----
-
-## 3. 核验项清单（15 项）
-
-`status` 取值 `pass` / `fail` / `warn` / `skip`。`fail` 必须回改；`warn` 进
-`pending_human`；`skip` 表示该案例不适用（如原文无否定句）。
-
-| # | check | 严重度 | 判定 | 典型修复 |
-|---|---|---|---|---|
-| 1 | `sid_integrity` | fail | 段号重复 / 索引中不存在 / 未覆盖 | 只用 `show` 给出的 sid |
-| 2 | `source_verbatim` | fail | 工作稿 `source` 与索引原文不一致 | 从 `SRC` 逐字复制 |
-| 3 | `coverage` | fail | 有段落无译文或只有 `〔待补〕` | 补译，或标 `〔未译:原因〕` |
-| 4 | `glossary_quote` | fail | 术语有译名但无逐字命中原文的 `quote` | 补真实 quote 或降级为 `proposed` |
-| 5 | `glossary_lock` | fail | 锁定术语在其出现的段落里未使用锁定译名 | 统一译名后重跑 |
-| 6 | `glossary_drift` | warn | 同一源术语在工作稿里出现多种译名 | 择一锁定，另一条删掉或改 term |
-| 7 | `protected_numbers` | fail | 数字/单位/百分数/p 值/统计量缺失 | 回填原值，不改量级 |
-| 8 | `citations` | fail | 引用编号或作者-年份标记丢失 | 原样保留标记 |
-| 9 | `figure_table_refs` | fail | 图表/公式/章节编号不一致 | 编号照抄，只译"图/表"字样 |
-| 10 | `equation_tags` | fail | 公式编号 `(n)` 丢失 | 保留编号 |
-| 11 | `negation` | fail | 源句含否定/限制成分，对应译文无否定标记 | 补"不/未/无/仅/无法"等 |
-| 12 | `hedge` | warn | 源句含限定/可能性成分，译文疑似强化为断言 | 补"可能/提示/相关" |
-| 13 | `placeholder_policy` | warn/fail | `answered` 状态下仍含占位符 / `〔存疑〕` 未配 `uncertain` | 清零或降级 status |
-| 14 | `target_language` | fail | 译文缺目标语言字符（参考文献段豁免） | 补译 |
-| 15 | `repeated_target` | warn | 多段译文完全相同（疑似复制填充） | 逐段重译 |
-
-句子级检查（11/12）的配对方式：源句按 `[.!?]` 切分，目标句按 `。！？；` 切分，
-按 `tgt_i = round(i·(nt-1)/(ns-1))` 做保序比例映射。**这是近似对齐**——句数差异大时
-检查会漏判或误判，所以只对 fail 的段给提示、由 Agent 复核，人工可据此定位重译。
-
----
-
-## 4. 术语表规范
-
-工作稿里写 `glossary`，每条：
-
-```json
-{"term": "few-shot", "target": "少样本", "basis": "S003 首次定义", "sid": "S003",
- "quote": "few-shot fault diagnosis", "expansion": ""}
-```
-
-| 字段 | 必填 | 说明 |
-|---|---|---|
-| `term` | 是 | 原文术语，逐字取自原文（大小写不敏感匹配，按词边界） |
-| `target` | 是 | 锁定译名；留空则不参与回扫 |
-| `basis` | 建议 | 译法依据（定义位置、领域惯例、与上位术语的关系） |
-| `sid` | 是 | 证据所在段号 |
-| `quote` | 是 | 该段中包含 `term` 的**逐字**片段（10–120 字符为宜） |
-| `expansion` | 否 | 缩写全称，用于首现规则 |
-
-判定树：
-
-```
-有 target ?
- ├─ 否 → proposed（不参与回扫，进 uncertainties）
- └─ 是 → quote 在 sid 原文逐字命中 ?
-          ├─ 是 → 同 term 只有一种 target ? → locked
-          │                              └→ conflict（多种译名，先统一）
-          └─ 否 → proposed + glossary_quote fail
-```
-
-- **首现缩写规则**：`full name (ACRONYM)` 首现处译作「全称（缩写）」，其后各段只留缩写。
-- **术语条数**：10–40 条。少于 10 条通常说明没做术语工作；多于 40 条会稀释回扫信号。
-- **全篇回扫**：每个 `locked` 术语在其出现的**所有**段落检查 `target` 是否出现；
-  `consistency_rate = 命中次数 / 出现次数`，写入 `audit_report.rates.glossary_consistency`。
-- **跨篇复用**：把上次的 `output/glossary.json` 拷成 `work/glossary_seed.json`，新篇仍需
-  自己的 `quote` 才能 `locked`——seed 只提供译名候选，不提供证据。
-
----
-
-## 5. 工作稿 draft.json schema
-
-路径 `work/draft.json`，可分批写成 `work/draft_part_01.json`、`draft_part_02.json`…
-（按文件名排序合并，同 sid / 同 term 后者覆盖前者）。也接受 `work/plan.json`。
+## 4 术语表模板（复制到新题）
 
 ```json
 {
-  "case_id": "CASE-01",
-  "task_understanding": "一句话说明任务边界与翻译口径",
-  "glossary": [ {"term": "...", "target": "...", "basis": "...", "sid": "S003", "quote": "..."} ],
-  "segments": [
-    {"sid": "S003", "source": "原文逐字", "target": "译文", "term_hits": ["few-shot"],
-     "notes": "译法说明", "uncertain": false, "basis": "为什么这样译"}
-  ],
-  "result_fields": {"<output_contract 的字段名>": "该字段的值"},
-  "uncertainties": ["S011 的 association 关系未敢断言为因果"],
-  "decisions": ["参考文献段按策略保留原文"]
+  "case_id": "<case_id>",
+  "source_language": "en",
+  "target_language": "zh",
+  "policy": {"locked": "quote 逐字命中且全篇一致", "proposed": "工作稿译名，quote 未通过校验", "candidate": "索引候选，未定名"},
+  "terms": [
+    {"term": "germination rate", "target": "萌发率", "status": "locked",
+     "quote": "the germination rate decreased from 92.4 %", "sid": "S003", "locator": "p1:S003",
+     "occurrences": ["S003", "S005"], "occurrence_count": 2}
+  ]
 }
 ```
 
-| 字段 | 必填 | 校验点 |
-|---|---|---|
-| `case_id` | 否 | 与 case.json 不一致时以 case.json 为准 |
-| `task_understanding` | 建议 | 进 result.json 同名信封字段，供评审看任务理解 |
-| `glossary[]` | 建议 | 见 §4；条目 schema 已在上表 |
-| `segments[].sid` | 是 | 必须存在于索引 |
-| `segments[].source` | 建议 | 与索引原文逐字比对（`source_verbatim`） |
-| `segments[].target` | 是 | 空 → `〔待补〕`；含 `〔存疑〕` → 需 `uncertain=true` |
-| `segments[].notes` | 建议 | 译法依据/取舍；进 `paragraph_pairs.jsonl` 与核验缺口说明 |
-| `segments[].uncertain` | 否 | 默认 false；true 时该段计入 `coverage.uncertain` |
-| `result_fields` | 否 | 契约字段优先取这里的值，再退回语义映射（见 §6） |
-| `uncertainties` | 否 | 字符串或对象数组，进 result.json |
+规则：`term` 用原形（缩写保留大写）；`target` 是唯一译名；`quote` 必须可逐字定位；`occurrences` 由脚本回扫；
+一义多条（如 `cell (biological)` / `cell (fuel)`），不要一条多译名。
 
-体积控制：单条 `source` 建议 ≤600 字符（整段原文由脚本入库，不必重复粘贴长段可省 token）。
+## 5 题集与评分表模板
 
----
-
-## 6. result.json 契约回填
-
-`output_contract` 的键**原样**出现在 `result.json` 顶层，不改名、不漏键。取值优先级：
-
-1. `draft.result_fields[key]`（Agent 显式给值且非空）；
-2. 按键名语义映射到本 Skill 产物（下表，前缀匹配、大小写不敏感）；
-3. 契约声明为 array → `[]`；否则 `null`（并在 `degradations` 记 `contract_fields_null`）。
-
-| 键名包含 | 回填内容 |
-|---|---|
-| `glossary` / `terminolog` / `术语` | 术语表（含 status、quote_verified、occurrences） |
-| `coverage` / `completeness` / `覆盖` | 覆盖账本（total/translated/missing/skipped/uncertain/rate） |
-| `audit` / `verif` / `check` / `核验` | 核验摘要 + 指标率 + fail 明细 |
-| `evidence` / `locator` / `quote` / `证据` | 证据表（术语引文、段落证书、审计失败项，均带 locator） |
-| `uncertain` / `pending` / `manual` / `不确定` | 不确定项与待人工确认项 |
-| `translat` / `bilingual` / `pair` / `segment` / `对照` | 段落对数组（与 `paragraph_pairs.jsonl` 同源） |
-| `status` / `state` / `状态` | 推导出的 status（禁用更乐观的覆盖） |
-| `case` | `case_id` |
-| `note` / `method` / `understanding` / `说明` | `task_understanding` |
-| `language` / `lang` | 目标语言代码 |
-| `output` / `artifact` / `file` | 产物路径表 |
-| `source` / `input` / `material` | 材料清单（路径、类型、提取器、页数、字符数） |
-| `summary` / `摘要` | 段落数/已译数/术语锁定数/审计通过数 |
-| 其它 | `null` 或 `[]`，并记入 degradations |
-
-若 `case.json` 坏掉，`salvage_case()` 会从原始文本抢救 `case_id` 与 `output_contract`
-顶层键名（只取深度 1 的 `"key":`，不会把嵌套的 `"type"` 当成契约字段）。
-
----
-
-## 7. 占位符与状态推导
-
-三类占位符**语义不同、计数分开**，脚本按字面识别：
-
-| 写法 | 含义 | 覆盖账本 |
-|---|---|---|
-| `〔待补:S012〕` | 还没译（缺工/超预算） | `missing` |
-| `〔未译:S013:reference〕` | 按策略不译（参考文献/纯符号） | `skipped`（不计缺失） |
-| `〔存疑:S014:术语待定〕` | 已译但不确信 | `translated` + `uncertain` |
-
-状态推导（`audit.derive_status`）：
-
-```
-无段落 → insufficient_evidence（有材料）/ input_error（材料都读不到）
-coverage_rate = 1.0 且 fail = 0 → answered
-否则 → partial
+```json
+{
+  "case_id": "<case_id>", "language": "en", "target_language": "zh", "materials_root": "materials",
+  "notes": "材料来源、篇幅、难度与要素构成",
+  "output_contract": {"case_id": null, "status": null, "result": null, "claims": [], "uncertainties": []}
+}
 ```
 
-`build --status` 只能取**更保守**的方向（`enforce_status`）：
-`answered(3) > partial(2) > insufficient_evidence(1) > input_error(0)`，
-请求等级高于推导等级会被拒绝并记 `status_note`；反之允许，用于"核验有 warn 未人工确认时
-主动降级"。
+| 维度 | 分值 | 本 Skill 提供的可核验证据 |
+|-|-|-|
+| 实际效果 | 40 | 段落级对照、要素覆盖（题注/表头/公式/文献）、数字与引用合计数 |
+| 使用增益 | 25 | `audit_summary.rates` + `runtime.efficiency`（分阶段耗时、每段耗时、人工基线折算） |
+| 创新增益 | 15 | 术语锁定与全篇回填、跨页续段、保护性 span、否定/限定核验 |
+| 可靠体验 | 10 | 退出码恒 0、`selfcheck`（含降级场景）、降级矩阵与 `degradations` |
+| 生态贡献 | 10 | 三份文档 + 术语表/题集模板 + `examples/` 最小用例 |
 
-`degradations` / `errors` / `uncertainties` / `pending_human` 的分工：
+## 6 未译标注与对齐约定
 
-- `errors`：输入层故障（`case_json_missing`、`material_read_failed`、`input_dir_missing`）；
-- `degradations`：能力边界（`draft_missing`、`segments_untranslated:27`、`audit_fail:4`、
-  `contract_fields_null:1:xxx`、`builtin_pdf_extractor`、`two_column_split`）；
-- `uncertainties`：内容层面不确定（术语译名未定、语义关系不敢断言）；
-- `pending_human`：核验 warn 的可执行清单（检查项 + 段号 + 说明）。
-
----
-
-## 8. 指标定义（都可机械复算）
-
-| 指标 | 计算式 | 位置 |
-|---|---|---|
-| `coverage_rate` | 有实质译文的段数 / 总段数 | `rates.coverage_rate` |
-| `coverage_rate_incl_skipped` | (译文段 + 策略跳过段) / 总段数 | `coverage` |
-| `glossary_consistency` | locked 术语在出现段中命中锁定译名的次数 / 出现次数 | `rates.glossary_consistency` |
-| `span_retention` | 1 − 缺失 span 数 / 原文 span 总数 | `rates.span_retention` |
-| `negation_rate` | 保留否定标记的句子数 / 含否定的源句数 | `rates.negation_rate` |
-| `hedge_rate` | 保留限定标记的句子数 / 含限定的源句数 | `rates.hedge_rate` |
-| `quote_verbatim` | quote 逐字命中的术语条数 / 术语总条数 | `rates.quote_verbatim` |
-
-复算方式：`build` 后重跑 `check`，两者 rates 应完全一致（同源同规则）；
-`selfcheck` 会比对产物与索引的段数、契约键、locked 术语的 quote 命中。
-
----
-
-## 9. 已知限制（写进结论时要带上）
-
-1. **句级否定/限定检查是比例对齐的近似**：源句与目标句数不等时会错配，只作提示，
-   不能当作"译文语义正确"的证明。
-2. **内置 PDF 解析器**：只解 FlateDecode 文本层，复杂编码（Type0/CID、自定义 CMap）
-   可能出乱码；此时 `text_quality` 报 `low_quality` 并降级，不猜内容。页号按 content
-   stream 顺序估计，`source` 里会标 `builtin:*`。
-3. **双栏检测是启发式**：靠 ≥3 字符连续空白槽 + 60% 覆盖；表格页、单栏窄版式可能漏判
-   或误判，误判时 `warnings` 有记录，译文顺序需人工顺读确认。
-4. **`eq_tag` 与括号数字同形**：`33(2): 145-158` 这类卷期号会被当成公式编号；因对
-   原文/译文同一规则，不影响一致性判定。
-5. **表格结构（列头/单元格）不重建**：只按文本流切段，表注可作为 `caption_table` 段落
-   翻译，表体逐行内容按段落处理。
-6. **术语译名优劣不由脚本判定**：脚本只判定"是否一致、是否有逐字证据"；译名是否学术
-   妥当需评审判断，`basis` 字段就是留给这个判断的。
+- 未译段：`target` 留空 + `uncertain=true` + `notes` 写明原因（如"表格为图片，无文本层"），
+  该行 `target_status=untranslated`，不计入 `coverage_rate` 分子但计入分母
+- 保留原样（不译）：纯数值表行、文献条目、公式本体；这三类在 `type` 标记，语言检查自动豁免
+- 对齐：一行一段（一个 `sid`），`source` 为索引用文，`target` 为译文；不要一行多段或一段多行
+- 保护性 span（`protected_spans`）中的数字/单位/引用/图表编号/公式号必须在译文里全部出现（多重集相等）
