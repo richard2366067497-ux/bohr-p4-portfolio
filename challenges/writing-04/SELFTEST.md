@@ -93,3 +93,20 @@ SELFTEST.md               <this file>
 | 引用匹配 | claim_support.csv | 增加每行 `locator`（`L行:C列`/`C偏移`）+ 逐字 `quote` |
 | 契约回填 | 顶层 + 结构位 | 同样双层；空集合一律用诚实信封（`kind/items/count/note`） |
 | 自证 | 无内置算法断言 | 新增 `selftest` 子命令，对内存语料断言去重/渲染/匹配确实生效 |
+
+## v8 复跑与关键数字（examples/）
+
+新增随包最小样例 `examples/`（`case.json` + `lib.bib`，3 条记录、2 条同 DOI），可被评审直接复跑：
+
+```bash
+python3 scripts/cite_engine.py all --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：
+
+- exit 0，`result.json.status = success`，产物 **17** 文件。
+- `counts = {input_records: 3, canonical: 2, merges: 1, changes: 3}`；`duplicates` 1 条
+  （DOI `10.1017/jmr.2019.101`，confidence 0.99）；`unknown_keys.count = 0`；契约键 **8/8**；占位符 0。
+- 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
+  separators=(",",":"))` 的 `sha256` 前 16 位）：**`50be7104cc5964f4`**。
+- `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（契约键 8/8）。
