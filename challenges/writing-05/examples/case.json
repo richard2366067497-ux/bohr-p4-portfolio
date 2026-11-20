@@ -1,0 +1,12 @@
+{
+  "case_id": "example-writing-05",
+  "language": "en",
+  "materials_root": "materials",
+  "output_contract": {
+    "case_id": null,
+    "deliverable": null,
+    "preserved_facts": [],
+    "evidence_map": [],
+    "change_log": []
+  }
+}
