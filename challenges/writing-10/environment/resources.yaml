@@ -1,0 +1,49 @@
+# Resource entry point for the reviewer-response / manuscript-revision skill.
+# Consumed by the platform harness; pure standard library, fully offline.
+version: 1
+skill: writing-10-reviewer-response
+entry_point: scripts/main.py
+
+runtime:
+  input_dir: /input
+  work_dir: /app/work
+  output_dir: /app/output
+  network: disabled
+  dependencies: []            # standard library only (python3 >= 3.8)
+  language: [en, zh]          # auto-detected from case.json.language, else from materials
+
+commands:
+  - id: run
+    purpose: single-command full pipeline (parse comments -> decide -> revise -> respond -> self-check)
+    cmd: python3 scripts/main.py --input /input --output /app/output --work /app/work
+    required: true
+  - id: run_with_draft
+    purpose: agent-first path; adopt an Agent-authored decision/rewrite draft when present
+    cmd: python3 scripts/main.py --input /input --output /app/output --work /app/work --draft /app/work/draft.json
+    required: false
+  - id: run_en
+    purpose: force English output
+    cmd: python3 scripts/main.py --input /input --output /app/output --work /app/work --lang en
+    required: false
+
+required_outputs:
+  - revised_manuscript.md
+  - response_letter.md
+  - comment_ledger.json
+  - change_locator.json
+  - evidence_pending.md
+  - version_notes.md
+  - selfcheck.json
+  - result.json
+
+budgets:
+  max_seconds: 60
+  max_output_files: 16
+  max_output_bytes: 1048576
+
+contract:
+  keys: [case_id, deliverable, preserved_facts, evidence_map, change_log]
+  echo: nested object `result.json.output_contract` plus the same keys at top level
+  placeholders: forbidden
+
+exit_code_policy: always 0 (usage error 2)
