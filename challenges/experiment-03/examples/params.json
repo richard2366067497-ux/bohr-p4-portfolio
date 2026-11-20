@@ -1,0 +1,30 @@
+{
+  "parameters": [
+    {"name": "temperature", "min": 60, "max": 180, "step": 10, "unit": "C"},
+    {"name": "time", "min": 10, "max": 60, "step": 5, "unit": "min"},
+    {"name": "catalyst", "min": 0.5, "max": 2.5, "step": 0.5, "unit": "g"}
+  ],
+  "constraints": [
+    {"param": "temperature", "op": "le", "value": 160, "unit": "C"},
+    {"param": "time", "op": "ge", "value": 15, "unit": "min"},
+    {"param": "catalyst", "op": "le", "value": 2.0, "unit": "g"}
+  ],
+  "budget": 200,
+  "resources": [
+    {"name": "trial", "price": 2.5, "usage": 12, "unit": "currency"}
+  ],
+  "history": [
+    {"temperature": 120, "time": 20, "catalyst": 1.0, "yield": 71, "impurity": 3},
+    {"temperature": 140, "time": 30, "catalyst": 1.5, "yield": 78, "impurity": 4},
+    {"temperature": 160, "time": 40, "catalyst": 2.0, "yield": 82, "impurity": 5},
+    {"temperature": 100, "time": 15, "catalyst": 0.5, "yield": 64, "impurity": 2},
+    {"temperature": 150, "time": 55, "catalyst": 1.0, "yield": 80, "impurity": 4},
+    {"temperature": 130, "time": 25, "catalyst": 2.0, "yield": 76, "impurity": 5},
+    {"temperature": 170, "time": 50, "catalyst": 1.5, "yield": 84, "impurity": 6},
+    {"temperature": 110, "time": 35, "catalyst": 1.0, "yield": 69, "impurity": 3},
+    {"temperature": 160, "time": 20, "catalyst": 0.5, "yield": 77, "impurity": 3},
+    {"temperature": 140, "time": 45, "catalyst": 2.0, "yield": 81, "impurity": 5},
+    {"temperature": 120, "time": 60, "catalyst": 1.5, "yield": 73, "impurity": 4},
+    {"temperature": 155, "time": 30, "catalyst": 1.0, "yield": 79, "impurity": 4}
+  ]
+}
