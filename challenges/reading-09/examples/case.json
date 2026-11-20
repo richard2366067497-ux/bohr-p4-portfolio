@@ -1,0 +1,18 @@
+{
+  "case_id": "example-reading-09",
+  "language": "en",
+  "materials_root": ".",
+  "paper_file": "params.json -> paper",
+  "notes": "Bundled demo case: one short paper with the six card sections and two candidate implementations.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "result": "string",
+    "notes": "string",
+    "note_units": "string",
+    "paper_card": "string",
+    "coverage": "string",
+    "claims": "string",
+    "uncertainties": "string"
+  }
+}
