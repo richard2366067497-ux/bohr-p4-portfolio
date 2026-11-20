@@ -1,0 +1,64 @@
+{
+  "version": "1.0.0",
+  "labels": ["include", "exclude", "pending"],
+  "label_aliases": {
+    "include": ["include", "included", "纳入", "是", "yes", "y", "1", "true", "relevant", "相关"],
+    "exclude": ["exclude", "excluded", "排除", "不纳入", "否", "no", "n", "0", "false", "irrelevant", "不相关"],
+    "pending": ["pending", "maybe", "unclear", "待定", "待复核", "待全文", "?", ""]
+  },
+  "phases": ["title_abstract", "fulltext"],
+  "reviewer_aliases": {
+    "A": ["a", "reviewer a", "reviewer1", "reviewer 1", "r1", "标注者a", "评审1", "ann1", "annotator1"],
+    "B": ["b", "reviewer b", "reviewer2", "reviewer 2", "r2", "标注者b", "评审2", "ann2", "annotator2"]
+  },
+  "field_synonyms": {
+    "title": ["title", "article_title", "ti", "标题", "题目", "文献标题", "study_title", "name"],
+    "abstract": ["abstract", "ab", "abstract_text", "summary", "摘要", "abstracts"],
+    "doi": ["doi", "doi_id", "digital_object_identifier", "doi号"],
+    "authors": ["authors", "author", "au", "作者", "creator", "first_author"],
+    "year": ["year", "pub_year", "publication_year", "py", "年份", "出版年", "date"],
+    "journal": ["journal", "so", "source", "venue", "期刊", "journal_title", "publication"],
+    "id": ["record_id", "rec_id", "id", "pmid", "uid", "rid", "key", "handle", "编号", "记录号", "ref_id"],
+    "reviewer": ["reviewer", "reviewer_id", "annotator", "rater", "screener", "标注者", "评审人", "reviewer_name"],
+    "label": ["label", "decision", "verdict", "screening", "结论", "标注", "筛选结果", "include_exclude"],
+    "reason": ["reason_code", "reason", "reason_id", "理由码", "理由", "exclusion_reason"],
+    "version": ["criteria_version", "version", "标准版本", "criteria_v", "standard_version"],
+    "study": ["study_key", "study", "study_id", "研究编号", "trial_id"]
+  },
+  "codes": {
+    "IN-POP": {"label": "include", "zh": "研究对象/人群与目标问题一致", "en": "population matches the review question", "hint": "题名或摘要的人群描述可逐字引用"},
+    "IN-INT": {"label": "include", "zh": "干预/暴露与目标问题一致", "en": "intervention or exposure matches", "hint": "写明具体干预名称"},
+    "IN-DES": {"label": "include", "zh": "研究设计符合纳入的设计类型", "en": "eligible study design", "hint": "RCT/队列/横断面等需在摘要中可辨"},
+    "IN-OUT": {"label": "include", "zh": "报告了目标结局", "en": "reports a target outcome", "hint": "结局名称可逐字引用"},
+    "IN-CON": {"label": "include", "zh": "情境/条件符合范围", "en": "setting or condition within scope", "hint": "社区/住院/国家等限定"},
+    "EX-POP": {"label": "exclude", "zh": "研究对象或人群不符", "en": "population out of scope", "hint": "例如动物实验、其他疾病人群"},
+    "EX-INT": {"label": "exclude", "zh": "干预或暴露不符", "en": "intervention or exposure out of scope", "hint": ""},
+    "EX-DES": {"label": "exclude", "zh": "研究设计不符（综述、评论、社论、病例报告、动物实验等）", "en": "ineligible design", "hint": "narrative review / editorial / case report 等可直接引用"},
+    "EX-OUT": {"label": "exclude", "zh": "未报告目标结局", "en": "target outcome absent", "hint": ""},
+    "EX-LANG": {"label": "exclude", "zh": "语种不符检索限定", "en": "language outside the limit", "hint": "需指出语种依据"},
+    "EX-DUP": {"label": "exclude", "zh": "重复记录：同一研究的另一副本（已被代表记录覆盖）", "en": "duplicate of an included record", "hint": "需与 dedup_decisions 的组号对应"},
+    "EX-DATE": {"label": "exclude", "zh": "发表时间在检索时间窗之外", "en": "outside the date window", "hint": "引用年份字段"},
+    "EX-SETTING": {"label": "exclude", "zh": "情境/地区/机构类型不在范围内", "en": "setting out of scope", "hint": ""},
+    "EX-FULLTEXT": {"label": "exclude", "zh": "全文不可得且题录信息不足以判定排除/纳入之外的处理（按协议作为排除处理）", "en": "full text unavailable, protocol treats as excluded", "hint": "必须在 note 说明协议依据；否则应用 P-ABS"},
+    "P-ABS": {"label": "pending", "zh": "摘要缺失或信息不足，需取全文后再判", "en": "abstract missing or insufficient", "hint": "绝不因为缺摘要就猜 include/exclude"},
+    "P-LANG": {"label": "pending", "zh": "语种待确认（题录语种未知或需翻译）", "en": "language to be confirmed", "hint": ""},
+    "P-CONFLICT": {"label": "pending", "zh": "两位评审分歧未决", "en": "reviewer disagreement unresolved", "hint": "需仲裁记录"},
+    "P-VERSION": {"label": "pending", "zh": "标准版本变更，旧判定需回溯重判", "en": "criteria version changed, rejudgement required", "hint": "配合 rejudged_from 使用"},
+    "P-NODRAFT": {"label": "pending", "zh": "降级占位：本记录没有来自工作稿的判定", "en": "placeholder: no decision was supplied", "hint": "仅由脚本兜底生成，不可作为 Agent 判定提交"}
+  },
+  "conflict_types": {
+    "direction_conflict": "一方纳入、一方排除：实质性分歧，必须给出仲裁结论与判据原文",
+    "reason_conflict": "标签相同但理由码不同：需确定主理由码，影响排除理由分布",
+    "version_conflict": "两行绑定不同标准版本：先定现行版本，再对旧判定标 rejudged_from",
+    "boundary_conflict": "至少一方 pending 或证据不足：需补信息（全文/语种/更明确片段）"
+  },
+  "anomaly_gloss": {
+    "no_doi": "缺 DOI：去重不能靠 DOI，需标题相似度 + 人工确认",
+    "no_abstract": "摘要为空：只能基于题名判断或转 pending",
+    "mojibake": "疑似编码乱码：需在台账中标注，不可据此判排除",
+    "same_title_diff_doi": "标题高度相似但 DOI 不同：可能是预印本/正式版，需核版本关系",
+    "dup_native_id": "同一 native id 出现多次：需确认是否为导出重复",
+    "short_title": "题名过短：匹配与判定置信度低",
+    "no_records": "未解析到任何题录"
+  }
+}
