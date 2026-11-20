@@ -1,88 +1,145 @@
 ---
-name: extraction-table-auditor
-description: 把"别人从论文里抄下来的行"清洗成统计软件敢用的表，并留下一条能倒查回原文的证据链：解析输入（编码/魔数/文本层）、识别行级对象与列角色、单位换算与同义归一、重复与冲突候选分组、生成清洗表/变更日志/待确认清单/异常报告/字段映射/规则与单位表，逐键回填 output_contract，并给出可重算与确定性证明。用于"提取表清洗""单位换算核对""字段规范化""重复/冲突对账"等任务；取不到就不填并进 pending_review，绝不猜测单位或编造数值。
-version: 2.0.0
-tags: [data-cleaning, unit-conversion, provenance, validation, idempotency]
+name: extraction-table-cleaner
+version: 1.0.0
+description: >-
+  Turn a literature extraction table into a cleaned, unit-normalised table that stays auditable:
+  resolve each column to a role from the field dictionary, parse number / range / ±error / missing
+  cells, normalise units to one label per (field, dimension) with a logged before * factor + offset,
+  normalise names only on an exact synonym hit, and decide duplicates, replicates and conflicts by a
+  judgment key rather than by row order. Every changed value and every row held back carries a
+  row_id + rule_id + source_locator back to the input, and anything the source does not state stays
+  empty instead of being guessed. Use when a task asks for 文献数据清洗 / 提取表标准化 / 单位换算 /
+  同名同义合并 / 数据可追溯 with a reproducible cleaning path. Pure standard library, offline,
+  deterministic.
 ---
 
-# 提取表清洗与标准化（extraction-table-auditor）
+# extraction-table-cleaner
 
-本包是 `reading-12` 的 v6 修复形态：**第一条命令即可跑完全流程**，评估器只跑它也能拿到
-清洗表、变更日志、待确认清单、异常报告、字段映射、规则与单位表、完整契约回填与 `result.json`。
+An extraction table is a claim about the literature, so cleaning it must be replayable. This skill
+maps columns to roles, parses each value cell, converts units only inside one dimension, merges
+duplicates, keeps conflicting values side by side, and gives every change a rule id and a locator.
+Nothing is invented: a missing cell stays empty, an unresolvable unit is queued, never guessed.
 
-## 0. result.json 契约样例（output_contract 逐键回填）
+## 0. result.json contract
 
-`result.json` 同时把每个契约键放进 `output_contract` 结构位与顶层同名键。用例声明的键总是合并
-进来、绝不改名或丢弃；用例未声明契约（`output_contract: null`）时使用下列默认键：
+Every key below is echoed both at the top level of `result.json` and inside its `output_contract`
+object; `case_id` is passed through unchanged. When the case supplies its own `output_contract`,
+those keys are used instead and each is filled the same way (an artifact-like key resolves to the
+written file, any other key gets a real derived value).
 
 ```json
 {
-  "case_id": "string",
-  "status": "success | partial | failed",
   "output_contract": {
-    "case_id": "string",
-    "deliverable": "path",
-    "evidence_map": "array",
-    "change_log": "array",
-    "coverage": "object",
-    "status": "string"
+    "case_id": "the input case id, passed through",
+    "status": "answered | partial | insufficient_evidence | input_error",
+    "deliverable": "cleaned.csv",
+    "evidence_map": "the locator-anchored change and review records",
+    "change_log": "the per-change audit rows",
+    "coverage": "coverage.json"
   }
 }
 ```
 
-- `case_id` 原样透传；`deliverable` 指向真实存在且非空的清洗表；`evidence_map` 汇总带 locator 的来源。
-- 写出前统一清理占位符令牌（`待写/待补充/none/null/pending/N/A/TBD` 等）与裸 `null`。
+## 1. Draft schema (JSON, optional)
 
-## 1. 全流程单命令（single-command entry）
+An agent may fill `/app/work/draft.json` with its own reading of the table; `build` merges it for
+provenance, and the deterministic cleaner still runs regardless, so a thin draft cannot turn an
+unreadable table into an invented number. Print the skeleton with
+`show --part draft`.
 
-一条命令跑完：扫描输入 → 识别列角色与行对象 → 单位换算/同义归一/重复分组 → 渲染
-清洗表与全部视图 → 回填契约 → 写 `result.json` → 占位符清理：
+```json
+{
+  "case_id": "",
+  "case_summary": "",
+  "field_map": {},
+  "records": [],
+  "groups": [],
+  "claims": [],
+  "pending": [],
+  "unmapped_columns": [],
+  "uncertainties": []
+}
+```
+
+## 2. 单命令（等价入口，one-shot，评测入口）
+
+Run this single command; with no draft it still writes every artifact and a complete
+`result.json`, and exits 0:
 
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
 
-- 退出码恒 0；空输入 / 坏输入 / 缺草稿同样退出 0，并写合法 `result.json`（`status=partial` 或 `insufficient_evidence`）。
-- `all` 不做人工判断：需要裁决的行进入 `pending_review.csv`，不被写进分析表，也不被猜测填补。
+## 3. agent-first 增强路径（可选，质量更高）
 
-## 2. 产物清单（写入 `/app/output`）
+List the material with locators, fill the draft above, then check it before `build` merges it:
 
-| 文件 | 内容 |
-|---|---|
-| `cleaned.csv` | 清洗后的表：row_id、来源、字段、indicator/material、condition、值域、单位、rule_ids、judgment_key、status |
-| `change_log.csv` | 每条数值变更：before/after/unit_before/unit_after/factor/offset/formula/precision/rule_id |
-| `pending_review.csv` | 需人工裁决的行：reason_code、reason、suggested_action、原始值/单位、来源 locator |
-| `anomaly_report.md` | 7 段报告：字段规范/单位换算/同义归一/缺失异常/重复冲突/来源变更/待确认/边界 |
-| `rules.json` | 生效规则、被抑制规则、应用计数与优先级说明 |
-| `field_mapping.json` | 原始列 → 角色/目标字段，未映射列显式登记，绝不静默丢弃 |
-| `unit_table.json` | 单位表快照 + 观察到的换算 + 未解析单位 |
-| `result.json` | 主结果：契约逐键回填、`case_id` 透传、`status`、证据、不确定性、限制 |
+```bash
+python3 /skills/weekly-skill/scripts/main.py init      --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py show      --input /input --work /app/work
+python3 /skills/weekly-skill/scripts/main.py check     --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py build     --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py selfcheck --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py compare   --input /input --output /app/output --work /app/work
+```
 
-## 3. 子命令（可选，供人工/Agent 分步复核）
+`show` prints each source line with a `M02/p9` locator; `check` reports whether grounded rows and
+changes exist; `compare` writes a base-vs-skill contrast to `/app/work/compare_report.json`.
 
-| 子命令 | 作用 | 写盘 |
-|---|---|---|
-| all | 扫描 + 渲染 + 清理（推荐，等价全流程入口） | 是 |
-| init | 仅索引输入并写合法 partial result.json 与 work/index.json | 是 |
-| show | 打印带 locator 的材料/对象/候选分组，可 `--part draft` 输出草稿骨架 | 否 |
-| check | 机械校验 work/draft.json（裁决合法性、行覆盖、quote 逐字命中） | 是（check_report.json） |
-| build | 渲染产物 + 最终 result.json；缺草稿时仅机械默认并标 partial | 是 |
-| selfcheck | 复算一致率、契约覆盖、两跑逐字节一致、增益对照 | 是（selfcheck.json） |
+## 4. Pipeline
 
-公共参数：`--input`、`--output`、`--work`、`--draft`。所有子命令都接受它们并始终退出 0。
+1. Index every file under `/input` with its kind, size and parse status (`parsed` / `empty-file` /
+   `placeholder-only` / `unparsed-binary`).
+2. Classify the materials: the field dictionary (roles / synonyms / target_fields), the rule catalog
+   (`rules`), the unit table (`units`) and the extraction records (`records` / `rows` / a JSON array
+   or JSONL).
+3. Resolve each column to a role — exact synonym, word-boundary synonym, or a `indicator (unit)`
+   header whose unit is lifted out — and declare the rest as unmapped rather than dropping them.
+4. Parse each value cell: number, scientific notation, thousands separators, `±`/`+/-` error,
+   `a to b` range, or a missing marker.
+5. Resolve the unit (exact, alias, prefix composition, NFKC folding) and convert inside one
+   dimension with `after = before * factor + offset`, scaling the error and never offsetting it.
+6. Group rows by judgment key (source, conditions, indicator, material) into duplicates, replicates
+   and conflicts using the catalog tolerance.
+7. Emit the audit trail: one change row per conversion with its rule id and locator, one review row
+   per held value, and a coverage/uncertainty summary.
 
-## 4. 数据与引用
+## 5. Artifacts written to `--output`
 
-字段词典、单位表按用例随附（`materials/field_dictionary.json`、`materials/unit_table.json`），
-脚本优先读取用例自带版本，缺失时退化为最小内置表并在 `degradations` 中说明；规则目录同理。
-任何未解析的单位/数值都留空并进 `pending_review`，绝不用 0 或猜测值填充。
+| file | content |
+|-|-|
+| `result.json` | every contract key (top level + `output_contract`), case_id, status, digest, claims, sources, uncertainties, change_records, artifacts |
+| `cleaned.csv` | the deliverable: one row per record with value, unit, judgment key, status and the rule ids applied |
+| `change_log.csv` | one row per change: before, factor, offset, after, precision, rule_id, formula, locator |
+| `pending_review.csv` | values held back with a reason code and a suggested action |
+| `anomaly_report.md` | bucket counts, method, the queued detail and the rows |
+| `rules.json` | the rule base in force, its tolerance and any suppressed rule |
+| `field_mapping.json` | the role/synonym map actually used and the declared unmapped columns |
+| `unit_table.json` | the units, prefixes and canonical targets used, with the unit tokens actually seen |
+| `evidence_map.json` | every change and every queued row with row_id, rule_id and source_locator |
+| `coverage.json` | records in, rows out, converted, missing, review, duplicates, replicates, conflicts |
+| `run_log.txt` | per-material parse status and the stage counts |
 
-## 5. 证据与不编造
+## 6. Degradation rules
 
-每行保留 `row_id + source_document_id + source_locator + rule_ids`；每条结论携带 locator 与
-逐字 quote。未知单位、无法解析的单元格、冲突行一律使值留空并进入待确认清单。
+- No extraction records, or no field dictionary and no unit table → `status=insufficient_evidence`;
+  every artifact still carries a structured no-data record naming the searched locations; exit 0.
+- Some values unresolvable (unknown or ambiguous unit, unparsed cell, dimension mismatch) →
+  `status=partial` and the affected rows are queued instead of being guessed.
+- A conflicting group keeps both values and is queued; a conversion never resolves a scientific
+  disagreement.
+- A name is normalised only on an exact synonym hit; a near match is left alone.
+- Empty / binary / placeholder-only file → recorded with its parse status, never quoted.
+- No network, no third-party package, no invented numbers.
 
-## 6. 边界与限制
+## 7. Package map
 
-纯标准库、无网络、无时钟读取；输入目录只读；同输入重复运行逐字节一致（`selfcheck` 两跑比对）。
-只做机械清洗与去重判定，不判断学术价值，不补写任何原始数据中没有的数值。
+| path | role |
+|-|-|
+| `SKILL.md` | name, contract, single command, agent path, draft schema, pipeline, degradation rules |
+| `scripts/main.py` | the CLI: all / init / show / check / build / selfcheck / compare |
+| `scripts/engine.py` | the cleaner: scan, classify, parse, convert, group (imported by the CLI) |
+| `environment/resources.yaml` | entry declaration: commands, paths, inputs, contract, runtime |
+| `examples/` | a dirty mini batch and the geometry of a clean run |
+| `templates/result_contract.json` | a reusable contract skeleton |
+| `README.md`, `SELFTEST.md`, `GAIN_EVIDENCE.md`, `GITHUB_URL.txt` | usage, stability evidence, gain evidence, portfolio link |
