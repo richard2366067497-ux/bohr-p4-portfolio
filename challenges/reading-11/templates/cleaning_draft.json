@@ -1,0 +1,6 @@
+{
+  "case_id": "",
+  "notes": "agent triage note; every field is optional and the build step fills what is missing",
+  "indicator_overrides": {},
+  "hold_policy": "hold every unresolvable unit and unreported value for a human; never convert"
+}
