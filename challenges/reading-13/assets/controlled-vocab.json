@@ -1,0 +1,68 @@
+{
+  "vocab_version": "5.0.0",
+  "relation_types": [
+    "has_property", "has_value", "part_of", "located_in", "derived_from",
+    "increases", "decreases", "causes", "enables", "inhibits", "activates",
+    "regulates", "treats", "prevents", "predicts", "encodes", "decodes",
+    "uses_method", "evaluated_on", "measured_by", "outperforms", "underperforms",
+    "compared_with", "associated_with", "correlates_with", "requires",
+    "produces", "contains", "supports", "contradicts", "reports", "defines"
+  ],
+  "directional_relations": [
+    "increases", "decreases", "causes", "enables", "inhibits", "activates",
+    "regulates", "treats", "prevents", "predicts", "encodes", "decodes",
+    "outperforms", "underperforms", "produces", "contains", "requires", "supports"
+  ],
+  "relation_notes": {
+    "increases": "subject raises a quantity of the object; direction subject -> object",
+    "decreases": "subject lowers a quantity of the object; direction subject -> object",
+    "causes": "reserved for explicit causal wording in the source; do not infer causation from co-occurrence",
+    "associated_with": "the source states co-occurrence only; the safe fallback when nothing else fits",
+    "correlates_with": "use only when the source reports a correlation statistic",
+    "outperforms": "subject beats a named baseline; put that baseline in object or conditions",
+    "measured_by": "object is the metric or instrument; subject is the thing measured",
+    "evaluated_on": "object is the dataset or benchmark; subject is the method being evaluated"
+  },
+  "entity_types": [
+    "gene", "protein", "rna", "compound", "drug", "disease", "phenotype", "organism",
+    "cell_line", "tissue", "population", "dataset", "benchmark", "method", "model",
+    "architecture", "metric", "material", "device", "software", "location", "time_period",
+    "study", "publication", "other"
+  ],
+  "assertion_types": [
+    "quantitative", "qualitative", "comparative", "causal", "relational",
+    "methodological", "existence", "temporal"
+  ],
+  "evidence_roles": {
+    "direct": "the span alone entails the assertion",
+    "supporting": "the span carries part of the assertion; a second span supplies the rest",
+    "contradicting": "the span conflicts with the assertion; ship both and flag the conflict",
+    "inferred": "the assertion needs reasoning beyond the quoted span"
+  },
+  "confidence_levels": {
+    "direct_verbatim": "exact or whitespace-normalised span, direct role, no hedge in the wording",
+    "direct_reported": "verbatim span of a reported result, including hedged or attributed wording",
+    "inferred": "needs two or more premises; list the premises in evidence",
+    "aggregated": "several spans jointly support one assertion, none of them sufficient alone",
+    "ambiguous": "only fuzzy matches, or spans that conflict; never present as fact",
+    "unsupported": "no locatable span; the assertion must not ship as a finding"
+  },
+  "confidence_basis": [
+    "verbatim_quote", "exact_statistic", "table_derived", "figure_caption",
+    "single_study", "preprint", "indirect_inference", "conflicting", "author_claim",
+    "fuzzy_match_only", "unverified_quote"
+  ],
+  "polarity": ["affirmative", "negated"],
+  "run_status": {
+    "success": "every shipped assertion locates verbatim and clears the lint gate",
+    "partial": "some pages or claims are degraded; the limits are named in uncertainty",
+    "unsupported": "the material cannot support assertions at the requested granularity",
+    "failed": "the pipeline could not read the material or could not write the result"
+  },
+  "match_methods": {
+    "exact": "the quote occurs character-for-character in the page text",
+    "normalized": "the quote occurs after whitespace / hyphen / ligature normalisation",
+    "fuzzy": "similar but not verbatim; must never be labelled a quote",
+    "unverified": "not found; the assertion is blocked"
+  }
+}
