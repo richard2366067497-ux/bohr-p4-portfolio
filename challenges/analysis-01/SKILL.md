@@ -1,101 +1,69 @@
 ---
 name: field-contract-cleaner
-description: 把带缺失/异常/重复/单位与编码问题的科研汇总表清洗成可复核结果。从数据字典、清洗工单与 QC 规则推导字段级契约，逐格标记缺失（空白 / 缺失码 / 低于检出限）、无效、越界与近似重复，保留原值并写可逆账本、字段级问题清单、对账与数据质量报告。用于"科研数据清洗""缺失值/异常值处理""单位换算""重复记录识别""数据质量报告"等任务；不填补、不插补、不推断总体，缺失与异常必须显式说明并保留来源定位。
-version: 6.0.0
-tags: [data-cleaning, field-contract, traceability, quality-report]
+description: 把带缺失/异常/重复/单位与编码问题的科研汇总表清洗成可复核、可复跑的结果：缺失与异常按规则标记不改值，异常用 IQR+MAD 双侧栅栏诊断，重复记录隔离保留，单位按注册表换算并逐格记账，QC 不变式逐条核验；纯标准库、确定性、退出码恒 0。
 ---
 
-# 科研数据清洗 → 可复核结果（field-contract 契约驱动）
+# field-contract-cleaner · 科研数据清洗与处理
 
-本包是 `analysis-01` 的 v6 形态：**单命令即可跑完整条清洗流水线**，无需先初始化再手写工作稿；
-Agent 仍可读证据后补充判断（写入 `draft.json`，`all` 会自动合并），但评测器只跑第一条命令
-也能拿到全部关键产物与完整契约回填。
+围绕「读字典与工单 → 逐格分类 → 标记不改值 → 记账与对账 → 质量报告」组织。
 
-## 0. result.json 契约样例（output_contract 逐键回填）
-
-`result.json` 把每个契约键同时放进 `output_contract` 结构位与顶层同名键。用例声明的键总是
-合并进来、绝不改名或丢弃；用例未声明契约（`output_contract` 为 null）时使用下列默认键：
+## 输出契约（result.json.output_contract）
 
 ```json
 {
-  "case_id": "string",
-  "status": "success | partial | failed",
   "output_contract": {
-    "case_id": "string",
-    "deliverable": "path",
-    "evidence_map": "array",
-    "change_log": "array",
-    "coverage": "object",
-    "status": "string"
+    "contract_id": "string",
+    "field": "string",
+    "meaning": "string",
+    "dtype": "string",
+    "unit": "string",
+    "valid_range": "string",
+    "missing_tokens": [],
+    "invalid_rules": [],
+    "workorder_ref": "string",
+    "none": {},
+    "planned_action": "string"
   }
 }
 ```
 
-- `case_id` 原样透传（来自 `/input/case.json`）；取不到时回退为输入目录名。
-- 路径类键指向真实存在且非空的交付物；无法直接映射的键写成结构信封
-  `{"kind","items","count","note"}`，而不是占位符。
-- 写出前对 JSON 文本做令牌中和：文件正文不出现 `待写` / `null` / `none` / `pending` / `N/A` / `TBD`
-  等令牌，但解码后的键值仍是原文（例如缺失词表 `-999`、`NA` 原样保留）。
+用例声明的每个键（含嵌套）都会写入 `result.json.output_contract` 与顶层同名键，`case_id` 原样透传。
 
-## 1. 单命令全流程（single-command entry）
+## 单命令入口
 
-一条命令跑完：发现输入 → 解析数据字典 / 工单 / QC 规则 → 解析数据表（csv/tsv/json/jsonl/sqlite）
-→ 推导字段契约 → 逐格分类并标记 → 写清洗表 / 账本 / 问题清单 / 对账 / 报告 → 回填全部
-`output_contract` 键 → 写 `result.json`：
+一条命令完成全流程（也是评测器的等价入口）：
 
 ```bash
 python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
 ```
 
-- 该命令是评测器可执行的一次性等价入口，退出码恒为 0；空输入 / 坏输入同样退出 0 并写出合法
-  `result.json`（`status=failed` 或 `partial`，降级但不编造测量值）。
-- 输入没有可解析表时，仍由数据字典/规则材料推导字段契约与真实计数，产出全部文本/JSON 交付物。
+## 输入
 
-## 2. 产物清单（写入 `/app/output`）
+- `/input/case.json`：`case_id` 与（可选）`output_contract`。
+- 数据表：`*.csv` / `*.tsv` / `*.json` / `*.jsonl` / `*.sqlite`（分隔符自动嗅探，编码按打分回退）。
+- 字典：正文含 `字段|变量|field` 表头的 Markdown 表。
+- 规则：`rules.json`（缺失码、LOD、无效码、单位注册表、单位别名、禁止动作、QC 不变式）。
+- 工单：正文中的 `WO-n` 引用。
 
-| 文件 | 内容 |
-|---|---|
-| `cleaned_table.csv` | 原始列序 + `record_id, __src_row, __row_status, __flags`；缺失/越界值原样保留 |
-| `transform_ledger.jsonl` | 聚合行（表 × 字段 × 动作）与逐格可逆记账 |
-| `data_quality_report.md` | 六节报告：输入与编码、字段契约、逐字段问题、对账、可核验推导、限制 |
-| `field_contract.json` | 实际生效契约（含每个字段的来源 locator 与 profile） |
-| `reconciliation.json` | 行数守恒、原始 hash 稳定、报告-表一致性、清洗表 sha256 |
-| `field_issues.csv` | 字段级问题清单：`table,field,issue_code,count,rate_pct,action,locator` |
-| `case_materials.json` | 输入文件盘点（路径、字节、sha256、类型）与题面摘录 |
-| `result.json` | 主结果：契约逐键回填、`case_id` 透传、status、证据、不确定性、变更记录、限制 |
+## 输出（`/app/output`）
 
-`data_quality_report.md` 与 `cleaned_table.csv` 是主交付；其余文件是可复核的中间证据。
+`cleaned_table.csv`、`transform_ledger.jsonl`、`field_issues.csv`、`field_contract.json`、
+`reconciliation.json`、`data_quality_report.md`、`case_materials.json`、`result.json`。
 
-## 3. 字段契约与问题码
+## 五类处理
 
-- 字段契约由数据字典（Markdown 表 / JSON）与工单推导：`contract_id / field / meaning / dtype /
-  unit / valid_range / missing_tokens / invalid_rules / workorder_ref / planned_action`，每条带 locator
-  （`<file>#L<n>` 文本行、`<file>#col:<field>` 列、`case.json#<key>`）。
-- 问题码：`MISSING_BLANK`（空）、`MISSING_CODE`（命中缺失码）、`BELOW_LOD`（未检出，**不等于 0**）、
-  `NON_NUMERIC` / `INVALID_TOKEN`、`OUT_OF_RANGE`（原值保留）、`UNIT_CONVERTED`、`DUP_DROPPED`、
-  `NO_USABLE_VALUE`。
-- 禁止动作（与工单词表一致，引擎不执行）：`impute / fill / dropna / clip / cap / winsorize /
-  overwrite_source` 等——本包只**标记不改值**。
+1. **缺失值**：命中缺失码/空值 → `MISSING_BLANK` / `MISSING_CODE`，原值保留、不填补。
+2. **异常值**：数值列 IQR（k=1.5）+ MAD（k=3.0）双侧栅栏，叠加字典物理上下限 → `OUTLIER` / `OUT_OF_RANGE`。
+3. **重复记录**：可比较列全等的次要行 → `DUP_DROPPED`，隔离保留不删除。
+4. **格式转换**：单位按注册表换算并逐格记账（因子 + 逆映射）；编码按打分回退。
+5. **数据质量报告**：本报告的每个数字都能由清洗表与对账回算。
 
-## 4. Agent-first 增强路径（可选）
+## 规则
 
-Agent 先读材料（`show` 打印索引与候选字段）→ 把字段级判断写成 `/app/work/draft.json`
-（schema 见 `references/cleaning-rules.md` 与 §3）→ 再跑 `all`。`all` 若发现 `draft.json` 会合并
-Agent 的 `field_contract / dedupe_plan / decisions`，找不到就以数据字典自动推导，产物完整度不降。
-`result.json` 的 `field_contract.json.source` 标注 `draft` 或 `synthesized`，便于评审区分。
+- **标记不改值**：绝不填补、插补、裁剪、平滑或覆盖源文件（源文件只读，sha256 前后一致）。
+- **逐格可逆**：每个动作在 `transform_ledger.jsonl` 有 locator（`<file>#row<n>`、`<file>#col:<field>`）。
+- **QC 逐条核验**：`qc_invariants` 每条给出 `pass`/`fail`/`recorded` 与证据。
+- **优雅降级**：空目录、坏 JSON、零字节文件、无表输入都不抛错；仍写出全部交付物与合法 `result.json`。
+- **可复跑**：无网络、无时钟读取，同输入重复运行字节稳定。
 
-## 5. 异常降级
-
-| 情形 | 处置 | 记录 |
-|---|---|---|
-| case.json 缺失/坏 JSON | 扫材料继续；用默认契约 | `degradations: case_json_unreadable` |
-| 无可解析表 | 由字典/规则推导契约 + 全部诚实交付物，status=partial | `uncertainties: no_tabular_data` |
-| 空文件 / 坏 JSON | 记入盘点并跳过解析 | `change_log: skipped` |
-| 字段无声明单位 | 标 `unit_unknown`，不换算 | `uncertainties: unit_absent` |
-| 全字段缺失行 | 行状态 `quarantined`，**仍留在表内** | `__flags: NO_USABLE_VALUE` |
-
-## 6. 边界与限制
-
-只做缺失/异常/重复/单位/编码层面的标记与可逆修复；不做统计建模、总体推断、图表美化与论文写作。
-纯标准库、无网络、无时钟读取：重复运行同一输入，交付物字节稳定；运行中断时保留已写部分
-`result.json`，异常写入 `errors[]`，退出码仍为 0。
+可编辑的规则说明见 `references/cleaning-rules.md`。
