@@ -1,0 +1,69 @@
+{
+  "material": {
+    "paper_title": "Synthetic mechanical response of two specimens",
+    "paragraphs": [
+      "The modulus of specimen A is 3.2 GPa under 1 mm/min. Specimen B reached 4.1 GPa in the same run.",
+      "Load-displacement curves were recorded at 1 mm/min; the legend lists A (red) before B (blue)."
+    ],
+    "tables": [
+      {
+        "table_id": "T01",
+        "caption": "Table S1. Measured properties (values copied from the source).",
+        "columns": ["Specimen", "Modulus (GPa)", "Strength (MPa)"],
+        "rows": [
+          ["A", "3.2", "120"],
+          ["B", "4.1", "95"]
+        ]
+      }
+    ]
+  },
+  "readings": {
+    "figures": {
+      "fig1.png": {
+        "figure_id": "Fig. 1",
+        "panel": "a",
+        "caption": "Load-displacement response of specimens A and B at 1 mm/min.",
+        "axes": {
+          "x": {"label": "Displacement", "unit": "mm", "scale": "linear",
+                "tick_labels": ["0", "2", "4", "6", "8"], "tick_px": [90, 210, 330, 450, 570]},
+          "y": {"label": "Load", "unit": "N", "scale": "linear",
+                "tick_labels": ["0", "25", "50", "75", "100"], "tick_px": [359, 287, 215, 143, 71]}
+        },
+        "legend": {"entries": [{"label": "A", "rgb": [220, 30, 30]}, {"label": "B", "rgb": [30, 60, 200]}]},
+        "elements": {"error_bars": "not applicable: no error bars in this panel",
+                     "significance": "not applicable: no significance marks",
+                     "scale_bar": "not applicable: data plot without scale bar"},
+        "series": [
+          {"name": "A", "rgb": [220, 30, 30], "digitize": true, "tol": 60},
+          {"name": "B", "rgb": [30, 60, 200], "digitize": true, "tol": 60}
+        ]
+      }
+    },
+    "claims": [
+      {"claim_id": "c01", "kind": "table_cell",
+       "text": "Specimen A modulus is 3.2 GPa, copied verbatim from table T01.",
+       "readability": "directly_read", "conditions": "specimen A, 1 mm/min",
+       "evidence": {"quote": "The modulus of specimen A is 3.2 GPa under 1 mm/min.",
+                    "quote_type": "text", "source_id": "material.json",
+                    "location": {"table_id": "T01", "row": 0, "json_pointer": "/tables/0/rows/0/1"},
+                    "read_basis": "literal table cell"}},
+      {"claim_id": "c02", "kind": "comparison",
+       "text": "Specimen B reads 4.1 GPa, i.e. higher than specimen A in the same run.",
+       "readability": "directly_read", "conditions": "same run, 1 mm/min",
+       "evidence": {"quote": "Specimen B reached 4.1 GPa in the same run.",
+                    "quote_type": "text", "source_id": "material.json",
+                    "location": {"table_id": "T01", "row": 1, "json_pointer": "/tables/0/rows/1/1"},
+                    "read_basis": "literal table cell"}},
+      {"claim_id": "c03", "kind": "element",
+       "text": "The x axis reads displacement in mm from 0 to 8 and the y axis load in N from 0 to 100.",
+       "readability": "directly_read", "conditions": "panel a",
+       "evidence": {"quote": "x: 0-8 mm, y: 0-100 N", "quote_type": "visual", "source_id": "fig1.png",
+                    "location": {"figure": "Fig. 1", "panel": "a", "bbox_px": [80, 30, 580, 370]},
+                    "read_basis": "axis tick labels"}}
+    ],
+    "uncertainties": [
+      {"kind": "unit", "detail": "Strength column header carries the unit; cells are unlabelled."}
+    ],
+    "pending_human": []
+  }
+}
