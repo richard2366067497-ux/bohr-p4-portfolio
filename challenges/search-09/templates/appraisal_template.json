@@ -1,0 +1,6 @@
+{
+  "case_id": "",
+  "notes": "agent triage note; every field is optional and the build step fills what is missing",
+  "dimension_overrides": {},
+  "abstain_policy": "abstain, never guess, when a keyword family has no hit; an absent field is never turned into a met judgment"
+}
