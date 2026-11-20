@@ -1,0 +1,60 @@
+# environment/resources.yaml — writing-12 / latex-edit-build-verify (v7)
+# 资源入口声明。纯标准库、离线、确定性；无网络、无时钟读取。
+
+skill: latex-edit-build-verify
+version: 3.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/latex_build.py build
+    --input /input --output /app/output --work /app/work --engine pdflatex
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/latex_build.py lint  --input /input --output /app/output --work /app/work
+    - "Agent: read /app/output/lint_report.json, optionally write /app/work/draft.json"
+    - python3 /skills/weekly-skill/scripts/latex_build.py fix   --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/latex_build.py check --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/latex_build.py   # CLI: build / lint / fix / check / selfcheck
+  - scripts/latexcheck.py    # static lint + reversible fixes (pure functions)
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  exit_code: "0 (argparse usage error -> 2 only)"
+
+external_tools:
+  optional:
+    - name: latexmk
+      used_when: present
+      command: "latexmk -pdf -interaction=nonstopmode -halt-on-error -no-shell-escape"
+    - name: pdflatex
+      used_when: ASCII sources
+    - name: xelatex
+      used_when: "CJK sources (auto-switched from a non-OpenType request)"
+    - name: lualatex
+      used_when: CJK alternative engine
+  absent_behavior: >-
+    status=partial, build.status=missing_tool; result.json.limits carries an executable
+    reproduction command; main.tex / source/ / diff.patch / packages.md are still written.
+
+budget:
+  wall_clock_seconds: 300
+  per_engine_timeout_seconds: 180
+  max_output_files: 40
+  max_input_bytes: 16777216
+
+contract:
+  sample: SKILL.md#section-0
+  keys_from: "case.json:output_contract -> task.md -> SKILL.md json sample -> default artifacts"
+  echo: "each contract key is written both top-level and under result.output_contract"
