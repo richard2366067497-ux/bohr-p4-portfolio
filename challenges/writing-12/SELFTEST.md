@@ -1,13 +1,13 @@
-# SELFTEST — 自测记录（writing-12 v7）
+# SELFTEST — 自测记录（writing-12 v9）
 
-包：`work/p4/v7/writing-12` · 引擎 `latex-edit-build-verify/3.0.0` · 纯标准库、离线、确定性。
+包：`work/p4/v9/writing-12` · 引擎 `latex-edit-build-verify/3.0.0` · 纯标准库、离线、确定性。
 评测模拟器：`scripts/eval_sim.py`。
 解释器：`D:\tool\DSH\resources\runtime\primary-runtime\dependencies\python\python.exe`（Python 3.12.14）。
 
 ## 一、eval_sim（rich/boundary × single/agent，本地门禁）
 
 ```
-python scripts/eval_sim.py --pkg work/p4/v7/writing-12 \
+python scripts/eval_sim.py --pkg work/p4/v9/writing-12 \
     --case work/p4/synth_cases/writing-12/<rich|boundary> --mode <single|agent>
 ```
 
@@ -36,7 +36,7 @@ agent 模式命令链 `draft → build → lint → fix → check` 全程 exit 0
 悬空 `\ref{sec:missing}`、float 内 `\label` 早于 `\caption`。
 
 ```
-python work/p4/v7/writing-12/scripts/latex_build.py check \
+python work/p4/v9/writing-12/scripts/latex_build.py check \
     --input work/p4/v7/_scratch/t2 --output work/p4/v7/_scratch/t2_out --work <work> --engine pdflatex
 ```
 
@@ -66,7 +66,7 @@ C4 no_error_findings warn（1 error 级，属未闭合环境，已由 C3 修复�
 ## 三、真实输入处理自测（rich / boundary 直跑）
 
 ```
-python work/p4/v7/writing-12/scripts/latex_build.py build --input work/p4/synth_cases/writing-12/rich --output <out>
+python work/p4/v9/writing-12/scripts/latex_build.py build --input work/p4/synth_cases/writing-12/rich --output <out>
 ```
 
 - `case_id=synth-rich-writing-12`，`status=partial`；`preserved_facts` **8** 条、`evidence_map` **16** 条，
@@ -135,3 +135,22 @@ python3 scripts/latex_build.py build --input examples --output /tmp/out --work /
 - 规范化哈希（`result.json` 删除 `runtime.seconds` 后 `json.dumps(sort_keys=True, ensure_ascii=False,
   separators=(",",":"))` 的 `sha256` 前 16 位）：**`52119b06b32d893c`**。
 - `scripts/eval_sim.py` rich/boundary × single/agent 四项全 **PASS**（契约键 7/7）。
+
+
+## v9 复跑与对照实验（examples/）
+
+scripts/latex_build.py build 每次运行额外写出 comparison_report.md（基础 Agent vs 加载本 Skill
+的**确定性自评表**，首行明确标注**非官方 A/B**）。样例端到端实测（本机、离线、无 TeX 引擎）：
+
+`ash
+python work/p4/v9/writing-12/scripts/latex_build.py build \
+    --input work/p4/v9/writing-12/examples --output OUT --work WORK
+`
+
+- exit 0，status=partial（本机无引擎，如实标注「未验证」），产物 10 项 + source/。
+- 静态检查 3 条（error 1 / warning 2）；修复落地 2/3（逐条 locator）；diff.patch 已写出。
+- comparison_report.md：lint 3 条、2/3 applied、diff.patch 有、编译成功「否（无引擎）」、
+  契约键 7 个逐键回填——全部取自本次运行的 lint_report.json/ixes.json/uild.json/
+esult.json。
+- scripts/eval_sim.py rich/boundary × single/agent 四项全 **PASS**（placeholder_sweep 干净；
+  自评表内不含任何占位符 token）。
