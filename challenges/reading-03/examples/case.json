@@ -1,0 +1,9 @@
+{
+ "case_id": "example-reading-03-osc",
+ "language": "en",
+ "target_language": "zh",
+ "materials_root": "materials",
+ "notes": "随包最小示例：英文论文节选（题名/摘要/方法/表/公式/图注/参考文献），正文内嵌于 paper_text。",
+ "paper_text": "# Dose-Response Modelling of Sodium Chloride on Seed Germination\n\n## Abstract\nSeed germination of table salt (NaCl) treated samples was measured at 20 °C, and the germination rate decreased from 92.4 % to 61.8 % as the concentration increased from 0 mM to 150 mM. The half-maximal inhibitory concentration was 74.6 mM (Table 1), and the fitted coefficient was r = -0.93 (p < 0.01) [1]. These results suggest that NaCl may delay water uptake rather than damage the embryo [2].\n\n## 2 Methods\nSeeds were incubated on filter paper moistened with 5 mL of solution for 7 days, and the germination rate was recorded every 24 h (Fig. 1).\n\nTable 1. Fitted dose-response parameters (mean ± sd, n = 3).\nConcentration (mM)\tGermination (%)\tRate (day^-1)\n0\t92.4\t1.71\n150\t61.8\t0.98\n\n## 3 Results\nThe relationship between concentration and germination was not linear across the whole range, so we used the following empirical model:\n\nG = G0 / (1 + C / IC50)    (1)\n\nwhere G is the germination rate and C is the concentration. Germination did not recover after the salt was removed, which indicates an osmotic rather than a toxic effect.\n\nFig. 1. Germination rate (%) versus concentration (mM); error bars show ± sd (n = 3).\n\n## References\n[1] Almeida RP, Costa LS. Osmotic stress and seed vigour. Journal of Seed Science, 2019.\n[2] Chen H, et al. Ion toxicity in germinating seeds. Plant Physiology Reports, 2021.\n",
+ "output_contract": {"case_id": null, "status": null, "result": null, "claims": [], "uncertainties": []}
+}
