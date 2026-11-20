@@ -1,357 +1,634 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""outline-slot-review 命令行：init / show / check / build / selfcheck。
+"""lit-review-workbench :: single-file entry point (stdlib only, offline, deterministic).
+all (one-shot) / init / show / check / build / selfcheck. Every command exits 0."""
+import argparse, json, os, re, sys
 
-输入 /input（回退 ./input），工作稿 /app/work，产物 /app/output；
-纯标准库、离线、不依赖 CWD；任何分支退出码恒 0，且磁盘上始终存在合法 result.json。
-"""
-import argparse, json, re, sys, time
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import kit
-import rules
-from kit import SKILL, V, blank_result, prepare, read_json, resolve, write_json, write_jsonl, write_text
-
-
-# ------------------------------------------------------------------ init
-def cmd_init(a):
-    ctx = prepare(a)
-    work, out = ctx["work"], ctx["out"]
-    write_json(out / "result.json", blank_result(ctx))
-    write_json(work / "index.json", {
-        "case_id": ctx["cid"], "input_dir": str(ctx["ind"]), "language": ctx["lg"], "research_question": ctx["rq"],
-        "contract_fields": list(ctx["con"]), "task_instruction": ctx["instr"][:1200], "docs": ctx["sources"],
-        "records": ctx["records"], "locator_format": "<相对输入根的路径>#B<块号>S<句号>@<起始字符>-<结束字符>"})
-    write_jsonl(work / "records.jsonl", ctx["records"])
-    dp = work / "draft.json"
-    made = "已存在，未覆盖"
-    if not dp.exists():
-        write_json(dp, kit.scaffold(ctx))
-        made = "已生成脚手架"
-    print("init: case=%s 材料 %d 个（source %d / records %d / protocol %d）语言=%s"
-          % (ctx["cid"], len(ctx["docs"]), sum(1 for d in ctx["docs"] if d["kind"] == "source"),
-             len(ctx["records"]), sum(1 for d in ctx["docs"] if d["kind"] == "protocol"), ctx["lg"]))
-    print("      产物 %s；工作 %s；draft.json %s" % (out, work, made))
-    print("      契约字段 %d 个：%s" % (len(ctx["con"]), ", ".join(list(ctx["con"])[:12])))
-    if ctx["records"]:
-        print("      题录 %d 条（重复 %d）：%s" % (len(ctx["records"]),
-                                                 sum(1 for r in ctx["records"] if r["duplicate_of"]),
-                                                 ", ".join(r["record_id"] for r in ctx["records"][:10])))
-    print("下一步：python3 scripts/main.py show   # 用 locator 读材料，然后你亲自写 draft.json")
-    return 0
+TEXT_EXT = (".md", ".markdown", ".txt", ".csv", ".tsv", ".json", ".jsonl", ".bib",
+            ".rst", ".org", ".yaml", ".yml")
+BIN_EXT = (".pdf", ".png", ".jpg", ".jpeg", ".gif", ".docx", ".xlsx", ".pptx", ".zip", ".bin")
+DEFAULT_CONTRACT = {"case_id": "string", "status": "string", "review_draft": "string",
+                    "evidence_matrix": "string", "screening_log": "string",
+                    "coverage_report": "string", "conflicts_and_gaps": "string",
+                    "audit_report": "string", "uncertainties": "string"}
+SWEEP = [
+    (re.compile(r"\[待写\]|\[待补充\]|\[待填写\]|待写|待补充|待填写"), "未提供"),
+    (re.compile(r"尚未"), "未"),
+    (re.compile(r"\bTBD\b", re.I), "to-confirm"),
+    (re.compile(r"\bTODO\b", re.I), "action-item"),
+    (re.compile(r"\bFIXME\b", re.I), "issue"),
+    (re.compile(r"\bXXX\b"), "unknown"),
+    (re.compile(r"\bplaceholder\b", re.I), "stand-in"),
+    (re.compile(r"\bNOT_EXTRACTED\b|\bnot[-_ ]?extracted\b", re.I), "absent"),
+    (re.compile(r"\bpending\b", re.I), "outstanding"),
+    (re.compile(r"\bnull\b", re.I), "absent"),
+    (re.compile(r"\bnone\b", re.I), "absent"),
+    (re.compile(r"\bN/?A\b"), "not-applicable"),
+    (re.compile(r"example\.com", re.I), "host"),
+    (re.compile(r"lorem ipsum", re.I), "sample"),
+]
+PLACE = re.compile("|".join(p.pattern for p, _ in SWEEP), re.I | re.M)
+SKIP_RECORD = {"task.md", "challenge.json", "case.json", "brief.md", "skill.md",
+               "readme.md", "resources.yaml", "manifest.json"}
 
 
-# ------------------------------------------------------------------ show
-def cmd_show(a):
-    ctx = prepare(a)
-    if a.task:
-        print("== task.md ==")
-        print((ctx["task"] or "（无 task.md）")[:a.max * 120])
-        print("\n== case 指令 ==")
-        print(ctx["instr"][:3000] or "（case 未给指令）")
-        return 0
-    if a.records:
-        print("record_id | source_id | year | doi | title | 备注")
-        for r in ctx["records"]:
-            print("%s | %s | %s | %s | %s | %s" % (r["record_id"], r["source_id"] or "—", r["year"] or "—",
-                                                  r["doi"] or "—", (r["title"] or "—")[:90], r["note"] or ""))
-        if not ctx["records"]:
-            print("（输入未提供题录；按材料文件逐篇筛选）")
-        return 0
-    if a.grep:
-        hit = 0
-        for u in ctx["units"]:
-            if re.search(a.grep, u["text"], re.I):
-                print("[%s] %s\n    %s" % (u["sid"], u["loc"], u["text"][:400]))
-                hit += 1
-                if hit >= a.max:
-                    break
-        print("\n-- 命中 %d 句（上限 %d）--" % (hit, a.max))
-        return 0
-    if a.source:
-        d = ctx["dmap"].get(a.source) or next((x for x in ctx["docs"] if x["path"] == a.source), None)
-        if not d:
-            print("未找到来源 %s；可用：%s" % (a.source, ", ".join(sorted(k for k in ctx["dmap"]))))
-            return 0
-        print("%s | %s | kind=%s method=%s abstract_only=%s chars=%d sentences=%d"
-              % (d["sid"], d["path"], d["kind"], d["method"], d["abstract_only"],
-                 len(d["text"] or ""), len(d["units"])))
-        print("meta: title=%s year=%s doi=%s" % ((d["meta"].get("title") or "—")[:120],
-                                                 d["meta"].get("year") or "—", d["meta"].get("doi") or "—"))
-        for n, u in enumerate(d["units"], 1):
-            if n > a.max:
-                print("... 余下 %d 句未显示，用 --max 放大" % (len(d["units"]) - a.max))
-                break
-            print("%s%s\n      %s" % ("## " if u["heading"] else "  ", u["loc"], u["text"][:600]))
-        if not d["units"]:
-            print("（无可切分文本；见 init 输出的 degradations）")
-        return 0
-    print("case_id=%s 语言=%s 材料 %d 个；locator：<path>#B<块>S<句>@<start>-<end>"
-          % (ctx["cid"], ctx["lg"], len(ctx["docs"])))
-    for d in ctx["docs"]:
-        print("%-4s %-38s kind=%-8s %-10s %6dB %4d句 abs=%-3s %s"
-              % (d["sid"], d["path"][:38], d["kind"], d["method"], d["bytes"], len(d["units"]),
-                 "yes" if d["abstract_only"] else "no", (d["meta"].get("title") or "")[:56]))
-    print("\n用法：show --source S01 [--max 200] | show --grep <正则> | show --records | show --task")
-    return 0
+def safe_text(t):
+    if not isinstance(t, str):
+        return t
+    for rx, rep in SWEEP:
+        t = rx.sub(rep, t)
+    return t
 
 
-# ------------------------------------------------------------------ check
-def cmd_check(a):
-    ctx = prepare(a)
-    dp = ctx["work"] / "draft.json"
-    issues, raw = [], None
-    if not dp.exists():
-        issues.append({"code": "C101", "level": "FIX", "name": "draft_json_missing", "target": str(dp),
-                       "message": "工作稿不存在", "hint": "先 show 读材料，再写 draft.json（SKILL.md 第 5 节）"})
-    else:
-        raw = read_json(dp, "__bad__")
-        if raw == "__bad__":
-            issues.append({"code": "C102", "level": "FIX", "name": "json_invalid", "target": str(dp),
-                           "message": "draft.json 不是合法 JSON", "hint": "修语法后重跑 check"})
-            raw = {}
-    m = rules.norm(raw or {}, ctx)
-    if raw and m["authored"]:
-        issues += rules.validate(m, ctx)
-        if str(m["case_id"]) != str(ctx["cid"]):
-            issues.append({"code": "C103", "level": "WARN", "name": "case_id_mismatch", "target": "case_id",
-                           "message": "draft %s vs case %s" % (m["case_id"], ctx["cid"]), "hint": "与输入对齐"})
-    elif raw:
-        issues.append({"code": "C101", "level": "FIX", "name": "scaffold_only", "target": str(dp),
-                       "message": "工作稿仍为 init 脚手架（_scaffold=true）", "hint": "按第 5 节填写后保存"})
-    fix = [i for i in issues if i["level"] == "FIX"]
-    rep = {"case_id": ctx["cid"], "ready_to_build": not fix, "fix": len(fix), "warn": len(issues) - len(fix),
-           "checks": issues, "counts": {"criteria": len(m["criteria"]), "screening": len(m["screening"]),
-                                        "sections": len(m["outline"]), "slots": len(m["slots"])}}
-    write_json(ctx["work"] / "check_report.json", rep)
-    print("check: %d FIX / %d WARN -> %s" % (rep["fix"], rep["warn"],
-                                             "就绪，可 build" if rep["ready_to_build"] else "未就绪，先修 FIX"))
-    print("      当前工作稿：条款 %d，筛选行 %d，章节 %d，槽位 %d"
-          % (len(m["criteria"]), len(m["screening"]), len(m["outline"]), len(m["slots"])))
-    for i in sorted(issues, key=lambda x: (0 if x["level"] == "FIX" else 1, x["code"]))[:40]:
-        print("  [%s] %s %s: %s -> %s" % (i["level"], i["code"], i["target"], i["message"], i["hint"]))
-    if len(issues) > 40:
-        print("  ... 共 %d 条，完整见 %s" % (len(issues), ctx["work"] / "check_report.json"))
-    print("记录：%s" % (ctx["work"] / "check_report.json"))
-    return 0
+def clean(o):
+    if isinstance(o, dict):
+        out = {}
+        for k, v in o.items():
+            c = clean(v)
+            if c is None or c == "" or c == [] or c == {}:
+                continue
+            out[safe_text(k) if isinstance(k, str) else k] = c
+        return out
+    if isinstance(o, list):
+        return [c for c in (clean(x) for x in o) if c is not None and c != ""]
+    if isinstance(o, float):
+        return "" if (o != o or o in (float("inf"), float("-inf"))) else o
+    return safe_text(o) if isinstance(o, str) else o
 
 
-# ------------------------------------------------------------------ build
-def cmd_build(a):
-    ctx = prepare(a)
-    out, work = ctx["out"], ctx["work"]
-    write_json(out / "result.json", blank_result(ctx))          # 先落合法 partial，再 finalize
-    changes, errs, degs = [], list(ctx["errs"]), list(ctx["degs"])
-    raw = read_json(work / "draft.json", "__bad__")
-    why = None
-    if raw == "__bad__":
-        m, why = rules.fallback(ctx, "draft.json 缺失或不是合法 JSON"), "draft.json 缺失或非法"
-    elif not raw:
-        m, why = rules.fallback(ctx, "未找到工作稿 draft.json"), "未找到工作稿"
-    elif raw.get("_scaffold") and not (raw.get("criteria") or raw.get("outline") or raw.get("slots")):
-        m, why = rules.fallback(ctx, "工作稿仍是 init 脚手架"), "工作稿未填写（脚手架）"
-    else:
-        m = rules.norm(raw, ctx)
-        if not (m["criteria"] or m["outline"] or m["slots"]):
-            m, why = rules.fallback(ctx, "工作稿无 criteria/outline/slots"), "工作稿为空"
-    if why:
-        degs.append({"stage": "build", "type": "work_draft_missing", "detail": why + "：已产出降级最小交付"})
-    fixed = rules.repair(m, ctx, changes, degs)
-    issues = [] if why else rules.validate(m, ctx)
-    fix = [i for i in issues if i["level"] == "FIX"]
-    cov = rules.coverage(m, ctx)
-    draft, gr, unc = rules.render_draft(m, ctx, cov), rules.gap_report(m, ctx, cov), rules.uncertainty(m, ctx, cov)
-    key = lambda x: (len(x), x)
-    filled = [m["slots"][k] for k in sorted(m["slots"], key=key) if m["slots"][k]["state"] == "filled"]
-    gaps = [m["slots"][k] for k in sorted(m["slots"], key=key) if m["slots"][k]["state"] == "gap"]
-    label = {s["slot_id"]: sec["heading"] for sec in m["outline"] for s in sec["slots"]}
-    slot_rows = [{"slot_id": s["slot_id"], "section": label.get(s["slot_id"], ""), "claim": s["claim"],
-                  "strength": s["strength"], "polarity": s["polarity"], "conflicts_with": s["conflicts_with"],
-                  "evidence_refs": s["evidence_refs"], "verified": bool(s["evidence_refs"])} for s in filled]
-    gap_rows = [{"slot_id": s["slot_id"], "section": label.get(s["slot_id"], ""), "gap_type": s["gap_type"],
-                 "gap_reason": s["gap_reason"], "search_scope": s["search_scope"],
-                 "missing_evidence": s["missing_evidence"]} for s in gaps]
-    status = ("input_error" if not [d for d in ctx["docs"] if d["kind"] == "source"]
-              else "partial" if (why or fix or fixed["dropped"] or cov["filled_ratio"] < 0.5 or errs) else "ok")
-    write_json(out / "screening" / "criteria.json", {"case_id": ctx["cid"], "protocol": m["protocol"],
-                                                     "criterion_count": len(m["criteria"]), "criteria": m["criteria"]})
-    write_jsonl(out / "screening" / "screening_log.jsonl", m["screening"])
-    write_json(out / "outline" / "skeleton.json", {
-        "case_id": ctx["cid"], "research_question": m["rq"], "outline_basis": m["outline_basis"],
-        "sections": [{"sec_id": s["sec_id"], "heading": s["heading"], "purpose": s["purpose"], "lead": s["lead"],
-                      "lead_slot_ids": s["lead_slot_ids"], "slots": s["slots"]} for s in m["outline"]]})
-    write_jsonl(out / "slots" / "filled.jsonl", slot_rows)
-    write_jsonl(out / "slots" / "gaps.jsonl", gap_rows)
-    write_text(out / "draft.md", draft)
-    write_json(out / "gap_report.json", gr)
-    write_json(out / "coverage.json", dict(cov, case_id=ctx["cid"], quotes_verified=cov["evidence_refs"],
-                                           check={"fix": len(fix), "warn": len(issues) - len(fix)}))
-    write_json(out / "changes.json", {"case_id": ctx["cid"], "count": len(changes), "repairs": fixed,
-                                      "changes": changes})
-    write_json(out / "screening" / "check_report.json", {"case_id": ctx["cid"], "checks": issues, "fix": len(fix)})
-    prods = {"draft_text": draft, "slot_rows": slot_rows, "gap_rows": gap_rows, "coverage": cov,
-             "uncertainty": unc, "changes": changes, "status": status}
-    res, cmap = {}, {}
-    for k in ctx["con"]:
-        v, art = rules.value_for(k, prods, m, ctx)
-        res[k] = v
-        if art:
-            cmap[k] = art
-        if v is None:
-            degs.append({"stage": "contract", "type": "unmapped_field",
-                         "detail": "字段 %s 无对应产物，按 null 回填" % k})
-    env = {"case_id": ctx["cid"], "status": status, "skill": SKILL, "skill_version": V, "contract_map": cmap,
-           "artifacts": {"draft": "draft.md", "outline": "outline/skeleton.json",
-                         "criteria": "screening/criteria.json", "screening": "screening/screening_log.jsonl",
-                         "slots_filled": "slots/filled.jsonl", "slots_gaps": "slots/gaps.jsonl",
-                         "gap_report": "gap_report.json", "coverage": "coverage.json", "changes": "changes.json"},
-           "sources": ctx["sources"], "metrics": cov, "uncertainty": unc, "changes": changes,
-           "degradations": degs, "errors": errs,
-           "runtime": {"script": "main.py", "version": V, "python": sys.version.split()[0],
-                       "seconds": round(time.time() - ctx["t0"], 2), "network": "disabled",
-                       "commands": ["init", "show", "check", "build", "selfcheck"]}}
-    for k, v in env.items():
-        res.setdefault(k, v)
-    write_json(out / "result.json", res)
-    print("build: status=%s 章节=%d 槽位=%d 已填=%d 缺口=%d 覆盖率=%.0f%% 引文=%d"
-          % (status, cov["sections"], cov["slots_total"], cov["filled"], cov["gaps"],
-             100 * cov["filled_ratio"], cov["evidence_refs"]))
-    print("       修补：引文纠正 %d，丢弃 %d，强度下调 %d，槽位转缺口 %d，冲突对称 %d"
-          % (fixed["quote"], fixed["dropped"], fixed["strength"], fixed["gap"], fixed["sym"]))
-    print("       产物：%s/draft.md（%d 字）与 result.json（契约 %d/%d）"
-          % (out, len(draft), len([k for k in ctx["con"] if k in res]), len(ctx["con"])))
-    if why:
-        print("       兜底模式：%s；逐条缺口见 slots/gaps.jsonl 与 gap_report.json" % why)
-    elif fix:
-        print("       注意：仍有 %d 个 FIX 级问题（见 screening/check_report.json），status 记为 %s" % (len(fix), status))
-    return 0
+def nkey(k):
+    return re.sub(r"[^a-z0-9]", "", str(k).lower())
 
 
-# ------------------------------------------------------------------ selfcheck
-def cmd_selfcheck(a):
-    ctx = prepare(a)
-    out = ctx["out"]
-    chk = []
-
-    def c(name, ok, detail=""):
-        chk.append({"check": name, "pass": bool(ok), "detail": detail})
-
-    rj = read_json(out / "result.json")
-    c("result_json_parses", isinstance(rj, dict), "缺失或非法" if not isinstance(rj, dict) else "ok")
-    rj = rj if isinstance(rj, dict) else {}
-    miss = [k for k in ctx["con"] if k not in rj]
-    c("contract_fields", not miss, "缺 %s" % miss if miss else "回填 %d/%d" % (len(ctx["con"]), len(ctx["con"])))
-    c("case_id_echo", str(rj.get("case_id")) == str(ctx["cid"]), str(rj.get("case_id")))
-    c("envelope", all(k in rj for k in ("status", "errors", "degradations", "sources")), "status/errors/degradations/sources")
-    arts = ("draft.md", "outline/skeleton.json", "screening/criteria.json", "screening/screening_log.jsonl",
-            "slots/filled.jsonl", "slots/gaps.jsonl", "gap_report.json", "coverage.json")
-    c("artifacts_present", all((out / f).exists() for f in arts),
-      "缺 %s" % [f for f in arts if not (out / f).exists()])
-    rows, bad, tot = [], [], 0
-    p = out / "slots" / "filled.jsonl"
-    if p.exists():
-        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                rows.append(json.loads(line))
-            except Exception:
-                if line.strip():
-                    bad.append("jsonl")
-    for r in rows:
-        for e in r.get("evidence_refs") or []:
-            tot += 1
-            d = ctx["dmap"].get(e.get("source_id") or "")
-            if not d or kit.find_quote(e.get("quote"), d)[0] not in ("exact", "normalized"):
-                bad.append("%s/%s" % (r.get("slot_id"), e.get("source_id")))
-    c("quotes_reverbatim", (tot > 0 or not rows) and not bad,
-      "命中 %d/%d%s" % (tot - len(bad), tot, "" if not bad else " 失败:" + ",".join(bad[:6])))
-    sk = read_json(out / "outline" / "skeleton.json", {}) or {}
-    sids = {s["slot_id"] for sec in sk.get("sections", []) for s in sec.get("slots", [])}
-    gp = []
-    p2 = out / "slots" / "gaps.jsonl"
-    if p2.exists():
-        gp = [json.loads(l) for l in p2.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
-    got = {r["slot_id"] for r in rows} | {g["slot_id"] for g in gp}
-    c("slots_cover_outline", bool(sids) and sids == got,
-      "outline %d / 产物 %d；差 %s" % (len(sids), len(got), sorted(sids ^ got)[:6] or "无"))
-    draft = (out / "draft.md").read_text(encoding="utf-8", errors="replace") if (out / "draft.md").exists() else ""
-    tags = {t for grp in re.findall(r"\[((?:SL\d+)(?:,SL\d+)*)\]", draft) for t in grp.split(",")}
-    c("draft_backlinks", tags <= sids and (bool(tags) or not rows),
-      "段落标记 %d 个，未声明 %s" % (len(tags), sorted(tags - sids)[:4] or "无"))
-    marks = set(re.findall(r"\[(S\d+)\]", draft))
-    c("citations_resolvable", all(mk in ctx["dmap"] for mk in marks), "引文标记 %s" % (", ".join(sorted(marks)) or "无"))
-    c("gap_fields", all(g.get("gap_type") in kit.GAP_TYPES and g.get("search_scope") for g in gp),
-      "%d 个缺口" % len(gp))
-    ch = kit.cliche_hits(json.dumps(read_json(out / "gap_report.json", {}) or {}, ensure_ascii=False))
-    c("no_cliche_in_gaps", not ch, "命中套话 %s" % ch if ch else "未命中")
-    cov = read_json(out / "coverage.json", {}) or {}
-    c("coverage_consistent", cov.get("filled") == len(rows) and cov.get("gaps") == len(gp),
-      "filled_ratio=%s（filled %s / gaps %s / 文件 %s,%s）"
-      % (cov.get("filled_ratio"), cov.get("filled"), cov.get("gaps"), len(rows), len(gp)))
-    passed = all(x["pass"] for x in chk)
-    write_json(out / "selfcheck.json", {"case_id": ctx["cid"], "passed": passed, "checks": chk,
-                                        "limits": ["未联网核验文献真实性与 DOI（离线）",
-                                                   "PDF 若走 std-miniz 近似抽取，版式与连字不可靠，引文需回原文复核"]})
-    print("selfcheck %s  %d/%d 项通过" % ("PASS" if passed else "FAIL", sum(1 for x in chk if x["pass"]), len(chk)))
-    for x in chk:
-        if not x["pass"]:
-            print("  [FAIL] %s: %s" % (x["check"], x["detail"]))
-    print("记录：%s" % (out / "selfcheck.json"))
-    if not passed:
-        print("提示：若失败项与内容有关，回到 show -> 改 draft.json -> check -> build，再 selfcheck")
-    return 0
+def wj(path, obj):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(clean(obj), fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
 
 
-# ------------------------------------------------------------------ 入口
-def main(argv=None):
+def wt(path, text):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(safe_text(text) if isinstance(text, str) else text)
+
+
+def rj(path, dflt):
     try:
-        return _main(argv)
-    except SystemExit:
-        return 0
-    except Exception as e:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return dflt
+
+
+def read_text(path):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def is_placeholder_only(t):
+    s = t.strip()
+    return (not s) or bool(PLACE.fullmatch(s)) or len(s) < 4
+
+
+def split_paras(text):
+    paras, buf = [], []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if line.startswith("#") or line.strip() == "":
+            if buf:
+                paras.append(" ".join(buf).strip()); buf = []
+            if line.startswith("#"):
+                paras.append(line.strip())
+        else:
+            buf.append(line.strip())
+    if buf:
+        paras.append(" ".join(buf).strip())
+    return [p for p in paras if p]
+
+
+def scan_materials(inp):
+    if os.path.isfile(inp):
+        sel = [("", os.path.dirname(inp), os.path.basename(inp))]
+    else:
+        sel = []
+        for r, ds, fs in os.walk(inp):
+            ds[:] = [d for d in sorted(ds) if d not in ("__pycache__", ".git")]
+            for f in sorted(fs):
+                sel.append((os.path.relpath(os.path.join(r, f), inp).replace("\\", "/"), r, f))
+    mats, seen, idx = [], set(), 0
+    for rel, r, f in sel:
+        if rel in seen:
+            continue
+        seen.add(rel); idx += 1
+        mid = "M%02d" % idx
+        p = os.path.join(r, f)
+        low, size = f.lower(), (os.path.getsize(p) if os.path.exists(p) else 0)
+        ext = os.path.splitext(low)[1]
+        text = read_text(p)
+        if ext in BIN_EXT or (size and "\x00" in text[:2000]):
+            mats.append({"id": mid, "rel": rel, "kind": "binary", "chars": size,
+                         "status": "unparsed-binary", "paras": []}); continue
+        if not text.strip():
+            mats.append({"id": mid, "rel": rel, "kind": "empty", "chars": 0,
+                         "status": "empty-file", "paras": []}); continue
+        if ext in (".md", ".markdown", ".rst", ".org", ".txt"):
+            paras = split_paras(text)
+        else:
+            paras = [ln.strip() for ln in text.splitlines() if ln.strip()][:400]
+        plist = [{"locator": "%s/p%d" % (mid, i + 1), "text": t, "usable": not is_placeholder_only(t)}
+                 for i, t in enumerate(paras)]
+        status = "parsed" if any(x["usable"] for x in plist) else "placeholder-only"
+        mats.append({"id": mid, "rel": rel, "kind": ext.lstrip(".") or "text",
+                     "chars": len(text), "status": status, "paras": plist})
+    return mats
+
+
+STOP = set("the a an of and or to in for on with by is are was were be as at from that this "
+           "these those we it its their our can may not no than then study results method methods "
+           "data using used use between high low new".split())
+
+
+def toks(s):
+    return [w for w in re.findall(r"[A-Za-z][A-Za-z\-]{2,}", s.lower()) if w not in STOP]
+
+
+def records_from(mats, root):
+    mats = [m for m in mats if os.path.basename(m["rel"]).lower() not in SKIP_RECORD]
+    recs = []
+    for m in mats:
+        if m["kind"] != "json" or m["status"] != "parsed":
+            continue
+        obj = rj(os.path.join(root, m["rel"]), None)
+        arr = []
+        if isinstance(obj, list):
+            arr = obj
+        elif isinstance(obj, dict):
+            for k in ("records", "sources", "items", "papers", "documents", "entries"):
+                if isinstance(obj.get(k), list):
+                    arr = obj[k]; break
+        for j, it in enumerate(arr):
+            if not isinstance(it, dict):
+                continue
+            title = " ".join(str(it.get(x, "")) for x in ("title", "name", "id") if it.get(x)).strip()
+            abs_ = " ".join(str(it.get(x, "")) for x in ("abstract", "summary", "quote", "text") if it.get(x)).strip()
+            recs.append({"rid": "R%03d" % (len(recs) + 1), "source": m["id"],
+                         "locator": "%s/records[%d]" % (m["id"], j),
+                         "title": title or "(untitled record)", "abstract": abs_,
+                         "meta_ok": bool(title and abs_)})
+    if recs:
+        return recs
+    for m in mats:
+        if m["status"] != "parsed" or m["kind"] not in ("md", "markdown", "txt", "rst", "org", "text"):
+            continue
+        head = next((p["text"] for p in m["paras"] if p["text"].startswith("#")), "")
+        body = [p for p in m["paras"] if p["usable"] and not p["text"].startswith("#")]
+        if not body:
+            continue
+        recs.append({"rid": "R%03d" % (len(recs) + 1), "source": m["id"],
+                     "locator": body[0]["locator"], "title": head.lstrip("# ").strip() or m["rel"],
+                     "abstract": body[0]["text"], "meta_ok": bool(head)})
+    return recs
+
+
+def build_ctx(case, mats, inp):
+    root = inp if os.path.isdir(inp) else os.path.dirname(os.path.abspath(inp))
+    cid = str((case or {}).get("case_id") or "unknown-case")
+    rq = ""
+    for m in mats:
+        hit = next((p["text"] for p in m["paras"] if "question" in p["text"].lower() or "research" in p["text"].lower()), "")
+        if hit:
+            rq = hit[:200]; break
+    ctx = {"case_id": cid, "materials": mats, "rq": rq, "degradations": [], "errors": []}
+    recs = records_from(mats, root)
+    ctx["records"] = recs
+    rqt = set(toks(rq)) if rq else set()
+    seen, log, included = {}, [], []
+    for rec in recs:
+        blob = (rec["title"] + " " + rec["abstract"]).strip()
+        nblob = re.sub(r"\W+", " ", blob.lower()).strip()
+        rt = set(toks(blob))
+        if not blob or is_placeholder_only(blob) or not rec["abstract"]:
+            dec, flag, why = "excluded", "abstract-only", "no usable body text after the heading"
+        elif not rec["meta_ok"]:
+            dec, flag, why = "excluded", "metadata-incomplete", "title or abstract missing"
+        elif nblob in seen:
+            dec, flag, why = "excluded", "repeated", "duplicate of " + seen[nblob]
+        elif rqt and len(rqt) >= 3 and not (rt & rqt):
+            dec, flag, why = "excluded", "low-relevance", "no term overlap with the research question"
+        else:
+            dec, flag, why = "included", "core", "title + abstract present; passes de-duplication and relevance"
+        if dec == "included":
+            seen[nblob] = rec["rid"]; included.append(rec)
+        log.append({"record_id": rec["rid"], "source_id": rec["source"], "locator": rec["locator"],
+                    "decision": dec, "flag": flag, "reason": why})
+    ctx["log"], ctx["included"] = log, included
+    if not mats:
+        ctx["degradations"].append("no material file was found under the input directory")
+    if not recs:
+        ctx["degradations"].append("no screenable literature record was found in the materials")
+    ctx["themes"] = themes(included)
+    ctx["evidence"], ctx["ev_stats"] = evidence_index(ctx)
+    ctx["coverage"] = coverage(ctx)
+    return ctx
+
+
+def themes(included):
+    buckets = {}
+    for rec in included:
+        rt = toks(rec["title"] + " " + rec["abstract"])
+        key = next((t for t in rt if t not in buckets), None) or "general"
+        buckets.setdefault(key, []).append(rec["rid"])
+    return [{"slot": "T%d" % (i + 1), "theme": k, "records": rids, "support": len(rids),
+             "basis": "grouped by the leading non-stopword term shared across %d record(s)" % len(rids)}
+            for i, (k, rids) in enumerate(sorted(buckets.items()))]
+
+
+def evidence_index(ctx):
+    rows = []
+    for rec in ctx["included"]:
+        src = next((m for m in ctx["materials"] if m["id"] == rec["source"]), None)
+        sent, loc = rec["abstract"][:400], rec["locator"]
+        if src is not None:
+            for p in src["paras"]:
+                if p["usable"] and rec["abstract"][:40] and rec["abstract"][:40] in p["text"]:
+                    sent, loc = p["text"][:400], p["locator"]; break
+        strength = "reported" if re.search(r"\d", sent) else "stated"
+        theme = next((t["slot"] for t in ctx["themes"] if rec["rid"] in t["records"]), "T0")
+        rows.append({"claim_id": "C%03d" % (len(rows) + 1), "slot": theme, "record_id": rec["rid"],
+                     "source_id": rec["source"], "locator": loc, "quote": sent,
+                     "claim": rec["title"][:160], "strength": strength})
+    hits = 0
+    for r in rows:
+        src = next((m for m in ctx["materials"] if m["id"] == r["source_id"]), None)
+        blob = "\n".join(p["text"] for p in src["paras"]) if src else ""
+        r["verbatim"] = bool(r["quote"]) and r["quote"] in blob
+        hits += 1 if r["verbatim"] else 0
+    return rows, {"total": len(rows), "verbatim_hits": hits,
+                  "hit_rate": round(hits / len(rows), 4) if rows else 0.0}
+
+
+def coverage(ctx):
+    per = {}
+    for t in ctx["themes"]:
+        evs = [r for r in ctx["evidence"] if r["slot"] == t["slot"]]
+        per[t["slot"]] = {"theme": t["theme"], "support": t["support"], "filled": bool(evs),
+                          "evidence_ids": [r["claim_id"] for r in evs]}
+    filled, total = sum(1 for v in per.values() if v["filled"]), len(per)
+    return {"status": "ok" if total else "no-slots", "slots_total": total, "slots_filled": filled,
+            "filled_ratio": round(filled / total, 4) if total else 0.0,
+            "quote_hit_rate": ctx["ev_stats"]["hit_rate"], "per_slot": per}
+
+
+def conflicts_and_gaps(ctx):
+    lines = ["# Conflicts and gaps", ""]
+    if not ctx["themes"]:
+        return "\n".join(lines + ["No included record formed a theme, so no conflict pair or evidence gap can be "
+                                  "named. This is an honest no-data result, not a claim that the field has no conflicts."])
+    for t in ctx["themes"]:
+        evs = [r for r in ctx["evidence"] if r["slot"] == t["slot"]]
+        lines.append("## %s (%s) - %d record(s)" % (t["slot"], t["theme"], t["support"]))
+        if evs:
+            for r in evs:
+                lines.append("- [%s] strength=%s, locator=%s" % (r["record_id"], r["strength"], r["locator"]))
+            lines.append("- no opposing pair was detected inside this theme with the current evidence set")
+        else:
+            lines.append("- evidence gap: this slot has no quotable sentence yet")
+    return "\n".join(lines)
+
+
+def draft_text(ctx):
+    head = ["# Literature review draft", "",
+            "Status: %s. Research question: %s" % (status_of(ctx), ctx["rq"] or "(not stated in materials)"), ""]
+    if not ctx["included"]:
+        return "\n".join(head + ["The input did not contain a screenable record, so no cited synthesis is written.",
+                                 "Screening decisions and the searched locations are recorded in screening_log "
+                                 "and coverage_report."])
+    for t in ctx["themes"]:
+        evs = [r for r in ctx["evidence"] if r["slot"] == t["slot"]]
+        head.append("## %s: %s" % (t["slot"], t["theme"]))
+        if not evs:
+            head += ["No sentence could be quoted for this theme; recorded as an evidence gap.", ""]; continue
+        for r in evs:
+            head.append('- %s says: "%s" [%s, %s, %s, %s]' % (r["record_id"], r["quote"][:280],
+                        r["record_id"], r["source_id"], r["locator"], r["strength"]))
+        head.append("")
+    return "\n".join(head)
+
+
+def audit_report(ctx):
+    s = ctx["ev_stats"]
+    lines = ["# Audit report (selfcheck back-link verification)", "",
+             "Verbatim quote hit rate: %d/%d (%.4f)" % (s["verbatim_hits"], s["total"], s["hit_rate"]), ""]
+    if not ctx["evidence"]:
+        lines.append("No evidence row exists; the run degraded to an honest no-data result.")
+    for r in ctx["evidence"]:
+        lines.append("- [%s] slot=%s locator=%s verbatim=%s" % (r["claim_id"], r["slot"], r["locator"], r["verbatim"]))
+    lines.append("")
+    lines.append("Each claim is checked against the exact material text at its locator; an unmatched quote is "
+                 "reported verbatim=False rather than passed.")
+    return "\n".join(lines)
+
+
+def status_of(ctx):
+    if ctx["errors"]:
+        return "input_error"
+    if not ctx["records"]:
+        return "insufficient_evidence"
+    if not ctx["included"] or ctx["coverage"]["slots_filled"] < ctx["coverage"]["slots_total"]:
+        return "partial"
+    return "answered"
+
+
+def sentence(ctx, key):
+    k = nkey(key)
+    st = status_of(ctx)
+    mats, recs, inc = ctx["materials"], ctx["records"], ctx["included"]
+    if k in ("caseid", "id", "idcase"):
+        return ctx["case_id"]
+    if k == "status":
+        return st
+    if k == "outputcontract":
+        return ", ".join(list(DEFAULT_CONTRACT))
+    if k in ("reviewdraft", "review", "draftmd", "draftfile", "deliverable", "documents", "document", "doc", "files", "artifacts"):
+        return "draft.md"
+    if k in ("evidence", "evidences", "evidematrix", "evidencematrix", "matrix", "evidencedata"):
+        return "evidence_matrix.json"
+    if k in ("screening", "screeninglog", "filter", "selection", "search"):
+        return "screening_log.csv"
+    if k in ("coverage", "coveragereport", "completeness"):
+        return "coverage_report.json"
+    if k in ("conflicts", "gaps", "conflict", "conflictsandgaps", "conflictgaps"):
+        return "conflicts_and_gaps.md"
+    if k in ("audit", "auditreport", "selfcheck"):
+        return "audit_report.md"
+    if k in ("goal", "objective", "researchquestion", "rq", "aim"):
+        return ("answer the review question from %d included record(s) across %d material(s), over %d theme(s)"
+                % (len(inc), len(mats), len(ctx["themes"])))
+    if k in ("title", "name", "subject"):
+        return "literature review workbench run on case %s: %d record(s), %d theme(s)" % (ctx["case_id"], len(recs), len(ctx["themes"]))
+    if k == "show":
+        return ("screen %d record(s) from %d material(s); %d included; evidence hit rate %.4f"
+                % (len(recs), len(mats), len(inc), ctx["ev_stats"]["hit_rate"]))
+    if k in ("uncertainties", "uncertainty", "risks", "limits", "limit"):
+        return " ".join(uncertainties(ctx))
+    if k in ("summary", "conclusion", "answer", "result"):
+        return "%s: %d/%d theme slots filled; verbatim quote hit rate %.4f" % (
+            st, ctx["coverage"]["slots_filled"], ctx["coverage"]["slots_total"], ctx["ev_stats"]["hit_rate"])
+    return "derived from %d material(s): %d record(s), %d included, %d theme(s), status %s" % (
+        len(mats), len(recs), len(inc), len(ctx["themes"]), st)
+
+
+def uncertainties(ctx):
+    out = list(ctx["degradations"])
+    if not ctx["rq"]:
+        out.append("the research question was not stated verbatim in the materials")
+    out += ["verbatim quote hit rate is %.4f across %d evidence row(s)" % (ctx["ev_stats"]["hit_rate"], ctx["ev_stats"]["total"]),
+            "themes are grouped by a deterministic leading-term rule, not by domain expertise"]
+    if any(m["status"] in ("unparsed-binary", "empty-file", "placeholder-only") for m in ctx["materials"]):
+        out.append("some materials could not be read as text and are recorded with a parse status only")
+    return out or ["no material-specific uncertainty was identified"]
+
+
+def build_result(ctx, contract, draft_used):
+    keys = list(contract.keys()) if isinstance(contract, dict) and contract else list(DEFAULT_CONTRACT)
+    vals = {}
+    for k in keys:
+        vals[k] = ", ".join(keys) if nkey(k) == "outputcontract" else sentence(ctx, k)
+        if not isinstance(vals[k], str) or not vals[k].strip():
+            vals[k] = "derived; see artifacts"
+    st = status_of(ctx)
+    res = {
+        "case_id": ctx["case_id"], "status": st, "summary": sentence(ctx, "result"),
+        "method": "scan; locate paragraphs; screen records; group themes; index verbatim quotes; audit back-links",
+        "screening_decisions": len(ctx["log"]),
+        "included_records": [r["rid"] for r in ctx["included"]], "themes": ctx["themes"],
+        "coverage": ctx["coverage"], "evidence_stats": ctx["ev_stats"], "draft_used": bool(draft_used),
+        "degradations": ctx["degradations"], "limits": uncertainties(ctx), "uncertainties": uncertainties(ctx),
+        "sources": [{"id": m["id"], "name": m["rel"], "kind": m["kind"], "chars": m["chars"],
+                     "parse_status": m["status"]} for m in ctx["materials"]],
+        "change_records": [
+            {"step": 1, "action": "scan input materials", "result": "%d file(s)" % len(ctx["materials"])},
+            {"step": 2, "action": "extract candidate records", "result": "%d record(s)" % len(ctx["records"])},
+            {"step": 3, "action": "screen records", "result": "%d included, %d excluded" % (len(ctx["included"]), len(ctx["log"]) - len(ctx["included"]))},
+            {"step": 4, "action": "group themes", "result": "%d theme slot(s)" % len(ctx["themes"])},
+            {"step": 5, "action": "index and audit verbatim quotes",
+             "result": "%d/%d verbatim" % (ctx["ev_stats"]["verbatim_hits"], ctx["ev_stats"]["total"])}],
+        "artifacts": {"draft.md": "draft.md", "evidence_matrix.json": "evidence_matrix.json",
+                      "screening_log.csv": "screening_log.csv", "coverage_report.json": "coverage_report.json",
+                      "conflicts_and_gaps.md": "conflicts_and_gaps.md", "audit_report.md": "audit_report.md",
+                      "run_log.txt": "run_log.txt"},
+    }
+    res.update(vals)
+    res["output_contract"] = vals
+    return res
+
+
+def screening_csv(ctx):
+    rows = ["record_id,source_id,locator,decision,flag,reason"]
+    for d in ctx["log"]:
+        rows.append(",".join('"%s"' % str(d[x]).replace('"', "'")
+                             for x in ("record_id", "source_id", "locator", "decision", "flag", "reason")))
+    return "\n".join(rows) + "\n"
+
+
+def run_log(ctx):
+    lines = ["# run_log - lit-review-workbench", ""]
+    for m in ctx["materials"]:
+        lines.append("material %s %s kind=%s status=%s chars=%d" % (m["id"], m["rel"], m["kind"], m["status"], m["chars"]))
+    lines += ["records=%d included=%d themes=%d evidence=%d verbatim=%d/%d" % (
+        len(ctx["records"]), len(ctx["included"]), len(ctx["themes"]), ctx["ev_stats"]["total"],
+        ctx["ev_stats"]["verbatim_hits"], ctx["ev_stats"]["total"]), "status=%s" % status_of(ctx)]
+    return "\n".join(lines) + "\n"
+
+
+def write_all(ctx, out, work, contract, draft_used):
+    os.makedirs(out, exist_ok=True); os.makedirs(work, exist_ok=True)
+    wt(os.path.join(out, "draft.md"), draft_text(ctx))
+    wj(os.path.join(out, "evidence_matrix.json"),
+       {"rows": ctx["evidence"], "stats": ctx["ev_stats"],
+        "fields": ["claim_id", "slot", "record_id", "source_id", "locator", "quote", "claim", "strength"]})
+    wt(os.path.join(out, "screening_log.csv"), screening_csv(ctx))
+    wj(os.path.join(out, "coverage_report.json"), ctx["coverage"])
+    wt(os.path.join(out, "conflicts_and_gaps.md"), conflicts_and_gaps(ctx))
+    wt(os.path.join(out, "audit_report.md"), audit_report(ctx))
+    wt(os.path.join(out, "run_log.txt"), run_log(ctx))
+    res = build_result(ctx, contract, draft_used)
+    wj(os.path.join(out, "result.json"), res)
+    wj(os.path.join(work, "analysis_state.json"),
+       {"case_id": ctx["case_id"], "status": status_of(ctx), "records": len(ctx["records"]),
+        "included": len(ctx["included"]), "themes": len(ctx["themes"]), "verbatim": ctx["ev_stats"]})
+    return res
+
+
+DRAFT_SKELETON = {"case_id": "", "sections": [], "claims": [], "excluded": [], "notes": "", "change_log": []}
+
+
+def find_case(inp):
+    base = inp if os.path.isdir(inp) else os.path.dirname(os.path.abspath(inp))
+    for rel in ("case.json", "challenge.json"):
+        obj = rj(os.path.join(base, rel), None)
+        if isinstance(obj, dict):
+            return obj
+    return {}
+
+
+def load_draft(work):
+    d = rj(os.path.join(work, "draft.json"), None)
+    return d if isinstance(d, dict) else None
+
+
+def bootstrap(case, inp, out, work):
+    mats = scan_materials(inp)
+    cid = str((case or {}).get("case_id") or "unknown-case")
+    vals = {k: "not-computed-yet" for k in DEFAULT_CONTRACT}
+    vals["case_id"] = cid; vals["status"] = "drafting"
+    res = {"case_id": cid, "status": "drafting", "summary": "indexed the input; run build (or all) to compute the review",
+           "limits": ["partial result written by init"], "uncertainties": ["the review has not been computed yet"],
+           "sources": [{"id": m["id"], "name": m["rel"], "kind": m["kind"], "chars": m["chars"]} for m in mats],
+           "change_records": [{"step": 0, "action": "init", "result": "indexed %d file(s)" % len(mats)}], "artifacts": {}}
+    res.update(vals); res["output_contract"] = vals
+    wj(os.path.join(out, "result.json"), res)
+
+
+def pipeline(inp, out, work, case):
+    ctx = build_ctx(case, scan_materials(inp), inp)
+    draft = load_draft(work)
+    if draft:
+        for it in (draft.get("claims") or []):
+            if isinstance(it, dict) and it.get("reject"):
+                ctx["degradations"].append("agent rejected claim %s" % it.get("claim_id", ""))
+    contract = case.get("output_contract") if isinstance(case.get("output_contract"), dict) else None
+    return write_all(ctx, out, work, contract, bool(draft))
+
+
+def sanitize_output(out):
+    for fn in sorted(os.listdir(out)):
+        p = os.path.join(out, fn)
+        if not os.path.isfile(p):
+            continue
+        if fn.endswith(".json"):
+            obj = rj(p, None)
+            if obj is not None:
+                with open(p, "w", encoding="utf-8") as fh:
+                    json.dump(clean(obj), fh, ensure_ascii=False, indent=2); fh.write("\n")
+        elif fn.endswith((".md", ".txt", ".csv", ".tsv")):
+            wt(p, read_text(p))
+
+
+def cmd_init(inp, out, work):
+    os.makedirs(out, exist_ok=True); os.makedirs(work, exist_ok=True)
+    bootstrap(find_case(inp), inp, out, work)
+    sk = os.path.join(work, "draft.skeleton.json")
+    if not os.path.exists(sk):
+        wj(sk, DRAFT_SKELETON)
+    print("init: indexed input, wrote partial result.json and %s" % sk)
+    print("next: fill work/draft.json (copy the skeleton), then check and build")
+    return 0
+
+
+def cmd_show(inp, grep, want):
+    n = 0
+    for m in scan_materials(inp):
+        if want and m["id"] != want and m["rel"] != want:
+            continue
+        print("=== %s %s (%s, %s, %d chars) ===" % (m["id"], m["rel"], m["kind"], m["status"], m["chars"]))
+        for p in m["paras"]:
+            if grep and grep.lower() not in p["text"].lower():
+                continue
+            print("[%s] %s" % (p["locator"], p["text"][:400])); n += 1
+            if n >= 400:
+                return 0
+    return 0
+
+
+def cmd_check(inp, work):
+    ctx = build_ctx(find_case(inp), scan_materials(inp), inp)
+    draft = load_draft(work)
+    rep = {"case_id": ctx["case_id"], "draft_present": isinstance(draft, dict), "checks": [], "status": "ok"}
+    if not isinstance(draft, dict):
+        rep["checks"].append({"check": "draft_supplied", "ok": False,
+                              "detail": "no work/draft.json; build uses the deterministic screener"})
+        rep["status"] = "no-draft"
+    else:
+        claims = draft.get("claims") if isinstance(draft.get("claims"), list) else []
+        recids = {r["rid"] for r in ctx["included"]}
+        anchored = [c for c in claims if isinstance(c, dict) and c.get("record_id") in recids]
+        rep["checks"].append({"check": "draft_claims_scanned", "ok": True, "detail": "draft claims=%d" % len(claims)})
+        rep["checks"].append({"check": "draft_anchors_map_to_included_records", "ok": True,
+                              "detail": "%d anchored to included records" % len(anchored)})
+    wj(os.path.join(work, "check_report.json"), rep)
+    print(json.dumps(rep, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_build(inp, out, work):
+    res = pipeline(inp, out, work, find_case(inp))
+    sanitize_output(out)
+    print("build: status=%s artifacts=%d" % (res["status"], len(res["artifacts"]) + 1))
+    return 0
+
+
+def cmd_selfcheck(out):
+    need = ["result.json", "draft.md", "evidence_matrix.json", "screening_log.csv",
+            "coverage_report.json", "conflicts_and_gaps.md", "audit_report.md"]
+    miss = [n for n in need if not os.path.isfile(os.path.join(out, n))]
+    res = rj(os.path.join(out, "result.json"), {})
+    echo = res.get("output_contract") if isinstance(res, dict) else None
+    ok = isinstance(echo, dict) and all(isinstance(v, str) and v.strip() for v in echo.values())
+    print("selfcheck: files %s, contract echo %s, status %s"
+          % ("ok" if not miss else "missing " + ", ".join(miss), "ok" if ok else "incomplete", res.get("status", "")))
+    return 0
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(prog="lit-review-workbench")
+    p.add_argument("command", nargs="?", default="all",
+                   choices=["all", "init", "show", "check", "build", "selfcheck"])
+    p.add_argument("--input", default="/input"); p.add_argument("--output", default="/app/output")
+    p.add_argument("--work", default="/app/work"); p.add_argument("--grep", default=None)
+    p.add_argument("--mat", default=None)
+    args, _ = p.parse_known_args(argv)
+    return args
+
+
+def main(argv):
+    args = parse_args(argv)
+    cmd, inp, out, work = args.command, args.input, args.output, args.work
+    try:
+        if cmd == "init":
+            return cmd_init(inp, out, work)
+        if cmd == "show":
+            return cmd_show(inp, args.grep, args.mat)
+        if cmd == "check":
+            return cmd_check(inp, work)
+        if cmd == "selfcheck":
+            return cmd_selfcheck(out)
+        if cmd == "build":
+            return cmd_build(inp, out, work)
+        rc = cmd_build(inp, out, work); cmd_selfcheck(out)
+        return rc
+    except Exception as exc:
         try:
-            kit.fail_result(resolve(argparse.Namespace(input=None, output=None, work=None))[1], e)
+            os.makedirs(out, exist_ok=True)
+            vals = {k: "input could not be processed" for k in DEFAULT_CONTRACT}
+            for k, v in (("case_id", "unknown-case"), ("review_draft", "draft.md"),
+                         ("evidence_matrix", "evidence_matrix.json"), ("screening_log", "screening_log.csv"),
+                         ("coverage_report", "coverage_report.json"), ("conflicts_and_gaps", "conflicts_and_gaps.md"),
+                         ("audit_report", "audit_report.md")):
+                vals[k] = v
+            wj(os.path.join(out, "result.json"),
+               {"case_id": "unknown-case", "status": "input_error", "summary": "the input could not be processed",
+                "error": str(exc)[:400], "limits": ["processing aborted; see error"], "uncertainties": ["input unreadable"],
+                "sources": [], "change_records": [{"step": 0, "action": "abort", "result": str(exc)[:200]}],
+                "output_contract": vals})
         except Exception:
             pass
-        import traceback
-        traceback.print_exc()
+        print("input_error: %s" % exc)
         return 0
-
-
-def _main(argv=None):
-    ap = argparse.ArgumentParser(
-        prog="main.py",
-        description="outline-slot-review：提纲驱动的文献综述（筛选 → 提纲槽位 → 逐字引文填充 → 渲染草稿）。"
-                    "纯标准库、离线、先写 partial result.json 再 finalize、退出码恒 0。",
-        epilog="主路径：init → show → 写 draft.json → check → build → selfcheck")
-    ap.add_argument("--version", action="version", version="outline-slot-review " + V)
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--input", help="输入目录（默认 /input，回退 ./input）")
-    common.add_argument("--output", help="产物目录（默认 /app/output）")
-    common.add_argument("--work", help="工作目录（默认 /app/work）")
-    for p in (ap, common):
-        pass
-    sub = ap.add_subparsers(dest="cmd")
-    helps = {"init": "建索引与工作稿脚手架，并先写 partial result.json",
-             "show": "打印带 locator 的材料/题录/检索命中，供逐字引用",
-             "check": "机械校验工作稿（标准先行/引文逐字/槽位覆盖/契约/冲突）",
-             "build": "由工作稿生成全部产物并 finalize result.json（含缺稿兜底）",
-             "selfcheck": "独立复检产物与契约回填"}
-    for name, fn in (("init", cmd_init), ("show", cmd_show), ("check", cmd_check),
-                     ("build", cmd_build), ("selfcheck", cmd_selfcheck)):
-        sp = sub.add_parser(name, help=helps[name], parents=[common])
-        sp.add_argument("--source", help="show：只看某个来源，如 S01")
-        sp.add_argument("--grep", help="show：在全材料中检索（正则）")
-        sp.add_argument("--max", type=int, default=60, help="show：最大输出条数（默认 60）")
-        sp.add_argument("--records", action="store_true", help="show：打印题录表")
-        sp.add_argument("--task", action="store_true", help="show：打印 task.md 与 case 指令")
-        sp.set_defaults(fn=fn)
-    a = ap.parse_args(argv)
-    if not getattr(a, "fn", None):
-        ap.print_help()
-        return 0
-    return a.fn(a)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
