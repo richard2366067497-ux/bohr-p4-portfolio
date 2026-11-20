@@ -1,7 +1,7 @@
 ---
 name: paper-structure-logic-review
 description: Review an academic manuscript for section structure, research-question alignment, argument chains, paragraph relations, duplication and conclusion boundaries; emit locator-anchored findings, an executable edit plan and a consistency report.
-version: 6.0.0
+version: 9.0.0
 ---
 
 # 论文结构与逻辑优化（writing-06）
@@ -74,6 +74,8 @@ python3 <skill>/scripts/main.py selfcheck --input /input --output /app/output --
 | `argument_map.json` | 研究问题句、主张-证据链、无证据链计数 |
 | `consistency_report.md` | 文件清单、标题层级、重复句、跨文档术语、引用与条目计数 |
 | `pending_human.json` | 需要作者补充或确认的缺口 |
+| `semantic_audit.json` | 语义审读协议：机械预筛候选句（带 locator/逐字引文）、固定提示词、四维度与判定取值、记录模式 |
+| `metrics.json` | 与包内声明阈值的基线对照（引文命中率、每结论引文数/动作数、契约字段数），可复算 |
 | `result.json` | 契约回填、状态、来源、不确定性、修改记录、限制、错误 |
 
 ## 5 result.json 与契约回填
@@ -105,24 +107,61 @@ python3 <skill>/scripts/main.py selfcheck --input /input --output /app/output --
 
 ## 7 自检
 
-`selfcheck` 校验：契约键齐全且非空、七个产物均 ≥40 字节、`case_id` 透传，并把结果写到
+`selfcheck` 校验：契约键齐全且非空、产物均 ≥40 字节、`case_id` 透传，并把结果写到
 `<output>/selfcheck.json`。规则阈值与字段口径见 `references/dimensions.md`。
 
 ## 8 文件清单与维护
 
 ```
-SKILL.md                     本文件：单命令入口、agent 路径、六维口径、契约、降级、自查
-scripts/main.py              入口：run / probe / build / check / selfcheck
-scripts/core.py              共享层：清洗、发现、文本模型、包级审计、契约回填、产物渲染
+SKILL.md                     本文件：单命令入口、agent 路径、六维口径、契约、降级、自查、语义审读协议
+scripts/main.py              入口：run / probe / build / check / selfcheck / selftest
+scripts/core.py              共享层：清洗、发现、PDF/DOCX 文本层、文本模型、契约回填、语义审读协议、基线指标
 scripts/review.py            审读层：六维检测器、覆盖度、动作、流水线与自查
-references/dimensions.md     定位符、六维触发条件、finding/action 字段与覆盖状态
+references/dimensions.md     定位符、六维触发条件、finding/action 字段、覆盖状态与模板
 README.md                    安装、用法、产物、限制与维护
 SELFTEST.md                  eval_sim 与脚本级降级的自测记录
 GITHUB_URL.txt               公开仓库与本挑战的目录
 ```
 
 - 依赖：Python 3.9+ 标准库；无第三方包、无网络。包体 12 文件，单文件 ≤30KB，主脚本 ≤25KB。
-- 版本 6.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与本表。
+- 版本 9.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与本表。
+
+## 随包文件（v8 新增）
+
+```
+environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                    最小可复跑样例（case.json + manuscript.md），评审可直接复跑
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
+
+## 9 语义审读：LLM-assisted semantic audit
+
+机械守卫能证明"引文逐字命中、数字没有漂移"，但不能判断"断言强度是否仍被证据支持"、让步词是否被
+悄悄加深。这一层把该判断交给 LLM/人工：`run` 会额外写出 `semantic_audit.json`，内含机械预筛出的候选句
+（带 locator 与逐字引文）、固定提示词 `prompt_template`、四个维度与各自判定取值、以及记录模式。
+Agent 在 Harness 内按提示词跑完后，把判定回填进 `records`：
+
+```json
+[
+  {"locator": "C04-P002-S01", "source_quote": "in vitro 条件下转化率提升到 91.2%",
+   "dimension": "hedge_fidelity", "verdict": "preserved", "why": "改写保留了 in vitro 限定词"}
+]
+```
+
+回填后：`overstated` / `strengthened` / `drift` 一律升级为 P1 动作；`unclear` 留在 `pending_human.json`。
+本包不联网、不调用外部模型，只提供协议与预筛，因此增益可复算、判定不被伪装成机器结论。
+
+## 10 与基线对照（metrics.json）
+
+`run` 同时写 `metrics.json`：把本次运行的引文命中率、每结论引文数、每结论动作数、契约字段数、占位符
+数逐项对照包内声明的阈值，每行都能从 `result.json` / `structural_review.json` 复算，不需要重跑模型。
+
+## 11 自测与解析边界
+
+- `python3 scripts/main.py selftest`：离线自测 15 项（PDF/DOCX 文本层、损坏件降级、契约回填、产物
+  齐全、引文核验、占位符扫描、语义审读协议、基线指标），不依赖网络与第三方包，退出码恒为 0。
+- 支持材料：`.md .txt .rst .tex .json .csv`，以及 **PDF 文本层**（FlateDecode + 字面串）与
+  **DOCX**（`word/document.xml`）；解析不了的二进制/扫描件只清点、不编造，并把文件名写入 `degradations`。
 
 ## 随包文件（v8 新增）
 
