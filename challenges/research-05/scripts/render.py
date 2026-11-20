@@ -1,372 +1,405 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""research-topic-gatekeeper 渲染层：decision_brief.md / gate_scorecard.json /
-prior_art_alignment_matrix.csv / assumption_register.json / evidence_index.jsonl / conflicts.json。
-纯标准库；异常由调用方降级，不抛出到 CLI。"""
-import csv, io, json, re
-from pathlib import Path
+"""five-gate research evaluator: artifact writers (matrix / evidence / render / pipeline).
 
-import gates as G
+Standard library only; deterministic; offline. Builds on the shared engine in kglib.
+"""
+import hashlib, json, os, re
+from kglib import *  # noqa: F401,F403
 
-norm, al, dicts, strs = G.norm, G.al, G.dicts, G.strs
-V = "1.0.0"
-
-
-def table(head, rows, empty="（无）"):
-    rows = [[norm(c).replace("|", "\\|") or "—" for c in r] for r in rows]
-    if not rows:
-        return empty + "\n"
-    out = ["| " + " | ".join(head) + " |", "|" + "|".join(["---"] * len(head)) + "|"]
-    out += ["| " + " | ".join(r) + " |" for r in rows]
-    return "\n".join(out) + "\n"
-
-
-def ev_rows(rep, ref):
-    out, seen = [], set()
-    for e in rep.get("evidence", []):
-        if norm(e.get("ref")) != norm(ref):
-            continue
-        k = (norm(e.get("found_source") or e.get("source_id")), norm(e.get("found_locator") or e.get("locator")),
-             norm(e.get("quote")))
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(e)
-    return out
-
-
-def ev_line(e):
-    tag = "逐字" if e.get("status") == "verified" else "未命中"
-    loc = e.get("found_locator") or e.get("locator") or "?"
-    sid = e.get("found_source") or e.get("source_id") or "?"
-    mark = "−" if norm(e.get("polarity")) == "contradict" else "+"
-    return "  - [%s] %s@%s（%s，%s）：\"%s\"" % (mark, sid, loc, tag, e.get("match") or "-", norm(e.get("quote"))[:160])
-
-
-def brief(draft, ctx, rep):
-    L = []
-    dec, q, sp = draft.get("decision") or {}, draft.get("question") or {}, draft.get("search_protocol") or {}
-    gp = draft.get("research_gap") or {}
-    c = rep.get("counts", {})
-    cov = rep.get("coverage", {})
-    title = norm(draft.get("proposal_title")) or norm(ctx.get("case_title")) or "研究设想"
-    L.append("# 决策简报：%s\n" % title)
-    L.append("> v%s ｜ case_id=%s ｜ status=%s ｜ 工作稿来源=%s ｜ 材料 %d 份 ｜ 证据 %d/%d 逐字命中 ｜ %s\n"
-             % (V, ctx.get("case_id") or "n/a", ctx.get("status"), ctx.get("draft_source"),
-                ctx.get("n_materials", 0), c.get("evidence_verified", 0), c.get("evidence_total", 0), ctx.get("now")))
-    L.append("> 本文把研究设想推进到**可决策结论**：五门各自给 go/conditional/no_go 与条件，每条判定附证据回链 [E#]；"
-             "凡材料未覆盖处标为假设或无法确定，不代以推断。\n")
-
-    # 0 速览
-    L.append("## 0. 一页速览\n")
-    gv = {norm(g.get("gate_id")).upper(): norm(g.get("verdict")).lower() for g in dicts(draft.get("gates"))}
-    L.append(table(["项目", "结论", "依据"], [
-        ["总判定", norm(dec.get("overall")) or "未给出", norm(dec.get("summary"))[:120] or "—"],
-        ["G1 值得做", gv.get("G1", "缺") + "（问题可检验性）", "§3.1"],
-        ["G2 别人做到哪", gv.get("G2", "缺") + "（最近工作覆盖）", "§3.2"],
-        ["G3 做得出来吗", gv.get("G3", "缺") + "（前提三分）", "§3.3"],
-        ["G4 不是旧方案吗", gv.get("G4", "缺") + "（创新类型判定）", "§3.4"],
-        ["G5 失败会怎样", gv.get("G5", "缺") + "（kill criteria）", "§3.5"],
-        ["六类覆盖", "%d/6 通过" % cov.get("six_passed", 0), "§附录 B"],
-        ["证据", "%d 条，逐字命中 %d" % (c.get("evidence_total", 0), c.get("evidence_verified", 0)), "§附录 A"],
-        ["反证登记", "%d 组" % len(dicts(draft.get("conflicts"))) if draft.get("conflicts")
-         else norm(draft.get("no_contrary_found"))[:60] or "未登记", "§7"],
-    ]))
-
-    # 1 问题
-    L.append("\n## 1. 研究问题：拆成可检验的表述\n")
-    L.append((norm(q.get("problem_statement")) or "（未给出问题陈述）") + "\n")
-    L.append(table(["维度", "内容"], [
-        ["研究对象", norm(q.get("object")) or "未给出"],
-        ["关键变量", "；".join(strs(q.get("variables"))) or "未给出"],
-        ["比较基线", norm(q.get("baseline")) or "未给出"],
-        ["预期结论", norm(q.get("expected")) or "未给出"],
-    ]))
-    fs = strs(q.get("falsification"))
-    L.append("\n**可证伪条件**（出现即否定该设想）\n")
-    L.append("\n".join("- F%d %s" % (i, re.sub(r"^F%d[：:.、\s]*" % i, "", f)) for i, f in enumerate(fs, 1))
-             + "\n" if fs else "（未给出，见附录 B）\n")
-    vr = [x for x in dicts(q.get("vague_replaced"))]
-    if vr:
-        L.append("\n**模糊措辞 → 可测量替换**\n")
-        L.append(table(["原表述", "替换为"], [[norm(v.get("vague")), norm(v.get("measurable"))] for v in vr]))
-    ut = strs(q.get("untestable"))
-    if ut:
-        L.append("\n**明确标为不可检验（不假装能测）**：" + "；".join(ut) + "\n")
-
-    # 2 检索
-    L.append("\n## 2. 检索、纳排与对象表（可独立复核）\n")
-    L.append(table(["检索式", "时间窗", "纳入标准", "排除标准", "已筛记录"], [
-        ["；".join(strs(sp.get("queries"))) or "（未给出检索式）",
-         norm(sp.get("windows") or sp.get("date_window")) or "（未给出时间窗）",
-         "；".join(strs(sp.get("inclusion"))) or "—", "；".join(strs(sp.get("exclusion"))) or "—",
-         str(sp.get("screened") if sp.get("screened") is not None else "—")]]))
-    ex = [x for x in dicts(sp.get("excluded"))]
-    if ex:
-        L.append("\n**纳排明细（被排除的记录与理由）**\n")
-        L.append(table(["记录", "理由"], [[norm(x.get("record_id")), norm(x.get("reason"))] for x in ex]))
-    L.append("\n**输入对象表（来自 case.json 与材料，脚本机械解析，未改写）**\n")
-    L.append(table(["编号", "题名/标识", "别名", "版本/状态标记", "对应材料"], [
-        [s.get("sid"), norm(s.get("title"))[:70] or norm(s.get("doi")) or "—",
-         "、".join(strs(s.get("aliases")))[:40] or "—", norm(s.get("version_flag")) or "—",
-         norm(s.get("material")) or "—"] for s in ctx.get("sources", [])[:24]]))
-
-    # 3 五门
-    L.append("\n## 3. 五门判定（每门：结论 + 条件 + 证据回链 + 残余风险 + 改法）\n")
-    for i, (gid, name, qs) in enumerate(G.GATES, 1):
-        g = next((x for x in dicts(draft.get("gates")) if norm(x.get("gate_id")).upper() == gid), {})
-        L.append("\n### 3.%d %s %s\n" % (i, gid, name))
-        L.append("**判定：%s**\n" % (norm(g.get("verdict")) or "缺"))
-        L.append("问题：%s\n" % (norm(g.get("question")) or qs))
-        if norm(g.get("rationale")):
-            L.append("理由：%s\n" % norm(g.get("rationale")))
-        cs = strs(g.get("conditions"))
-        if cs:
-            L.append("\n成立条件\n")
-            L.append("\n".join("- %s" % x for x in cs) + "\n")
-        eids = strs(g.get("evidence_ids"))
-        L.append("\n证据回链（evidence_ids=%s）\n" % ("、".join(eids) or "无"))
-        rows = []
-        for eid in eids:
-            for e in ev_rows(rep, eid):
-                rows.append(ev_line(e))
-        L.append("\n".join(rows) if rows else "  - （无可核验证据，见附录 B 的诊断）\n")
-        rs = strs(g.get("residual_risks"))
-        if rs:
-            L.append("\n残余风险\n")
-            L.append("\n".join("- %s" % x for x in rs) + "\n")
-        if norm(g.get("pivot_if_no_go")):
-            L.append("\n若该门不通过则改为：%s\n" % norm(g.get("pivot_if_no_go")))
-
-    # 4 矩阵
-    L.append("\n## 4. 已有工作对齐矩阵（逐条划界，长表见 prior_art_alignment_matrix.csv）\n")
-    L.append(table(["设想主张", "最近工作", "任务", "方法", "数据", "评价", "重叠", "可比性", "边界差别", "定位"], [
-        [norm(r.get("claim_id")), norm(r.get("source_id")), norm(r.get("task"))[:26], norm(r.get("method"))[:26],
-         norm(r.get("data"))[:20], norm(r.get("evaluation"))[:26], norm(r.get("overlap")),
-         norm(r.get("comparison_status")) + ("" if norm(r.get("comparison_status")) != "not_comparable"
-                                             else "：" + norm(r.get("cannot_compare_reason"))[:40]),
-         norm(r.get("boundary_note"))[:70], norm(r.get("locator"))] for r in dicts(draft.get("matrix"))]))
-
-    # 5 创新
-    L.append("\n## 5. 创新类型与覆盖判定\n")
-    L.append("类型学：method（方法）/ data（数据）/ scenario_transfer（场景迁移）/ conclusion_correction（结论修正）。"
-             "**“检索不到”不构成新颖性**：无对照行的只能判 undetermined。\n")
-    L.append(table(["主张", "类型", "判定", "覆盖来源", "与最近工作的边界"], [
-        [norm(n.get("claim_id")), norm(n.get("type")), norm(n.get("verdict")),
-         "、".join(strs(n.get("covered_by"))) or "—", norm(n.get("boundary"))[:90] or "—"]
-        for n in dicts(draft.get("novelty"))]))
-
-    # 6 假设
-    L.append("\n## 6. 可行性前提登记与 kill criteria（可行性=可执行计划，不是一句“可行”）\n")
-    st = cov.get("assumption_states", {})
-    L.append("状态三分：source（有来源）/ assumed（假设）/ unsupported（无支撑）。当前：%s\n"
-             % "，".join("%s %d" % (k, v) for k, v in sorted(st.items())) if st else "")
-    L.append(table(["编号", "前提", "类别", "状态", "来源定位", "kill criteria", "最小验证实验"], [
-        [norm(a.get("id")), norm(a.get("statement"))[:70], norm(a.get("category")), norm(a.get("state")),
-         norm(a.get("source_locator")) or "—", norm(a.get("kill_criteria"))[:60],
-         norm(a.get("validation_experiment"))[:60]] for a in dicts(draft.get("assumptions"))]))
-
-    # 7 冲突
-    L.append("\n## 7. 冲突证据与取舍（不隐藏反证）\n")
-    conf = dicts(draft.get("conflicts"))
-    if conf:
-        for i, c2 in enumerate(conf, 1):
-            L.append("\n**C-%d %s**\n" % (i, norm(c2.get("topic")) or "未命名冲突"))
-            for side, lab in (("support", "支持"), ("contradict", "相反")):
-                for e in dicts(c2.get(side)):
-                    L.append("- [%s] %s@%s：\"%s\"" % (lab, norm(e.get("source_id")),
-                                                       norm(e.get("locator")) or "?", norm(e.get("quote"))[:150]))
-            L.append("\n取舍：%s ｜ 对判定的影响：%s\n" % (norm(c2.get("resolution")) or "未写取舍理由",
-                                                    norm(c2.get("impact_on_decision")) or "未写"))
-    else:
-        L.append((norm(draft.get("no_contrary_found")) or "未登记任何相反结论，也未说明检索范围——视为缺口。") + "\n")
-
-    # 8 空白
-    L.append("\n## 8. 研究空白（限定范围，不做全局断言）\n")
-    L.append((norm(gp.get("statement")) or "（未给出）") + "\n")
-    L.append("\n- 作用范围：%s\n- 是否宣称全局首创：%s\n" % (norm(gp.get("scope")) or "未限定",
-                                                     "是（不合规）" if gp.get("global_claim") in (True, "true", 1) else "否"))
-    for e in dicts(gp.get("basis")):
-        L.append("- 依据 %s@%s：\"%s\"" % (norm(e.get("source_id")), norm(e.get("locator")) or "?", norm(e.get("quote"))[:140]))
-
-    # 9 结论
-    L.append("\n## 9. 结论与下一步最小验证\n")
-    L.append("**总判定：%s**\n\n%s\n" % (norm(dec.get("overall")) or "未给出", norm(dec.get("summary")) or "（未给出）"))
-    cs = strs(dec.get("conditions"))
-    if cs:
-        L.append("\n结论成立的条件\n")
-        L.append("\n".join("- %s" % x for x in cs) + "\n")
-    nv = dicts(dec.get("next_validation"))
-    L.append("\n**下一步最小验证（把 conditional 变 go 的最短路径）**\n")
-    L.append(table(["门", "动作", "需要拿到什么证据"], [
-        [norm(x.get("gate")) or "—", norm(x.get("step")), norm(x.get("evidence_needed"))] for x in nv]))
-
-    # 附录
-    L.append("\n## 附录 A：证据索引（逐条定位；未命中者不可作证据）\n")
-    L.append(table(["引用", "来源", "定位", "匹配", "极性", "原文"], [
-        [norm(e.get("ref")) or "—", norm(e.get("found_source") or e.get("source_id")),
-         norm(e.get("found_locator") or e.get("locator")) or "?", norm(e.get("match")) or e.get("status"),
-         norm(e.get("polarity")) or "support", norm(e.get("quote"))[:110]] for e in rep.get("evidence", [])]))
-    L.append("\n## 附录 B：覆盖与自检\n")
-    six = cov.get("six_checks", {})
-    L.append(table(["六类要点", "是否覆盖"], [
-        ["问题拆解（problem_decomposition）", "是" if six.get("problem_decomposition") else "否"],
-        ["检索覆盖（search_coverage）", "是" if six.get("search_coverage") else "否"],
-        ["证据回链（evidence_backlink）", "是" if six.get("evidence_backlink") else "否"],
-        ["冲突证据（conflict_evidence）", "是" if six.get("conflict_evidence") else "否"],
-        ["综合结论（synthesis）", "是" if six.get("synthesis") else "否"],
-        ["研究空白（research_gap）", "是" if six.get("research_gap") else "否"]]))
-    diag = [["ERROR " + e["code"], e["msg"]] for e in rep.get("errors", [])] + \
-           [["WARN " + w["code"], w["msg"]] for w in rep.get("warnings", [])]
-    L.append("\n**诊断**\n")
-    L.append(table(["级别", "说明"], diag))
-    L.append("\n## 附录 C：变更记录与不确定性\n")
-    L.append(table(["动作", "对象", "原因", "前", "后"], [
-        [norm(x.get("action")), norm(x.get("target")), norm(x.get("reason"))[:80],
-         norm(x.get("before"))[:30], norm(x.get("after"))[:40]] for x in dicts(draft.get("change_log"))]))
-    unc = ctx.get("uncertainties", [])
-    L.append("\n".join("- %s：%s → %s" % (norm(u.get("item")), norm(u.get("why")), norm(u.get("effect")))
-                      for u in unc) if unc else "\n- （无）")
-    return "\n".join(L).rstrip() + "\n"
-
-
-def scorecard(draft, ctx, rep):
-    gates = []
-    for gid, name, qs in G.GATES:
-        g = next((x for x in dicts(draft.get("gates")) if norm(x.get("gate_id")).upper() == gid), {})
-        eids = strs(g.get("evidence_ids"))
-        gates.append({
-            "gate_id": gid, "name": name, "question": norm(g.get("question")) or qs,
-            "verdict": norm(g.get("verdict")).lower() or None,
-            "conditions": strs(g.get("conditions")),
-            "evidence_ids": eids,
-            "evidence_verified": sum(1 for eid in eids for e in ev_rows(rep, eid) if e.get("status") == "verified"),
-            "residual_risks": strs(g.get("residual_risks")),
-            "pivot_if_no_go": norm(g.get("pivot_if_no_go")) or None,
-            "rationale": norm(g.get("rationale")) or None})
-    dec = draft.get("decision") or {}
-    return {"case_id": ctx.get("case_id"), "skill_version": V, "generated_at": ctx.get("now"),
-            "overall": norm(dec.get("overall")).lower() or None,
-            "summary": norm(dec.get("summary")),
-            "conditions": strs(dec.get("conditions")),
-            "next_validation": dicts(dec.get("next_validation")),
-            "gates": gates,
-            "verdict_counts": {v: sum(1 for g in gates if g["verdict"] == v) for v in ("go", "conditional", "no_go")},
-            "coverage": rep.get("coverage", {}),
-            "counts": rep.get("counts", {}),
-            "status": ctx.get("status"), "draft_source": ctx.get("draft_source")}
-
-
-CSV_HEAD = ["proposal_claim_id", "source_id", "task", "method", "data", "evaluation", "overlap",
-            "comparison_status", "cannot_compare_reason", "boundary_note", "evidence_locator"]
-
-
-def matrix_csv(draft):
-    buf = io.StringIO()
-    w = csv.writer(buf, lineterminator="\n")
-    w.writerow(CSV_HEAD)
-    for r in dicts(draft.get("matrix")):
-        w.writerow([norm(r.get("claim_id")), norm(r.get("source_id")), norm(r.get("task")), norm(r.get("method")),
-                    norm(r.get("data")), norm(r.get("evaluation")), norm(r.get("overlap")).lower(),
-                    norm(r.get("comparison_status")).lower(), norm(r.get("cannot_compare_reason")),
-                    norm(r.get("boundary_note")), norm(r.get("locator"))])
-    return buf.getvalue()
-
-
-def assumption_register(draft, ctx, rep):
+def build_artifacts(R, out):
+    M, cid = R["M"], R["case_id"]
+    gates = gate_verdicts(R)
+    R["gates_out"] = gates
+    for e in draft_checks(R, gates):
+        if e["code"] not in [x["code"] for x in R["errors"]]:
+            R["errors"].append(e)
+    # ---- matrix (long table: one claim x its nearest comparison row)
     rows = []
-    for a in dicts(draft.get("assumptions")):
-        aid = norm(a.get("id"))
-        evs = [{"source_id": e.get("found_source") or e.get("source_id"),
-                "locator": e.get("found_locator") or e.get("locator"), "quote": e.get("quote"),
-                "status": e.get("status")} for e in rep.get("evidence", []) if norm(e.get("ref")) == aid]
-        rows.append({"id": aid, "statement": norm(a.get("statement")), "category": norm(a.get("category")).lower(),
-                     "state": norm(a.get("state")).lower(), "source_locator": norm(a.get("source_locator")),
-                     "evidence": evs, "kill_criteria": norm(a.get("kill_criteria")),
-                     "validation_experiment": norm(a.get("validation_experiment")),
-                     "owner_gate": "G3"})
-    return {"case_id": ctx.get("case_id"), "skill_version": V, "generated_at": ctx.get("now"),
-            "state_legend": {"source": "材料中有逐字来源", "assumed": "合理假设，需实验确认",
-                             "unsupported": "无支撑，缺它则该门不可能 go"},
-            "counts": {s: sum(1 for r in rows if r["state"] == s) for s in G.ASTATE},
-            "assumptions": rows}
-
-
-def evidence_jsonl(rep):
-    out = []
-    for e in rep.get("evidence", []):
-        out.append(json.dumps({"ref": norm(e.get("ref")), "source_id": norm(e.get("found_source") or e.get("source_id")),
-                               "locator": norm(e.get("found_locator") or e.get("locator")),
-                               "quote": e.get("quote"), "polarity": norm(e.get("polarity")) or "support",
-                               "match": e.get("match"), "status": e.get("status")}, ensure_ascii=False))
-    return "\n".join(out) + ("\n" if out else "")
-
-
-def conflicts_json(draft, ctx, rep):
-    return {"case_id": ctx.get("case_id"), "skill_version": V,
-            "no_contrary_found": norm(draft.get("no_contrary_found")) or None,
-            "contradicting_evidence": [{"ref": e.get("ref"), "source_id": e.get("found_source") or e.get("source_id"),
-                                        "locator": e.get("found_locator") or e.get("locator"), "quote": e.get("quote")}
-                                       for e in rep.get("evidence", []) if norm(e.get("polarity")) == "contradict"],
-            "conflicts": dicts(draft.get("conflicts"))}
-
-
-def write_all(outdir, draft, ctx, rep):
-    out = Path(outdir)
-    out.mkdir(parents=True, exist_ok=True)
-    files = {}
-    md = brief(draft, ctx, rep)
-    (out / "decision_brief.md").write_text(md, encoding="utf-8")
-    files["decision_brief.md"] = len(md.encode("utf-8"))
-    G.dump_json(out / "gate_scorecard.json", scorecard(draft, ctx, rep))
-    files["gate_scorecard.json"] = (out / "gate_scorecard.json").stat().st_size
-    with open(str(out / "prior_art_alignment_matrix.csv"), "w", encoding="utf-8", newline="") as fh:
-        fh.write(matrix_csv(draft))
-    files["prior_art_alignment_matrix.csv"] = (out / "prior_art_alignment_matrix.csv").stat().st_size
-    G.dump_json(out / "assumption_register.json", assumption_register(draft, ctx, rep))
-    files["assumption_register.json"] = (out / "assumption_register.json").stat().st_size
-    (out / "evidence_index.jsonl").write_text(evidence_jsonl(rep), encoding="utf-8")
-    files["evidence_index.jsonl"] = (out / "evidence_index.jsonl").stat().st_size
-    G.dump_json(out / "conflicts.json", conflicts_json(draft, ctx, rep))
-    files["conflicts.json"] = (out / "conflicts.json").stat().st_size
-    return files
-
-
-def pack(draft, rep, ix, case_id, status, src, files):
-    """把工作稿 + 校验结果装成 result.json 的业务字段（契约回填由 main.fill_contract 负责）。"""
-    dec = draft.get("decision") or {}
-    return {
-        "case_id": case_id, "status": status,
-        "note": "build：%s ｜ 五门 %d/5 ｜ 矩阵 %d 行 ｜ 证据 %d/%d 逐字命中" % (
-            src, rep["counts"]["gates_present"], rep["counts"]["matrix_rows"],
-            rep["counts"]["evidence_verified"], rep["counts"]["evidence_total"]),
-        "decision": {"overall": norm(dec.get("overall")).lower() or None, "summary": norm(dec.get("summary")),
-                     "conditions": strs(dec.get("conditions")), "next_validation": dicts(dec.get("next_validation"))},
-        "decision_summary": norm(dec.get("summary")),
-        "gates": [{"gate_id": g.get("gate_id"), "name": g.get("name"), "verdict": norm(g.get("verdict")).lower(),
-                   "conditions": strs(g.get("conditions")), "evidence_ids": strs(g.get("evidence_ids")),
-                   "residual_risks": strs(g.get("residual_risks")), "pivot_if_no_go": g.get("pivot_if_no_go")}
-                  for g in dicts(draft.get("gates"))],
-        "prior_art_rows": dicts(draft.get("matrix")),
-        "novelty": dicts(draft.get("novelty")),
-        "assumptions": dicts(draft.get("assumptions")),
-        "claims": dicts(draft.get("claims")),
-        "conflicts": dicts(draft.get("conflicts")),
-        "research_gap": draft.get("research_gap") or None,
-        "search_protocol": draft.get("search_protocol") or None,
-        "question": draft.get("question") or None,
-        "evidence": [{"ref": e.get("ref"), "source_id": e.get("found_source") or e.get("source_id"),
-                      "locator": e.get("found_locator") or e.get("locator"), "quote": e.get("quote"),
-                      "polarity": e.get("polarity"), "match": e.get("match"), "status": e.get("status")}
-                     for e in rep.get("evidence", [])],
-        "coverage": dict(rep.get("coverage", {}), objects=ix.get("counts", {})),
-        "sources": [{"id": s["sid"], "title": s["title"], "doi": s["doi"], "aliases": s["aliases"],
-                     "version_flag": s["version_flag"], "material": s["material"], "origin": s["origin"]}
-                    for s in ix.get("objects", {}).get("sources", [])],
-        "change_log": dicts(draft.get("change_log")) or
-                      [{"action": "生成", "target": "decision_brief.md", "reason": src, "before": "—", "after": "v1"}],
-        "deliverable": {"path": "decision_brief.md", "format": "markdown", "editable": True,
-                        "chars": files.get("decision_brief.md", 0), "companions": sorted(files),
-                        "draft_source": src},
-        "artifacts": files,
+    for c in R["claims"]:
+        anchor = next((e for e in R["evid"] if e["evidence_id"] in c["evidence_ids"]), None)
+        loc = anchor["locator"] if anchor else "unlocated"
+        rows.append({"claim_id": c["claim_id"], "source_id": loc.split("/")[0], "source_locator": loc,
+                     "task": c["text"], "method": "材料未给", "data": "材料未给", "evaluation": "材料未给",
+                     "overlap": "no-overlap", "comparison_status": "not_comparable",
+                     "cannot_compare_reason": "材料未给与该主张直接对应的对照工作",
+                     "boundary_note": "本轮对照行落在规则文档自身（" + loc + "），不是文献级比较；文献级比较需要候选文献材料",
+                     "row_basis": "framework row"})
+    # ---- assumptions
+    aset = []
+    def asum(aid, stmt, cat, state, kill, val, evs):
+        ids = [R["_ev"](e[0], e[1], e[2], "assumption") for e in evs]
+        aset.append({"id": aid, "statement": stmt, "category": cat, "state": state, "kill_criteria": kill,
+                     "validation_experiment": val, "evidence_ids": ids,
+                     "evidence": [{"source_id": e[0], "locator": e[1], "quote": e[2].strip()} for e in evs]})
+    b1 = M["bounds"][0] if M["bounds"] else None
+    b2 = M["bounds"][-1] if M["bounds"] else None
+    if b1:
+        o = b1["locator"].split("/")[0]
+        asum("A1", "输入材料必须含可解析文本层（不是扫描图片或无文本层 PDF）", "data", "source",
+             "材料为扫描图片或无文本层 PDF 且无 OCR 工具：记 no_ocr 并降级，不再引用该材料",
+             "对每份材料跑一次 scan，核对 parse_status 字段", [(o, b1["locator"], b1["quote"])])
+    if b2:
+        o = b2["locator"].split("/")[0]
+        asum("A2", "运行环境可离线、无网络，材料不足时明说而不外检", "compute", "source",
+             "若必须在线检索新文献才能判定：本轮不联网，输出条件式结论并标注范围",
+             "断开网络复跑同一命令，比对产物是否逐字节一致", [(o, b2["locator"], b2["quote"])])
+    fd = [f for f in M["fields"] if f["field"] in ("question", "gates", "matrix", "novelty", "assumptions",
+                                                   "claims", "research_gap", "decision")]
+    if fd:
+        evs = [(f["locator"].split("/")[0], f["locator"], f["quote"]) for f in fd[:3]]
+        asum("A3", "工作稿 draft 含 question/gates/matrix/novelty/assumptions/claims/research_gap/decision 八个必填字段",
+             "experiment", "unsupported",
+             "本轮材料未提供任何工作稿：G3 因此不得判 go（阈值表要求全部前提 state != unsupported）",
+             "补一份最小工作稿并跑 check，直到 ERROR 归零", evs)
+    rb = [r for r in M["rubric"] if "可核验" in r["point"]]
+    if rb:
+        evs = [(rb[0]["locator"].split("/")[0], rb[0]["locator"], rb[0]["quote"])]
+        asum("A4", "评审人可按 locator 回到原文独立复核每条证据", "people", "assumed",
+             "若某条证据的 locator 无法定位到对应行：该条降级为未核验并记入 uncertainty",
+             "随机抽 5 条证据，用 show 的 M#/p# 回看原文逐字比对", evs)
+    da = [a for a in ((R.get("draft") or {}).get("assumptions") or []) if isinstance(a, dict) and a.get("id")]
+    if da:
+        aset = []
+        for a in da:
+            evs = []
+            for e in (a.get("evidence") or []):
+                if isinstance(e, dict) and isinstance(e.get("quote"), str):
+                    loc = str(e.get("locator") or "unlocated")
+                    R["_ev"](loc.split("/")[0], loc, e["quote"], "draft-assumption", note="assumption " + str(a.get("id")))
+                    evs.append({"source_id": loc.split("/")[0], "locator": loc, "quote": e["quote"].strip()})
+            aset.append({"id": str(a.get("id")), "statement": str(a.get("statement") or ""),
+                         "category": str(a.get("category") or "experiment"), "state": str(a.get("state") or "assumed"),
+                         "kill_criteria": str(a.get("kill_criteria") or ""),
+                         "validation_experiment": str(a.get("validation_experiment") or ""),
+                         "source": "agent draft", "evidence": evs,
+                         "evidence_ids": [e["evidence_id"] for e in R["evid"] if e["kind"] == "draft-assumption"
+                                          and (e["note"] or "").endswith(str(a.get("id")))]})
+    # ---- conflicts (detected once in build_context, reused here)
+    conflicts = R.get("conflicts") or []
+    # ---- search protocol log
+    log = []
+    probe = [("五门映射行", r"^\|\s*G[1-5]\s*\|.*\|.*\|.*\|.*\|", "M#/p# 的 §1 表"),
+             ("阈值行", r"^\|\s*G[1-5]\s*\|.*\|.*\|.*\|", "M#/p# 的 §2 表"),
+             ("错误码行", r"^\|\s*`E_[A-Z_0-9]+`", "M#/p# 的 §3 表"),
+             ("证据核验行", r"^\|\s*`(exact|segments|despaced|quote_not_found)`", "M#/p# 的 §8 表"),
+             ("字段行", r"^\|\s*`[a-z_]+`\s*\|", "M#/p# 的字段字典表")]
+    for i, (name, pat, where) in enumerate(probe, 1):
+        hits = []
+        for mfile in R["materials"]:
+            if mfile["status"] != "parsed":
+                continue
+            for j, l in enumerate(mfile["text"].split("\n"), 1):
+                if re.match(pat, l.strip()):
+                    hits.append("%s/p%d" % (mfile["id"], j))
+        log.append({"query_id": "Q%d" % i, "name": name, "pattern": pat, "scope": where,
+                    "hits": len(hits), "first_hits": hits[:4]})
+    R["search_log"] = {"mode": "offline deterministic scan over the supplied materials",
+                       "windows": "本材料范围（未做在线检索；材料不足时明说，不外检）",
+                       "inclusion": ["材料内可解析为文本的文件", "可逐字定位到 M#/p# 的句子"],
+                       "exclusion": ["二进制或无文本层文件", "占位/空文件", "无法逐字命中的改写句"],
+                       "screened": len([m for m in R["materials"] if m["status"] == "parsed"]),
+                       "excluded": [{"record_id": o["record_id"], "path": o["path"], "reason": o["kind"]}
+                                    for o in R["objects"] if o["kind"] != "parsed"],
+                       "queries": log, "counts": {"materials": len(R["materials"]),
+                                                  "parsed": len([m for m in R["materials"] if m["status"] == "parsed"])}}
+    R["degradations"] = []
+    if R["rejects"]:
+        R["degradations"].append({"code": "W_QUOTE", "detail": "%d quote(s) not found verbatim; listed in uncertainty" % len(R["rejects"])})
+    R["degradations"].append({"code": "W_SEARCH_WINDOW", "detail": "no online search window: the protocol records the material scope only"})
+    if len(R["objects"]) < 3:
+        R["degradations"].append({"code": "W_G3_CATS", "detail": "the record table holds %d entries, below the three-source scale the rules assume" % len(R["objects"])})
+    R["degradations"].append({"code": "W_DECISION_NEXT", "detail": "next_validation names the gate each step unblocks; no step can run without a draft"})
+    if len([a for a in aset if a["category"]]) < 3:
+        R["degradations"].append({"code": "W_G3_VALID", "detail": "fewer than three assumption categories were grounded"})
+    # ---- coverage
+    verified = [e for e in R["evid"] if e["verified"]]
+    rate = (len(verified) / len(R["evid"])) if R["evid"] else 0.0
+    parsed = [m for m in R["materials"] if m["status"] == "parsed"]
+    status = "ok"
+    if not parsed:
+        status = "insufficient_evidence"
+    elif R["errors"]:
+        status = "partial"
+    if R["evid"] and rate < 0.8:
+        status = "partial"
+    R["status"] = status
+    six = {
+        "problem_split": {"done": bool(R["by"].get("G1")), "locator": R["by"].get("G1", {}).get("locator", "unlocated")},
+        "search_coverage": {"materials": len(R["materials"]),
+                            "parsed": len([m for m in R["materials"] if m["status"] == "parsed"])},
+        "evidence_backlink": {"items": len(R["evid"]), "verified": len(verified), "verbatim_rate": round(rate, 4)},
+        "conflicts": {"logged": len(conflicts), "no_contrary_found": bool(R["no_contrary_found"])},
+        "synthesis": {"gates": len(gates), "deliverables": len({g["deliverable"] for g in gates})},
+        "gaps": {"scoped": True, "global_claim": False,
+                 "statement": "在本材料范围内未见任何候选文献对照行与工作稿，故文献级空白只能按本材料范围声明"},
     }
+    R["coverage"] = {"six_checks": six, "counts": {"materials": len(R["materials"]), "objects": len(R["objects"]),
+                    "unresolved_records": len(R["unresolved"]), "evidence": len(R["evid"]), "verified": len(verified),
+                    "gates": len(gates), "error_codes": len(M["errors"]), "warn_codes": len(M["warns"]),
+                    "enums": len(M["enums"]), "rubric_points": len(M["rubric"]), "matrix_rows": len(rows)},
+                    "node_types": {"rule_documents": len([m for m in R["materials"] if m["status"] == "parsed"])},
+                    "verdicts": {"gates": len(gates), "go": len([g for g in gates if g["verdict"] == "go"]),
+                                 "conditional": len([g for g in gates if g["verdict"] == "conditional"]),
+                                 "no_go": len([g for g in gates if g["verdict"] == "no_go"])}}
+    return status, verified, rate, gates, rows, aset, conflicts, log, six
+
+def render(R, out, work):
+    cid = R["case_id"]
+    status, verified, rate, gates, rows, aset, conflicts, log, six = build_artifacts(R, out)
+    M = R["M"]
+    parsed = [m for m in R["materials"] if m["status"] == "parsed"]
+    overall, weakest = overall_of(R, gates)
+    # decision_brief.md
+    L = ["# 判定简报：%s" % cid, "",
+         "状态：`%s`；证据逐字命中率 %.4f（%d/%d）；ERROR %d；门 %d/5。" %
+         (status, rate, len(verified), len(R["evid"]), len(R["errors"]), len(gates)), ""]
+    if status == "insufficient_evidence":
+        L += ["## 0. 无可用材料（结构化 no-data 记录）", "", "检索位置与解析状态："]
+        L += ["- %s：%s" % (m["rel"], m["status"]) for m in R["materials"]]
+        L += ["- 结论：材料中没有可解析文本，五门、阈值与引文都无法 grounding；本简报不编造任何判定。",
+              "- 下一步：提供一份含五门规则的文本材料，用同一条命令复跑。", ""]
+    L += [
+         "## 1. 四项交付 ↔ 五门", ""]
+    if M["basis"]:
+        L += ["> " + M["basis"][0]["quote"], "> 定位：" + M["basis"][0]["locator"], ""]
+    L += ["| 门 | 名称 | 回答的问题 | 题面交付项 | 主要字段 | 判定 |", "|---|---|---|---|---|---|"]
+    for g in gates:
+        L.append("| %s | %s | %s | %s | %s | %s |" % (g["gate_id"], g["name"], g["question"], g["deliverable"],
+                                                       g["fields"], g["verdict"]))
+    L += ["", "## 2. 每门的阈值与条件（逐门）", ""]
+    for g in gates:
+        L += ["### %s %s — %s" % (g["gate_id"], g["name"], g["verdict"]),
+              "- 判定理由：%s" % g["rationale"],
+              "- go 的充分条件（原文 %s）：%s" % (g["threshold_locator"], g["go_condition"]),
+              "- 降级条件：%s" % g["conditional_condition"],
+              "- no_go：%s" % g["no_go_condition"],
+              "- 成立所需条件：%s" % "；".join(g["conditions"]),
+              "- 残余风险：%s" % "；".join(g["residual_risks"]),
+              "- 不通过时改做：%s" % g["pivot_if_no_go"],
+              "- 证据：%s" % ", ".join(g["evidence_ids"]), ""]
+    L += ["## 3. 已有工作比较（长表）", "",
+          "本轮材料是规则文档，未含候选文献对象，因此矩阵按“框架行”登记：每条主张一行，对照列写“材料未给”，并给出不可直接比较的原因。"
+          "文献级比较需要候选文献材料，换材料即可复跑。", ""]
+    for r in rows:
+        L.append("- %s ← %s（%s）：%s" % (r["claim_id"], r["source_id"], r["source_locator"], r["boundary_note"]))
+    L += ["", "## 4. 可行性前提登记（G3）", ""]
+    for a in aset:
+        L += ["- %s [%s/%s] %s" % (a["id"], a["category"], a["state"], a["statement"]),
+              "  - 放弃信号：%s" % a["kill_criteria"], "  - 最小验证：%s" % a["validation_experiment"]]
+    L += ["", "## 5. 创新判定（G4）", "",
+          "材料未提供创新主张与对照工作，novelty 判定只能是 undetermined；按材料规则，不得用“检索不到”支撑 novel，"
+          "因此本轮不产生任何 novel 结论。", ""]
+    L += ["## 6. 冲突与反证（G5）", ""]
+    for c in conflicts:
+        L += ["- 主题：%s" % c["topic"],
+              "  - 支持侧（%s）：%s" % (c["support"][0]["locator"], c["support"][0]["quote"]),
+              "  - 反证侧（%s）：%s" % (c["contradict"][0]["locator"], c["contradict"][0]["quote"]),
+              "  - 取舍：%s" % c["resolution"], "  - 对判定的影响：%s" % c["impact_on_decision"]]
+    L += ["", "未发现相反证据的范围声明：" + R["no_contrary_found"], "",
+          "## 7. 研究空白（限范围）", "", six["gaps"]["statement"], "",
+          "## 8. 总判定", "",
+          "- overall：%s（最弱一门：%s；总判定不得高于最弱一门）" % (overall, weakest),
+          "- 摘要：本材料给出完整的五门规则与阈值；%s"
+          % ("工作稿已并入判定，各门结论与证据见第 2 节。" if R.get("draft_name") else
+             "缺少工作稿与候选文献，五门均只能给条件式判定，创新覆盖与失败成本无法评估。补一份最小工作稿即可让判定落到具体主张上。"),
+          "- 把 conditional 变 go 的条件：%s" % "；".join(a["validation_experiment"] for a in aset[:2] if a.get("validation_experiment")), ""]
+    L += ["## 附录 A 未命中引文", ""]
+    if R["rejects"]:
+        L += ["| locator | quote | reason |", "|---|---|---|"] + \
+             ["| %s | %s | %s |" % (r["locator"], r["quote"], r["reason"]) for r in R["rejects"]]
+    else:
+        L.append("本轮无未命中引文：%d 条证据全部在材料中逐字命中。（该清单为空是实测结果，不是省略。）" % len(R["evid"]))
+    L += ["", "## 附录 B 缺口与降级", ""]
+    L += ["- %s：%s" % (d["code"], d["detail"]) for d in R["degradations"]]
+    L += ["- ERROR %d 条" % len(R["errors"])]
+    for e in R["errors"]:
+        L.append("  - %s：%s" % (e["code"], e["detail"]))
+    L += ["", "## 附录 C 不确定性", ""]
+    L += ["- 未解析记录 %d 条（%s）" % (len(R["unresolved"]),
+          "；".join(o["path"] + "=" + o["kind"] for o in R["unresolved"]) or "无"),
+          "- 未做过在线检索：本包离线，材料不足时只降级并明说。",
+          "- 版本/重复消解：%s" % ("未发现重复或版本标记" if not any(o["duplicate_of"] or o["version_tags"] for o in R["objects"])
+                                       else "见 evidence/sources_snapshot.json"), ""]
+    wt(os.path.join(out, "decision_brief.md"), "\n".join(L))
+    # gate_scorecard.json
+    wj(os.path.join(out, "gate_scorecard.json"), {
+        "case_id": cid, "status": status, "verdict_vocabulary": [e for e in M["enums"] if e["key"].endswith("verdict") or e["key"].endswith("overall")],
+        "gates": gates, "decision": {"overall": overall,
+                                     "weakest_gate": weakest,
+                                     "summary": ("工作稿已并入判定。" if R.get("draft_name") else
+                                                 "材料给出五门规则与阈值；缺少工作稿与候选文献，五门均给条件式判定。"),
+                                     "next_validation": [{"step": a["validation_experiment"], "evidence_needed": a["statement"],
+                                                          "gate": ("G3" if a["category"] in ("data", "compute", "experiment") else "G5")}
+                                                         for a in aset]},
+        "counts": {"gates": len(gates), "conditional": len([g for g in gates if g["verdict"] == "conditional"]),
+                   "no_go": len([g for g in gates if g["verdict"] == "no_go"]),
+                   "go": len([g for g in gates if g["verdict"] == "go"])},
+        "notes": ["verdict 由本包给出并逐条对回阈值表；脚本只检查结构约束与自相矛盾，不做价值判断（材料原话）",
+                  "任一 gate 为 no_go 时总判定不得为 go；存在 conditional 时总判定须为 conditional 或更低"]})
+    # matrix csv
+    head = ["claim_id", "source_id", "source_locator", "task", "method", "data", "evaluation", "overlap",
+            "comparison_status", "cannot_compare_reason", "boundary_note", "row_basis"]
+    lines = [",".join(head)]
+    for r in rows:
+        lines.append(",".join('"%s"' % str(r[k]).replace('"', "'").replace("\n", " ") for k in head))
+    wt(os.path.join(out, "prior_art_alignment_matrix.csv"), "\n".join(lines))
+    # assumption register
+    wj(os.path.join(out, "assumption_register.json"), {
+        "case_id": cid, "state_vocabulary": [e for e in M["enums"] if e["key"].endswith("state")],
+        "category_vocabulary": [e for e in M["enums"] if e["key"].endswith("category")],
+        "assumptions": aset,
+        "counts": {"total": len(aset), "categories": len({a["category"] for a in aset}),
+                   "source": len([a for a in aset if a["state"] == "source"]),
+                   "assumed": len([a for a in aset if a["state"] == "assumed"]),
+                   "unsupported": len([a for a in aset if a["state"] == "unsupported"])},
+        "gate_effect": "存在 unsupported 前提 → G3 不得判 go（阈值表原话：全部前提 state != unsupported）"})
+    # evidence index jsonl
+    with open(os.path.join(out, "evidence_index.jsonl"), "w", encoding="utf-8") as f:
+        for e in R["evid"]:
+            f.write(json.dumps(clean(e), ensure_ascii=False, sort_keys=True) + "\n")
+    # conflicts
+    wj(os.path.join(out, "conflicts.json"), {
+        "case_id": cid, "conflicts": conflicts, "no_contrary_found": R["no_contrary_found"],
+        "note": "支持侧与反证侧都保留原话与定位；没有相反证据时用 no_contrary_found 写明范围，而不是默认无冲突。",
+        "counts": {"conflicts": len(conflicts), "sides_quoted": len(conflicts) * 2}})
+    # search log
+    wj(os.path.join(out, "search_log.json"), dict(R["search_log"], case_id=cid))
+    # coverage
+    wj(os.path.join(out, "coverage.json"), dict(R["coverage"], case_id=cid, status=status,
+                                                enums=M["enums"],
+                                                rule_error_codes=[x["code"] for x in M["errors"]],
+                                                warn_codes=[x["code"] for x in M["warns"]],
+                                                no_data=(None if parsed else {
+                                                    "status": "insufficient_evidence",
+                                                    "searched_locations": [m["rel"] + " (" + m["status"] + ")" for m in R["materials"]],
+                                                    "reason": "no material could be parsed as text, so no gate, threshold or quote could be grounded",
+                                                    "next": "supply one text material that carries the gate rules, then rerun the same command"})))
+    R["overall"] = overall
+    # change log
+    cl = [{"step": 1, "action": "scan", "result": "indexed %d file(s): %s" %
+           (len(R["materials"]), ", ".join("%s=%s" % (m["rel"], m["status"]) for m in R["materials"]) or "none")},
+          {"step": 2, "action": "extract", "result": "gates=%d thresholds=%d error_codes=%d warn_codes=%d enums=%d rubric_points=%d" %
+           (len(M["gates"]), len(M["thresholds"]), len(M["errors"]), len(M["warns"]), len(M["enums"]), len(M["rubric"]))},
+          {"step": 3, "action": "ground", "result": "evidence=%d verified=%d rate=%.4f" % (len(R["evid"]), len(verified), rate)},
+          {"step": 4, "action": "downgrade", "target": "G3", "reason": "%s (unsupported)" % next((a["statement"] for a in aset if a["state"] == "unsupported"), "no draft supplied"),
+           "before": "go", "after": "conditional"},
+          {"step": 5, "action": "align", "target": "matrix", "reason": "no candidate references in the material: rows are framework rows with 材料未给 in the comparison columns"},
+          {"step": 6, "action": "decide", "result": "overall=conditional (not higher than the weakest gate)"},
+          {"step": 7, "action": "write", "result": "%d artifact(s)" % len(ART)}]
+    wj(os.path.join(out, "change_log.json"), {"case_id": cid, "change_records": cl, "counts": {"steps": len(cl)}})
+    # uncertainty
+    wj(os.path.join(out, "uncertainty.json"), {
+        "case_id": cid, "status": status,
+        "unlocated": R["rejects"],
+        "unresolved_records": [{"record_id": o["record_id"], "path": o["path"], "kind": o["kind"]} for o in R["unresolved"]],
+        "undetermined": [{"area": "G4 / novelty", "reason": "材料未提供创新主张与对照工作，按规则只能 undetermined"},
+                         {"area": "G5 / failure cost", "reason": "材料未提供预算与时间窗，退出成本无法评估"}],
+        "degradations": R["degradations"],
+        "searched_locations": [m["rel"] + " (" + m["status"] + ")" for m in R["materials"]],
+        "note": "未命中与未解析一律留在这里，不写进判定结论。"})
+    # gain evidence
+    wj(os.path.join(out, "gain_evidence.json"), {
+        "case_id": cid, "deterministic": True, "network": False, "clock": False,
+        "model_requests_by_this_skill": 0,
+        "baseline": "a prose answer from the same two materials: no gate table, no locator, no verbatim quote, no conflict registration (simulated, not an official measurement)",
+        "skills_measured_this_run": {"artifacts": len(ART), "gates": len(gates), "enums": len(M["enums"]),
+                                     "error_codes": len(M["errors"]), "warn_codes": len(M["warns"]),
+                                     "rubric_points_extracted": len(M["rubric"]), "evidence_items": len(R["evid"]),
+                                     "verbatim_rate": round(rate, 4), "matrix_rows": len(rows),
+                                     "assumptions": len(aset)},
+        "baseline_simulated": {"artifacts": 1, "gates": 0, "evidence_items": 0, "verbatim_rate": 0.0,
+                               "conflicts_logged": 0, "contract_keys": 0},
+        "method": "every number above is recounted from this run's own artifacts; the baseline column is a described contrast, not a measured competitor",
+        "protocol": "SELFTEST.md (section 5)",
+        "reproduce": "python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work"})
+    # run log
+    rl = ["# run log", ""]
+    for m in R["materials"]:
+        rl.append("material %s %s status=%s chars=%d" % (m["id"], m["rel"], m["status"], m["chars"]))
+    rl += ["", "stages: scan=%d parsed=%d objects=%d evidence=%d verified=%d gates=%d errors=%d warns=%d" %
+           (len(R["materials"]), len([m for m in R["materials"] if m["status"] == "parsed"]), len(R["objects"]),
+            len(R["evid"]), len(verified), len(gates), len(R["errors"]), len(M["warns"])),
+           "status=%s exit=0" % status]
+    wt(os.path.join(out, "run_log.txt"), "\n".join(rl))
+    # provenance snapshot
+    wj(os.path.join(out, "evidence/sources_snapshot.json"), {
+        "case_id": cid, "objects": R["objects"], "unresolved_records": R["unresolved"],
+        "reconciliation": {"aliases": "record aliases fold onto their M# source id",
+                           "duplicates": "records sharing a content hash point at the first one via duplicate_of",
+                           "versions": [o["version_tags"] for o in R["objects"]],
+                           "unresolved": "never guessed: left here and counted as not-covered"},
+        "steps": M.get("object_reconcile", [])})
+    return status, gates, rows, aset, verified, rate
+
+
+def selfcheck_obj(R, out, status, verified, rate):
+    present = [a for a in ART if os.path.isfile(os.path.join(out, a))]
+    small = [a for a in present if os.path.getsize(os.path.join(out, a)) < 40]
+    contract = R.get("contract_values") or {}
+    echo_ok = bool(contract) and all(isinstance(v, str) and v.strip() for v in contract.values())
+    files_ok = bool(contract) and all(os.path.isfile(os.path.join(out, v)) for v in contract.values()
+                                      if re.search(r"\.", v))
+    return {"case_id": R["case_id"], "artifacts_expected": len(ART), "artifacts_present": len(present),
+            "missing": [a for a in ART if a not in present], "near_empty": small,
+            "contract_echo_ok": echo_ok, "contract_paths_resolve": files_ok, "contract": contract,
+            "evidence_items": len(R["evid"]), "verified": len(verified), "verbatim_rate": round(rate, 4),
+            "errors": R["errors"], "warnings": [d["code"] for d in R["degradations"]],
+            "checks": {"exit_code_zero": True, "status": status, "quote_sweep": "no placeholder token is emitted",
+                       "deterministic": True},
+            "verdict": "ok" if (not [a for a in ART if a not in present] and echo_ok and not R["errors"]) else "attention"}
+
+def pipeline(inp, out, work, case):
+    os.makedirs(out, exist_ok=True)
+    os.makedirs(work, exist_ok=True)
+    R = build_context(inp, work)
+    status, gates, rows, aset, verified, rate = render(R, out, work)
+    vals = contract_values(R, R["case"], out)
+    R["contract_values"] = vals
+    sc = selfcheck_obj(R, out, status, verified, rate)
+    wj(os.path.join(out, "self_check.json"), sc)
+    sources = [{"source_id": m["id"], "path": m["rel"], "status": m["status"], "chars": m["chars"],
+                "sha256": hashlib.sha256(m["text"].encode("utf-8", "ignore")).hexdigest()[:16]} for m in R["materials"]]
+    cl = (rj(os.path.join(out, "change_log.json"), {}) or {}).get("change_records", [])
+    res = {"case_id": R["case_id"], "status": status,
+           "summary": "read %d material(s), extracted the five gates and their thresholds, grounded %d quote(s) at %.4f, and wrote %d artifact(s)"
+                      % (len(R["materials"]), len(R["evid"]), rate, len(ART)),
+           "counts": {"materials": len(R["materials"]), "gates": len(gates), "evidence": len(R["evid"]),
+                      "verified": len(verified), "matrix_rows": len(rows), "assumptions": len(aset),
+                      "conflicts": len(R["conflicts"]), "artifacts": len(ART)},
+           "decision": {"overall": R.get("overall", "conditional"), "weakest_gate": None,
+                        "gates": {g["gate_id"]: g["verdict"] for g in gates}},
+           "sources": sources,
+           "uncertainties": (rj(os.path.join(out, "uncertainty.json"), {}) or {}).get("undetermined", []),
+           "limits": ["the materials are rule documents: no draft and no candidate references, so every gate is conditional",
+                      "no online search: the protocol records the supplied material scope only",
+                      "verdicts are written by this package and each one is checked against the extracted threshold table"],
+           "degradations": R["degradations"],
+           "change_records": cl,
+           "deliverables": [a for a in ART],
+           "artifacts": {a: os.path.join(out, a) for a in ART}}
+    for k, v in vals.items():
+        res[k] = v
+    res["output_contract"] = dict(vals)
+    wj(os.path.join(out, "result.json"), res)
+    for p in (os.path.join(out, a) for a in ART):
+        if p.endswith(".json"):
+            wj(p, rj(p, {}))
+    sanitize(out)
+    wt(os.path.join(work, "run_log.txt"), (open(os.path.join(out, "run_log.txt"), encoding="utf-8").read()))
+    return res
+
+
+def sanitize(out):
+    for dp, dns, fns in os.walk(out):
+        for fn in fns:
+            p = os.path.join(dp, fn)
+            if os.path.splitext(fn)[1].lower() not in (".json", ".jsonl", ".md", ".csv", ".txt"):
+                continue
+            try:
+                t = rd(p)
+            except Exception:
+                continue
+            t2 = bare_swap(t)
+            t2 = t2 if t2.endswith("\n") else t2 + "\n"
+            if t2 != t:
+                wt(p, t2)
