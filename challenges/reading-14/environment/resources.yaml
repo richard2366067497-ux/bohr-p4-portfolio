@@ -1,0 +1,78 @@
+# environment/resources.yaml - reading-14 / literature-knowledge-graph (v9)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: literature-knowledge-graph
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init --input /input --output /app/output --work /app/work
+    - "Agent: run show, read the material with its M02/p7 locators, optionally write /app/work/draft.json"
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py compare --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all / init / show / check / build / selfcheck / compare (all = full pipeline)
+  - scripts/kglib.py      # engine: scan / verbatim grounding / alias alignment / queries / artifacts
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  corpus_manifest: "a JSON material with 'documents' (source_id, doi, title, authors, license, content_sha256)"
+  paragraph_material: "a JSON material with 'source_id' + 'paragraphs' (paragraph_id, section, text); one file per source is accepted"
+  candidate_graph: "a JSON material with 'nodes' (local_id, source_id, paragraph_id, surface, type, aliases, evidence, attributes) and 'edges' (source_local, target_local, relation, source_id, paragraph_id, evidence, conditions)"
+  queries: "a JSON material with 'queries' (query_id, type, surface); type in find_surface / outgoing / incoming / conflicts"
+  unusable_files: "binary / empty / placeholder-only files are recorded with a parse_status and never quoted"
+
+required_outputs:
+  - result.json
+  - graph.json
+  - annotations.jsonl
+  - query_results.json
+  - queries.md
+  - alignment_report.json
+  - conflicts.json
+  - sources.json
+  - uncertainty.json
+  - change_log.json
+  - coverage.json
+  - self_check.json
+  - run_log.txt
+
+reusable_templates:
+  - templates/result_contract.json
+  - templates/knowledge_graph_template.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 300
+  max_output_files: 24
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, status, graph, merges, conflicts, queries, sources, uncertainty, change_records]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> challenges/<key>.json -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  placeholders: forbidden
+
+dependencies: []            # standard library only
+exit_code_policy: always 0 (usage error 2)
