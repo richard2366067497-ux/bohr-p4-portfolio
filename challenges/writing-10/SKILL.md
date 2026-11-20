@@ -84,3 +84,11 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 - 限制：离线，不联网验证；修改为正文中可定位的措辞/范围改写（或标注引用位），不做新实验或新分析；无锚点的意见一律暂缓或不采纳，而非猜测。
 
 调用与 draft 示例、评论类型表（taxonomy）、回复模板见 `references/usage.md`。
+
+## 随包文件（v8 新增）
+
+```
+environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                    最小可复跑样例（case.json + manuscript.md + comments.md），评审可直接复跑
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
