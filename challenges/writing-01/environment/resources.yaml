@@ -1,0 +1,41 @@
+# Resource entry declaration — writing-01 (section drafting)
+skill: writing-01-section-drafting
+version: 6.0.0
+entrypoint:
+  command: python3 /skills/weekly-skill/scripts/main.py run --input /input --output /app/output --work /app/work
+  script: scripts/main.py
+  argument: run              # subcommands: init | show | check | build | run
+  reads:  /input             # case.json + materials/ (md, txt, csv, tsv, json, docx)
+  writes: /app/output        # manuscript.md, result.json
+  scratch: /app/work         # draft.json (optional Agent input), check.json, self_check.json
+  exit_code: 0               # always 0 except argparse usage error (2)
+
+paths:
+  input: /input
+  out: /app/output
+  work: /app/work
+  install_root: /skills/weekly-skill
+
+resources:
+  network: none
+  packages: none             # Python 3.9+ standard library only
+  python: ">=3.9"
+  optional_tools: []
+
+inputs:
+  case_json:
+    case_id: optional        # falls back to id / input directory name
+    output_contract: optional  # absent -> the five standard keys in SKILL.md §5
+  materials: md | txt | csv | tsv | json | docx
+  skip: [case.json, task.md, challenge.json]
+
+budgets:
+  wall_clock_seconds: 900
+  requests: 64
+  tokens: 16384
+  scan_deadline_seconds: 45
+
+security:
+  shell: never
+  external_scripts: never
+  write_scope: [out, work]
