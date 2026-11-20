@@ -1,0 +1,9 @@
+{
+  "$comment": "Reusable result.json contract skeleton for reading-12 (extraction-table-cleaner). Copy and fill; every key is echoed at the top level and inside output_contract.",
+  "case_id": "the input case id, passed through unchanged",
+  "status": "answered | partial | insufficient_evidence | input_error",
+  "deliverable": "cleaned.csv",
+  "evidence_map": [{"row_id": "P1-03", "field": "material", "change_type": "synonym", "rule_id": "R014", "source_locator": "p.5 Table 1b"}],
+  "change_log": [{"row_id": "P2-01", "field": "value", "before": 1.5, "factor": 1000.0, "offset": 0.0, "after": 1500.0, "unit_target": "mM", "rule_id": "R011", "source_locator": "p.9 Table 2"}],
+  "coverage": "coverage.json"
+}
