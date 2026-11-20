@@ -1,0 +1,20 @@
+{
+  "field_order": [
+    "research_question",
+    "data",
+    "method_conditions",
+    "main_findings",
+    "conclusion",
+    "limitations"
+  ],
+  "fields": {
+    "research_question": {"value": "", "anchor": "", "quote": "", "source_section": ""},
+    "data": {"value": "", "anchor": "", "quote": "", "source_section": ""},
+    "method_conditions": {"value": "", "anchor": "", "quote": "", "source_section": ""},
+    "main_findings": {"value": "", "anchor": "", "quote": "", "source_section": ""},
+    "conclusion": {"value": "", "anchor": "", "quote": "", "source_section": ""},
+    "limitations": {"value": "", "anchor": "", "quote": "", "source_section": ""}
+  },
+  "anchors": {"quoted": 0, "verbatim_hits": 0, "hit_rate": 0.0},
+  "how_to_use": "Copy into your own notes and fill value/anchor/quote/source_section for each field; leave a field empty when the paper does not report it, and the toolchain will mark it not-reported instead of guessing."
+}
