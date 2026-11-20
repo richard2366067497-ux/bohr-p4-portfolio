@@ -1,0 +1,58 @@
+{
+  "case_id": "",
+  "manuscript_meta": {
+    "title": "",
+    "design_type": "",
+    "field": "",
+    "target_guideline": "",
+    "n_reported": ""
+  },
+  "statistics_ledger": [
+    {
+      "ledger_id": "L-01",
+      "result_question": "what result does this row answer",
+      "comparison": "who is compared with whom",
+      "n": "reported analysis n; write randomized and analyzed when they differ",
+      "test_declared": "the test the manuscript declares",
+      "test_appropriate": "true | false | unknown",
+      "assumptions": {"normality": "checked | violated | not_reported | not_applicable",
+                      "variance": "checked | violated | not_reported | not_applicable",
+                      "independence": "checked | violated | not_reported | not_applicable"},
+      "statistic": "verbatim reported value or not_reported",
+      "df": "verbatim or not_reported",
+      "p": "verbatim or not_reported",
+      "effect_size": "verbatim or not_reported",
+      "ci": "verbatim or not_reported",
+      "multiple_comparison": "corrected | uncorrected | not_reported | not_applicable",
+      "sample_size_basis": "verbatim or not_reported",
+      "attrition": "verbatim or not_reported",
+      "source_locator": "manuscript:S3.1/L19",
+      "quote": "verbatim manuscript line, at least 8 characters",
+      "cell_status": {"design_fit": "ok | gap | not_applicable", "variable_definition": "ok | gap | not_applicable",
+                      "statistics": "ok | gap | not_applicable", "sample_size": "ok | gap | not_applicable",
+                      "reporting": "ok | gap | not_applicable"},
+      "defect_nature": "method_flaw | underreporting | acceptable_but_should_clarify | no_defect",
+      "severity": "critical | major | minor | suggestion | no_defect",
+      "issue_type": "one of the 28 issue types",
+      "severity_reason": "why this level and not the adjacent level",
+      "recommendation": "an executable revision action"
+    }
+  ],
+  "extra_findings": [
+    {
+      "facet": "one of the five facets",
+      "dimension": "fact | citation | method | stat_report | argument | norm",
+      "issue_type": "one of the 28 issue types",
+      "defect_nature": "one of the four natures",
+      "severity": "one of the five levels",
+      "severity_reason": "why this level",
+      "title": "short problem name",
+      "source_locator": "manuscript:S5/L3",
+      "quote": "verbatim manuscript line",
+      "recommendation": "an executable revision action"
+    }
+  ],
+  "unchecked_items": [{"item": "Figure 2", "reason": "no tabular data, cannot be cross-checked"}],
+  "uncertainties": ["no raw data supplied, tests cannot be recomputed"],
+  "summary": "three to five sentences: coverage, worst problem, unchecked parts"
+}
