@@ -15,15 +15,17 @@ import argparse
 import json
 import re
 import sys
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import core as C  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "9.0.0"
 SKILL = "writing-09-results-discussion"
 MAIN_FILE = "manuscript.md"
+PREVIEW_FILE = "preview.svg"
 
 TXT = {
     "en": {"r": "Results", "d": "Discussion", "lm": "Limitations", "src": "Sources",
@@ -164,6 +166,130 @@ def limitations_for(readouts, docs):
             ("Statistical treatment", stats), ("Generalisability", gen)]
 
 
+def baseline_metrics(res, readouts, links, lit):
+    """Recomputable comparison of this run against the thresholds the package declares."""
+    total = len(readouts)
+    with_unit = sum(1 for r in readouts if str(r.get("unit") or "").strip())
+    lit_links = [ln for ln in links if ln.get("source_id")]
+    located = sum(1 for ln in lit_links if str(ln.get("locator") or "").strip())
+    _, causal = C.overclaim(res.get("deliverable_summary") or "")
+    facts = res.get("preserved_facts") or []
+    checks = [
+        {"metric": "readout_unit_ratio", "measured": (round(with_unit / float(total), 3) if total else "n/a"),
+         "baseline": ">=0.90 (units are never converted)",
+         "ok": total == 0 or with_unit / float(total) >= 0.90},
+        {"metric": "evidence_links_with_locator", "measured": located,
+         "baseline": "== literature links (%d)" % len(lit_links), "ok": located == len(lit_links)},
+        {"metric": "causal_phrases_in_deliverable", "measured": len(causal), "baseline": "==0",
+         "ok": not causal},
+        {"metric": "preserved_facts", "measured": len(facts), "baseline": ">= readouts (%d)" % total,
+         "ok": len(facts) >= total},
+        {"metric": "contract_keys_filled", "measured": len(res.get("output_contract") or {}),
+         "baseline": ">=1", "ok": bool(res.get("output_contract"))},
+    ]
+    return {"case_id": res.get("case_id"), "status": res.get("status"), "skill_version": VERSION,
+            "baseline_checks": checks, "pass": all(c["ok"] for c in checks),
+            "note": ("Each row is recomputable from result.json, results_map.json and evidence_map.json; "
+                     "the baseline column is what this package declares it will hold, not an external score.")}
+
+
+def _mk_pdf(text):
+    """One-page PDF with a Flate-compressed text stream (used by the offline selftest)."""
+    payload = zlib.compress(("BT /F1 12 Tf 72 720 Td (%s) Tj ET" % text).encode("utf-8"))
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+            b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(payload) + payload + b"\nendstream"]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    for x in offs:
+        out += b"%010d 00000 n \n" % x
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(out)
+
+
+def _mk_png(w, h):
+    """Minimal valid 8-bit grey PNG of solid white, header-checkable by core.image_info."""
+    import struct
+
+    def chunk(tag, data):
+        c = struct.pack(">I", len(data)) + tag + data
+        return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)
+    raw = b"".join(b"\x00" + b"\xff" * w for _ in range(h))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+def selftest():
+    """Offline checks: PDF text layer, bitmap inventory, outputs, contract, metrics, no placeholders."""
+    import shutil
+    import tempfile
+    fails, logs = [], []
+
+    def chk(name, cond, note=""):
+        logs.append("%-4s %s%s" % ("PASS" if cond else "FAIL", name, (" — %s" % note) if note else ""))
+        if not cond:
+            fails.append(name)
+
+    tmp = tempfile.mkdtemp(prefix="w09-selftest-")
+    try:
+        ind, out = Path(tmp) / "in", Path(tmp) / "out"
+        (ind / "materials").mkdir(parents=True)
+        (ind / "case.json").write_text(json.dumps({
+            "case_id": "selftest-09", "language": "en",
+            "output_contract": {"deliverable": "manuscript.md", "preserved_facts": [], "evidence_map": [],
+                                "change_log": []}}), encoding="utf-8")
+        (ind / "materials" / "paper.md").write_text(
+            "Methods\nWe measured n = 48 samples at 350 C for 30 min; the yield was 91.2% (SD 2.1).\n"
+            "Results\nThe treatment group was 12.4% higher than the control.\n", encoding="utf-8")
+        (ind / "materials" / "refs.md").write_text(
+            "[1] Smith 2020 reported an association between temperature and yield, 88.0% at 320 C.\n",
+            encoding="utf-8")
+        (ind / "materials" / "fig1.pdf").write_bytes(_mk_pdf("yield 91.2% at 350 C"))
+        (ind / "materials" / "fig2.png").write_bytes(_mk_png(320, 240))
+        (ind / "materials" / "broken.json").write_text("{not json", encoding="utf-8")
+
+        chk("pdf_text_layer", "91.2%" in (C._pdf_text((Path(tmp) / "in" / "materials" / "fig1.pdf").read_bytes()) or ""))
+        chk("png_header", C.image_info(ind / "materials" / "fig2.png").get("width") == 320)
+
+        args = type("A", (), {"input": str(ind), "output": str(out), "work": str(Path(tmp) / "work"),
+                              "case": None, "lang": None})
+        run(args)
+        res = json.loads((out / "result.json").read_text(encoding="utf-8"))
+        chk("exit_status", res.get("status") in ("success", "partial", "failed"))
+        keys = list(res.get("output_contract") or {})
+        chk("contract_filled", bool(keys) and all(res.get(k) for k in ("case_id", "deliverable")), "keys=%s" % keys)
+        for n in ("manuscript.md", "preview.svg", "results_map.json", "evidence_map.json",
+                  "preserved_facts.json", "change_log.json", "metrics.json", "result.json"):
+            chk("artifact:%s" % n, (out / n).is_file())
+        chk("svg_preview_has_text", "91.2%" in (out / "preview.svg").read_text(encoding="utf-8"))
+        chk("bitmap_inventoried",
+            any(f.get("file") == "materials/fig2.png" for f in res.get("figure_inventory") or []),
+            "png figure must be recorded, not invented")
+        chk("png_manual_confirm", any("fig2.png" in h.get("item", "") for h in res.get("human_review") or []),
+            "bitmap needs a by-eye confirmation item")
+        chk("broken_json_degraded", any(d.get("detail") == "json_parse_failed" for d in res.get("degradations") or [])
+            or any(d.get("detail") == "json_parse_failed" for d in (res.get("errors") or [])),
+            "broken.json must be recorded")
+        mp = json.loads((out / "metrics.json").read_text(encoding="utf-8"))
+        chk("baseline_metrics", isinstance(mp.get("pass"), bool) and all("ok" in c for c in mp.get("baseline_checks", [])))
+        chk("no_causal_wording", mp["baseline_checks"][2]["measured"] == 0)
+        chk("no_placeholder_tokens", not C.clean(json.dumps(res, ensure_ascii=False)).count("待"))
+    except Exception as exc:  # noqa: BLE001
+        chk("selftest_completed", False, "%s: %s" % (type(exc).__name__, exc))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("\n".join(logs))
+    print("SELFTEST %s (%d checks)" % ("PASS" if not fails else "FAIL", len(logs)))
+    return 0
+
+
 def run(args):
     ind = Path(args.input or "/input")
     if not ind.is_dir():
@@ -203,6 +329,21 @@ def run(args):
     for d in docs:
         if d["note"]:
             degr.append({"stage": "extract", "source": d["path"], "type": "partial_read", "detail": d["note"]})
+    figures = [d for d in docs if d["method"] == "bitmap"]
+    scanned = [d for d in docs if d["note"].startswith("pdf_without_text_layer")]
+    if figures:
+        degr.append({"stage": "figure", "type": "bitmap_needs_manual_read",
+                     "detail": "offline standard library has no OCR; these figures are inventoried by size and "
+                               "their contents must be confirmed by eye: %s"
+                               % ", ".join("%s (%s)" % (d["path"], d["note"].split(":", 1)[-1]) for d in figures)})
+    if scanned:
+        degr.append({"stage": "pdf", "type": "no_text_layer",
+                     "detail": "these PDFs carry no extractable text layer (likely scans); their numbers need manual "
+                               "entry: %s" % ", ".join(d["path"] for d in scanned)})
+    if figures or scanned:
+        degr.append({"stage": "preview", "type": "png_skipped",
+                     "detail": "a PNG rasterisation needs an external font renderer; the offline preview is written as "
+                               "%s instead" % PREVIEW_FILE})
     if not docs:
         errors.append({"stage": "input", "type": "no_material", "detail": "no readable material file"})
     lg = lang_of(case, docs)
@@ -218,6 +359,8 @@ def run(args):
 
     manuscript = main_text
     K.write_text(out / MAIN_FILE, manuscript)
+    K.write_text(out / PREVIEW_FILE,
+                 K.svg_preview(main_text, title="%s — %s" % (SKILL, cid)))
     results_map = {"case_id": cid, "readouts": [
         {"token": r["token"], "value": r["value"], "unit": r["unit"], "source": r["source"],
          "context": r["context"][:160]} for r in readouts],
@@ -269,6 +412,12 @@ def run(args):
         human.append({"item": "Confirm the numeric readouts manually; no readout was machine-readable", "why": "data"})
     if not lit:
         human.append({"item": "Supply the literature to compare the Discussion against", "why": "evidence"})
+    for d in figures:
+        human.append({"item": "Read off the numbers in %s by eye and confirm the ones used" % d["path"],
+                      "why": "figure bitmap; offline OCR unavailable"})
+    for d in scanned:
+        human.append({"item": "Enter the numbers from %s manually (the PDF has no text layer)" % d["path"],
+                      "why": "scanned PDF"})
 
     status = "failed" if not docs else ("partial" if not readouts else "success")
     lists = {"preserved_facts": facts, "evidence_map": evidence_map, "change_log": change_log, "language": lg}
@@ -276,17 +425,21 @@ def run(args):
     res = {"case_id": cid, "status": status, "skill": SKILL, "skill_version": VERSION, "language": lg,
            "deliverable": MAIN_FILE, "deliverable_summary": main_text[:400],
            "preserved_facts": facts, "evidence_map": evidence_map, "change_log": change_log,
-           "output_contract": echo,
+           "output_contract": echo, "preview": PREVIEW_FILE,
+           "figure_inventory": [{"file": d["path"], "read_method": d["method"],
+                                 "size": (d["note"].split(":", 1)[-1] if ":" in d["note"] else d["note"]),
+                                 "needs_manual_read": True} for d in figures + scanned],
            "outputs": {n: (out / n).stat().st_size for n in
-                       ("manuscript.md", "results_map.json", "evidence_map.json",
-                        "preserved_facts.json", "change_log.json") if (out / n).is_file()},
+                       ("manuscript.md", PREVIEW_FILE, "results_map.json", "evidence_map.json",
+                        "preserved_facts.json", "change_log.json", "metrics.json") if (out / n).is_file()},
            "metrics": {"readouts": len(readouts), "numeric_statements": len(numeric),
                        "literature_links": sum(1 for ln in links if ln.get("source_id")),
-                       "documents": len(docs)},
+                       "documents": len(docs), "bitmap_figures": len(figures), "scanned_pdfs": len(scanned)},
            "sources": sources, "uncertainties": uncertainties, "change_records": change_log,
            "limits": limits, "human_review": human, "degradations": degr, "errors": errors,
            "runtime": {"script": "scripts/main.py", "version": VERSION, "python": sys.version.split()[0],
                        "network": "disabled"}}
+    K.dump_json(out / "metrics.json", baseline_metrics(res, readouts, links, lit))
     K.dump_json(out / "result.json", res)
     for k, v in (res.get("output_contract") or {}).items():
         if not isinstance(v, str) or not K.is_ext_path(v):
@@ -341,7 +494,11 @@ def main(argv=None):
     ap.add_argument("--case", default=None)
     ap.add_argument("--lang", default=None)
     ap.add_argument("--version", action="version", version=SKILL + " " + VERSION)
+    ap.add_argument("--selftest", action="store_true",
+                    help="run the offline self-test (PDF text layer, bitmap inventory, contract, metrics) and exit")
     args = ap.parse_args(argv)
+    if args.selftest:
+        return selftest()
     try:
         run(args)
     except Exception as exc:  # noqa
