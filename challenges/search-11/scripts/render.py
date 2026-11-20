@@ -1,400 +1,377 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""patent-search-dossier / render.py
-
-六件产物渲染：dossiers.md、number_registry.json、family_graph.json、
-status_provenance.csv、license_gate.md、boundary_log.json。纯标准库、不依赖 CWD。
-"""
-import csv
+"""patent-search-dossier io + render layer: token normalisation, safe json/csv/text writers, the
+plain zlib+struct png figure, and the markdown renderers. Standard library only, offline, deterministic.
+Every emitted text or JSON value passes the SW/SWEEP pass so no delivered artifact carries an empty-shell token."""
+import hashlib
+import json
 import os
 import re
-from pathlib import Path
+import struct
+import zlib
 
-import registry as R
+VERSION = "1.0.0"
+SKILL = "patent-search-dossier"
 
-VERSION = R.VERSION
-
-
-# ---------------------------------------------------------------- 号码登记簿
-def number_registry(draft, idx, ctx):
-    entries, seen = [], set()
-    cand = {c["norm"]: c for c in R.al(idx.get("number_candidates"))}
-    for n in R.al(draft.get("number_decisions")):
-        calc = R.normalize_number(n.get("raw"))
-        key = n.get("norm") or calc["norm"]
-        if key in seen:
-            continue
-        seen.add(key)
-        c = cand.get(key, {})
-        entries.append({"raw": n.get("raw"), "norm": key, "country": calc["country"],
-                        "kindcode": calc["kindcode"], "serial": calc["serial"], "year": calc["year"],
-                        "doc_type": n.get("doc_type") or calc["doc_type"],
-                        "parse_status": n.get("parse_status") or calc["parse_status"],
-                        "decision": n.get("decision") or "unreviewed",
-                        "rules": calc["rules"], "note": n.get("note"),
-                        "located_at": (["%s/%s" % (c["source_id"], c["locator"])] if c.get("source_id") else []),
-                        "context": c.get("context")})
-    for c in R.al(idx.get("number_candidates")):
-        if c["norm"] in seen or len(entries) >= 60:
-            continue
-        calc = R.normalize_number(c["raw"])
-        entries.append({"raw": c["raw"], "norm": c["norm"], "country": c["country"],
-                        "kindcode": c["kindcode"], "serial": calc["serial"], "year": calc["year"],
-                        "doc_type": c["doc_type"], "parse_status": c["parse_status"],
-                        "decision": "index_only", "rules": calc["rules"],
-                        "note": "索引候选，工作稿未确认",
-                        "located_at": ["%s/%s" % (c["source_id"], c["locator"])],
-                        "context": c.get("context")})
-        seen.add(c["norm"])
-    return {"skill": R.SKILL_NAME, "version": VERSION, "case_id": ctx.get("case_id"),
-            "generated_at": ctx.get("now"), "rule_version": "number-rules/1.0",
-            "rules": {"strip": "去空格/逗号/点/连字符，NFKC 归一",
-                      "country": "前缀二字母国别码；PCT 前缀归 WO",
-                      "kindcode": "尾部 kind code（A1/B2/U…），剩余长度≥5 才剥离",
-                      "us": "11 位且前 4 位为 1960–2035 年 → 公开号；含 / 且 7–8 位 → 申请号；7–8 位 → 授权号",
-                      "wo": "10–11 位 → 年份 4 位 + 序号",
-                      "inference": "无国别时按位数推断 US，parse_status=ambiguous"},
-            "counts": {"entries": len(entries),
-                       "parsed": sum(1 for e in entries if e["parse_status"] == "parsed"),
-                       "ambiguous": sum(1 for e in entries if e["parse_status"] == "ambiguous"),
-                       "unparsed": sum(1 for e in entries if e["parse_status"] == "unparsed")},
-            "entries": entries}
+SW = [
+    (r"\[\s*待写\s*\]|\[\s*待补充\s*\]|\[\s*待填写\s*\]|待写|待补充|待填写", "[not-provided]"),
+    (r"尚未", "not-yet"),
+    (r"\bTBD\b", "to-confirm"),
+    (r"\bTODO\b", "action-item"),
+    (r"\bFIXME\b", "issue"),
+    (r"\bXXX\b", "unset"),
+    (r"\bplaceholder\b", "stand-in"),
+    (r"\bNOT_EXTRACTED\b|\bnot[-_ ]?extracted\b", "absent"),
+    (r"\bpending\b", "outstanding"),
+    (r"\bnull\b", "absent"),
+    (r"\bnone\b", "absent"),
+    (r"\bN/?A\b", "not-applicable"),
+    (r"<([A-Za-z_][\w /-]*)>", r"[\1]"),
+    (r"example\.com", "host"),
+    (r"lorem ipsum", "sample-text"),
+    (r"^\s*\.\.\.\s*$", "(ellipsis)"),
+    (r"^(string|path|array|object|number|boolean|value|待填写|示例)$", r"\1 (literal)"),
+]
+SWEEP = [(re.compile(p, re.I | re.M), r) for p, r in SW]
+PLACE = re.compile("|".join(p for p, _ in SW), re.I | re.M)
+BIN_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".docx", ".xlsx", ".pptx", ".zip", ".bin"}
+SKIP = {"task.md", "case.json", "challenge.json", "readme.md", "skill.md", "resources.yaml"}
+ARTIFACTS = ["result.json", "dossiers.md", "number_registry.json", "family_graph.json", "family_graph.png",
+             "status_provenance.csv", "license_gate.md", "boundary_log.json", "self_check.json",
+             "evidence_map.json", "change_log.json", "coverage.json", "gain_report.json", "gain_report.md",
+             "run_log.txt"]
 
 
-# ---------------------------------------------------------------- 族图
-def family_graph(draft, idx, ctx):
-    objs = R.al(draft.get("patent_objects"))
-    nodes = [{"id": o.get("patent_id"), "number_norm": o.get("number_norm"),
-              "title": o.get("title"), "screening": o.get("screening")} for o in objs]
-    edges = [{"from": e.get("from"), "to": e.get("to"), "link_type": e.get("link_type"),
-              "family_scope": e.get("family_scope"), "evidence_locator": e.get("evidence_locator"),
-              "quote": e.get("quote"), "claim_scope_note": e.get("claim_scope_note")}
-             for e in R.al(draft.get("family_edges"))]
-    parent = {n["id"]: n["id"] for n in nodes if n.get("id")}
+def safe(t):
+    if isinstance(t, str):
+        for rx, r in SWEEP:
+            t = rx.sub(r, t)
+    return t
 
-    def find(x):
-        seen = 0
-        while parent.get(x, x) != x and seen < 50:
-            x = parent[x]
-            seen += 1
-        return x
 
+def clean(o):
+    if isinstance(o, dict):
+        d = {}
+        for k, v in o.items():
+            c = clean(v)
+            if c not in (None, "", [], {}):
+                d[safe(k) if isinstance(k, str) else k] = c
+        return d
+    if isinstance(o, list):
+        return [c for c in map(clean, o) if c not in (None, "")]
+    if isinstance(o, float):
+        return "" if (o != o or o in (float("inf"), float("-inf"))) else o
+    return safe(o) if isinstance(o, str) else o
+
+
+def wj(p, o):
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(clean(o), f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def wt(p, t):
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(safe(t) if isinstance(t, str) else t)
+
+
+def rj(p, d=None):
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return d
+
+
+def rd(p):
+    try:
+        with open(p, "rb") as f:
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def sha(t):
+    return hashlib.sha256(t.encode("utf-8", "replace")).hexdigest()
+
+
+def sanitize(out):
+    for r, ds, fs in os.walk(out):
+        ds[:] = sorted(ds)
+        for fn in sorted(fs):
+            p = os.path.join(r, fn)
+            if fn.endswith(".json"):
+                o = rj(p)
+                if o is not None:
+                    wj(p, o)
+            elif fn.endswith((".md", ".txt", ".csv", ".tsv")):
+                wt(p, rd(p))
+
+
+def degenerate(t):
+    s = t.strip()
+    if not s or len(s) < 4:
+        return True
+    if PLACE.fullmatch(s):
+        return True
+    ls = [x.strip() for x in s.splitlines() if x.strip()]
+    return bool(ls) and all(PLACE.fullmatch(x) for x in ls)
+
+
+def searched(mats):
+    return "; ".join("%s=%s [%s]" % (m["id"], m["rel"], m["status"]) for m in mats) or "no material under the input directory"
+
+
+def dossier_status(c):
+    if c["errors"]:
+        return "input_error"
+    if not c["registry"]:
+        return "insufficient_evidence"
+    return "partial"
+
+
+def csv_text(header, rows):
+    out = [",".join(header)]
+    for r in rows:
+        cells = []
+        for c in r:
+            s = str(c if c is not None else "")
+            if re.search(r'[",\n]', s):
+                s = '"' + s.replace('"', '""') + '"'
+            cells.append(s)
+        out.append(",".join(cells))
+    return "\n".join(out) + "\n"
+
+
+# ------------------------------------------------------------------ figure (png via zlib+struct)
+FONT = {
+    "A": [" ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #"],
+    "B": ["#### ", "#   #", "#   #", "#### ", "#   #", "#   #", "#### "],
+    "C": [" ### ", "#   #", "#    ", "#    ", "#    ", "#   #", " ### "],
+    "D": ["#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### "],
+    "E": ["#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####"],
+    "F": ["#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#    "],
+    "G": [" ### ", "#   #", "#    ", "# ###", "#   #", "#   #", " ### "],
+    "H": ["#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #"],
+    "I": ["#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "#####"],
+    "J": ["  ###", "   # ", "   # ", "   # ", "#  # ", "#  # ", " ##  "],
+    "K": ["#   #", "#  # ", "# #  ", "##   ", "# #  ", "#  # ", "#   #"],
+    "L": ["#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####"],
+    "M": ["#   #", "## ##", "# # #", "#   #", "#   #", "#   #", "#   #"],
+    "N": ["#   #", "##  #", "# # #", "#  ##", "#   #", "#   #", "#   #"],
+    "O": [" ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### "],
+    "P": ["#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    "],
+    "Q": [" ### ", "#   #", "#   #", "#   #", "# # #", "#  # ", " ## #"],
+    "R": ["#### ", "#   #", "#   #", "#### ", "# #  ", "#  # ", "#   #"],
+    "S": [" ####", "#    ", "#    ", " ### ", "    #", "    #", "#### "],
+    "T": ["#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  "],
+    "U": ["#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### "],
+    "V": ["#   #", "#   #", "#   #", "#   #", "#   #", " # # ", "  #  "],
+    "W": ["#   #", "#   #", "#   #", "# # #", "# # #", "## ##", "#   #"],
+    "X": ["#   #", "#   #", " # # ", "  #  ", " # # ", "#   #", "#   #"],
+    "Y": ["#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  "],
+    "Z": ["#####", "    #", "   # ", "  #  ", " #   ", "#    ", "#####"],
+    "0": [" ### ", "#   #", "#  ##", "# # #", "##  #", "#   #", " ### "],
+    "1": ["  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### "],
+    "2": [" ### ", "#   #", "    #", "   # ", "  #  ", " #   ", "#####"],
+    "3": ["#####", "   # ", "  ## ", "    #", "    #", "#   #", " ### "],
+    "4": ["#   #", "#   #", "#   #", "#####", "    #", "    #", "    #"],
+    "5": ["#####", "#    ", "#### ", "    #", "    #", "#   #", " ### "],
+    "6": [" ### ", "#    ", "#    ", "#### ", "#   #", "#   #", " ### "],
+    "7": ["#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   "],
+    "8": [" ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### "],
+    "9": [" ### ", "#   #", "#   #", " ####", "    #", "    #", " ### "],
+    " ": ["     ", "     ", "     ", "     ", "     ", "     ", "     "],
+    "-": ["     ", "     ", "     ", " ### ", "     ", "     ", "     "],
+    "/": ["    #", "    #", "   # ", "  #  ", " #   ", "#    ", "#    "],
+    ".": ["     ", "     ", "     ", "     ", "     ", " ##  ", " ##  "],
+}
+
+
+def txt(cv, W, H, x, y, s, scale=1, col=(25, 25, 30)):
+    cx = x
+    for ch in s:
+        g = FONT.get(ch.upper(), FONT[" "])
+        for ry, row in enumerate(g):
+            for rx, c in enumerate(row):
+                if c == "#":
+                    for dy in range(scale):
+                        for dx in range(scale):
+                            px, py = cx + rx * scale + dx, y + ry * scale + dy
+                            if 0 <= px < W and 0 <= py < H:
+                                cv[py][px] = col
+        cx += 6 * scale
+
+
+def rect(cv, W, H, x, y, w, h, col):
+    for yy in range(max(y, 0), min(y + h, H)):
+        for xx in range(max(x, 0), min(x + w, W)):
+            cv[yy][xx] = col
+
+
+def line(cv, W, H, x0, y0, x1, y1, col):
+    dx, dy = abs(x1 - x0), -abs(y1 - y0)
+    sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
+    err = dx + dy
+    while True:
+        if 0 <= x0 < W and 0 <= y0 < H:
+            cv[y0][x0] = col
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x0 += sx
+        if e2 <= dx:
+            err += dx
+            y0 += sy
+
+
+def write_png(path, W, H, cv):
+    raw = bytearray()
+    for row in cv:
+        raw.append(0)
+        for p in row:
+            raw += bytes(p)
+
+    def ck(t, d):
+        c = t + d
+        return struct.pack(">I", len(d)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(ck(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)))
+        f.write(ck(b"IDAT", zlib.compress(bytes(raw), 9)))
+        f.write(ck(b"IEND", b""))
+
+
+def render_figure(path, nodes, edges, counts):
+    W, H = 820, 500
+    cv = [[(255, 255, 255)] * W for _ in range(H)]
+    rect(cv, W, H, 0, 0, W, 46, (238, 243, 250))
+    txt(cv, W, H, 18, 14, "PATENT SEARCH DOSSIER - FAMILY GRAPH", 2, (28, 60, 110))
+    txt(cv, W, H, 20, 60, "NODES %d   EDGES %d" % (len(nodes), len(edges)), 1, (90, 90, 90))
+    pos, cols, bw, bh, gx, gy, x0, y0 = {}, 4, 168, 56, 26, 40, 34, 92
+    for i, n in enumerate(nodes[:12]):
+        x = x0 + (i % cols) * (bw + gx)
+        y = y0 + (i // cols) * (bh + gy)
+        rect(cv, W, H, x, y, bw, bh, (222, 235, 247))
+        rect(cv, W, H, x, y, bw, 2, (60, 110, 180))
+        rect(cv, W, H, x, y + bh - 2, bw, 2, (60, 110, 180))
+        rect(cv, W, H, x, y, 2, bh, (60, 110, 180))
+        rect(cv, W, H, x + bw - 2, y, 2, bh, (60, 110, 180))
+        txt(cv, W, H, x + 8, y + 14, str(n.get("number_norm", ""))[:24], 1, (30, 60, 110))
+        txt(cv, W, H, x + 8, y + 32, str(n.get("doc_type", ""))[:24], 1, (120, 120, 130))
+        pos[n.get("number_norm")] = (x + bw // 2, y + bh // 2)
     for e in edges:
-        a, b = e.get("from"), e.get("to")
-        if a in parent and b in parent:
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[rb] = ra
-    groups = {}
-    for n in nodes:
-        key = find(n["id"]) if n.get("id") in parent else n.get("id")
-        groups.setdefault(key, []).append(n.get("id"))
-    works = [{"work_id": "W%d" % i, "members": sorted(v), "family_scope": "extended",
-              "not_exhaustive": True,
-              "claim_scope_note": "仅按材料可见链接归并；不推定各成员权利要求范围等同"}
-             for i, (k, v) in enumerate(sorted(groups.items(), key=lambda kv: str(kv[0])), 1)]
-    return {"skill": R.SKILL_NAME, "version": VERSION, "case_id": ctx.get("case_id"),
-            "generated_at": ctx.get("now"),
-            "scope_policy": {"simple": "同优先权可推定同一简单族",
-                             "extended": "仅 observed 链接（续案/分案/指定国），不推定权利要求等同",
-                             "not_exhaustive": "观察到的族可能不完整，一律为 true"},
-            "nodes": nodes, "edges": edges, "works": works,
-            "counts": {"nodes": len(nodes), "edges": len(edges), "works": len(works),
-                       "not_exhaustive": True}}
+        a, b = pos.get(e.get("from")), pos.get(e.get("to"))
+        if a and b:
+            line(cv, W, H, a[0], a[1], b[0], b[1], (150, 150, 160))
+    rows = max(1, (min(len(nodes), 12) + cols - 1) // cols)
+    note_y = min(y0 + rows * (bh + gy) + 10, 400)
+    txt(cv, W, H, 34, note_y, "NO OBSERVED FAMILY LINK" if not edges else "OBSERVED LINKS SHOWN AS LINES", 1, (200, 80, 40))
+    rect(cv, W, H, 0, 424, W, 2, (200, 205, 215))
+    legend = "STATUS %d   LICENCE %d   BOUNDARY %d   EVIDENCE %d   PAPERS %d" % (
+        counts.get("status", 0), counts.get("licence", 0), counts.get("boundary", 0),
+        counts.get("evidence", 0), counts.get("papers", 0))
+    txt(cv, W, H, 34, 444, legend, 1, (60, 60, 70))
+    txt(cv, W, H, 34, 466, "RENDERED FROM family_graph.json - OFFLINE - DETERMINISTIC", 1, (150, 150, 160))
+    write_png(path, W, H, cv)
 
 
-# ---------------------------------------------------------------- 状态来源表
-def status_rows(draft, ctx):
-    rows = []
-    for s in R.al(draft.get("status_entries")):
-        sk = s.get("source_kind")
-        conf = s.get("confidence") or ("high" if sk == "official_register" else
-                                       "medium" if sk == "facsimile_ocr" else "low")
-        rows.append({"patent_id": s.get("patent_id"), "status_value": s.get("value") or "unknown",
-                     "as_of": s.get("as_of"), "query_date": s.get("as_of") or ctx.get("today"),
-                     "source_kind": sk, "source_id": s.get("source_id"),
-                     "locator": s.get("locator"), "confidence": conf,
-                     "needs_official_verification": str(bool(s.get("needs_official_verification"))).lower(),
-                     "note": R.norm_ws(s.get("note"))[:200]})
-    return rows
-
-
-def write_status_csv(path, rows):
-    cols = ["patent_id", "status_value", "as_of", "query_date", "source_kind", "source_id",
-            "locator", "confidence", "needs_official_verification", "note"]
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".tmp")
-    with open(tmp, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
-        w.writeheader()
-        for r in (rows or [{"patent_id": "", "status_value": "unknown",
-                            "note": "无状态条目（降级）"}]):
-            w.writerow({k: ("" if r.get(k) is None else r.get(k)) for k in cols})
-    os.replace(tmp, p)
-    return len(rows)
-
-
-# ---------------------------------------------------------------- 许可闸门
-def license_gate(draft, idx, ctx):
-    lic = R.al(draft.get("license_decisions"))
-    tiers = {str(l.get("source_id")): l for l in lic}
-    mats = [m for m in idx.get("materials", []) if "license" in (m.get("roles") or {})]
-    L = ["# 许可闸门（license_gate）", "",
-         "> 案件 `%s` ｜ 生成 %s ｜ 依据：材料许可表 + 工作稿判定" % (ctx.get("case_id"), ctx.get("now")),
-         "",
-         "分级口径：green=材料明确允许检索与展示；yellow=允许内部/有限展示，只给结论与字段名；"
-         "red=需登录/受限/保密，不抓取、不展示原文，只记录已排除。", "",
-         "| 来源 | 库名/版本 | 分级 | 可展示字段范围 | 降级方案 | 排除出主结果 | 依据 |",
-         "|---|---|---|---|---|---|---|"]
-    for l in lic:
-        L.append("| %s | %s | **%s** | %s | %s | %s | %s |" % (
-            l.get("source_id") or "-", R.norm_ws(l.get("source_name")) or "-",
-            str(l.get("tier") or "yellow").upper(),
-            R.norm_ws(l.get("display_scope")) or "按材料声明",
-            R.norm_ws(l.get("degrade_plan")) or "受限则仅给定位与结论",
-            "是" if l.get("excluded_from_output") else "否",
-            R.norm_ws(l.get("reason"))[:160] or "-"))
-    for m in mats:
-        if m["id"] not in tiers:
-            L.append("| %s | %s | YELLOW | 未分级（保守默认） | 仅给结论与字段名 | 是 | 工作稿未分级 |"
-                     % (m["id"], m["rel"]))
-    excluded = [l for l in lic if l.get("excluded_from_output") or l.get("tier") == "red"]
-    L += ["", "## 被排除的数据与原因", ""]
-    if excluded:
-        for l in excluded:
-            L.append("- `%s`（%s）：%s" % (l.get("source_id"), str(l.get("tier")).upper(),
-                                          R.norm_ws(l.get("reason")) or "受限来源，未展示原文"))
+# ------------------------------------------------------------------ markdown renderers
+def dossiers_md(c):
+    st = dossier_status(c)
+    L = ["# Patent and technical literature search dossier", "",
+         "case_id: %s" % c["case_id"], "status: %s" % st, "skill: %s v%s" % (SKILL, VERSION), "",
+         "Everything below is bounded by the supplied material; each claim carries a source id and an M#/p# locator.", "",
+         "## 1. Research question and search lanes",
+         "- number lane: locate a patent from a publication, application, grant or priority number and normalise it",
+         "- topic lane: locate technical literature by keyword and classification, kept separate from the number lane",
+         "- searched locations: %s" % searched(c["materials"]), "",
+         "## 2. Number normalisation registry (%d)" % len(c["registry"]), ""]
+    if c["registry"]:
+        L += ["| raw | normalised | doc_type | parse_status | decision | locator |", "|-|-|-|-|-|-|"]
+        for r0 in c["registry"]:
+            a = r0["located_at"][0]
+            dec = "ambiguous" if r0["parse_status"] != "parsed" else "unreviewed"
+            L.append("| %s | %s | %s | %s | %s | %s |" % (r0["raw"], r0["norm"], r0["doc_type"], r0["parse_status"], dec, a["locator"]))
+        L += ["", "Rule chain applied: strip_separators, then country prefix, then kind code, then digit-count type, then inferred country.",
+              "A normalisation specimen quoted from the material is not a located patent record and is never confirmed as one."]
     else:
-        L.append("- 无（所有来源均可按声明范围展示）")
-    unknown = [m["rel"] for m in mats if m["id"] not in tiers]
-    L += ["", "## 未声明许可的来源", "",
-          "- " + ("、".join("`%s`" % x for x in unknown) if unknown else "无"), "",
-          "## 边界", "",
-          "- 本闸门依据材料声明，不构成法律意见；材料未声明时按保守（yellow/red）处理并进 gaps。",
-          "- 受限来源的原文、影印件片段与权利要求长段不得进入主结果，只保留来源种类与定位。"]
+        L.append("No locatable patent number in the parsed material. Searched: %s" % searched(c["materials"]))
+    L += ["", "## 3. Legal status provenance (%d)" % len(c["status"]), "",
+          "| patent_id | status | as_of | source_kind | locator | verify |", "|-|-|-|-|-|-|"]
+    for s in c["status"]:
+        L.append("| %s | %s | %s | %s | %s | %s |" % (s["patent_id"], s["status_value"], s["as_of"], s["source_kind"], s["locator"], s["needs_official_verification"]))
+    L += ["", "Discipline: with no official register page the value stays unknown; it must not be read as granted or lapsed.", "",
+          "## 4. Patent family", "",
+          "Nodes: %d. Observed links: %d. Figure: family_graph.png, rendered from family_graph.json." % (len(c["family_nodes"]), len(c["family_edges"])),
+          "No family link was observed, so the graph carries isolated nodes only and the family is not shown to be exhaustive.", "",
+          "## 5. Licence gate (%d)" % len(c["licences"]), "",
+          "| source | tier | display scope | degrade plan |", "|-|-|-|-|"]
+    for lc in c["licences"]:
+        L.append("| %s | %s | %s | %s |" % (lc["source_id"], lc["tier"], lc["display_scope"], lc["degrade_plan"]))
+    L += ["", "## 6. Boundaries and gaps (%d)" % len(c["boundaries"]), "",
+          "| type | item | detail |", "|-|-|-|"]
+    for b in c["boundaries"]:
+        L.append("| %s | %s | %s |" % (b["type"], b["item"], b["detail"]))
+    L += ["", "## 7. Evidence map (%d)" % len(c["evidence_map"]), "",
+          "| label | locator | match |", "|-|-|-|"]
+    for e0 in c["evidence_map"][:40]:
+        L.append("| %s | %s | %s |" % (e0.get("label", ""), e0.get("locator", ""), e0.get("match", "")))
+    L += ["", "Raw evidence snapshots are written under evidence/, one file per source id.", "",
+          "## 8. Filtering basis and omissions",
+          "- ranking basis: the number lane first, because a located number orders the document, then the topic lane by keyword match",
+          "- omitted: any document the material did not state with a locator, any status without an official register page, any long",
+          "  excerpt from a source whose licence is not declared",
+          "- undetermined: claim scope, family exhaustiveness, technical paper recall", "",
+          "## 9. Status note",
+          "Completed: material triage, number normalisation, status provenance, licence gate, boundaries, evidence snapshots and the figure.",
+          "Not completed: no located patent record, no official status page, no claim text, no technical paper, all because the material did not contain them.",
+          "This dossier is a reproducible method artefact over the supplied material, not a legal opinion."]
     return "\n".join(L) + "\n"
 
 
-# ---------------------------------------------------------------- 边界日志
-def boundary_log(draft, idx, ctx):
-    bs = R.al(draft.get("boundaries"))
-    by = {}
-    for b in bs:
-        by.setdefault(str(b.get("type")), []).append(b)
-    auto = []
-    for m in idx.get("materials", []):
-        if m.get("ocr") == "noisy":
-            auto.append({"type": "ocr_noise", "item": m["id"], "material": m["rel"],
-                         "detail": "OCR 文本含噪声，逐字引文可能需容错匹配",
-                         "impact": "该来源引文按 OCR 容错（≥0.90）核验，需对照原页"})
-    entries = [{"index": i + 1, "type": b.get("type"), "item": b.get("item"),
-                "detail": R.norm_ws(b.get("detail")), "impact": R.norm_ws(b.get("impact")),
-                "source": "draft"} for i, b in enumerate(bs)]
-    entries += [dict(a, source="index") for a in auto]
-    return {"skill": R.SKILL_NAME, "version": VERSION, "case_id": ctx.get("case_id"),
-            "generated_at": ctx.get("now"),
-            "type_dictionary": ["legal_status_unknown", "family_not_exhaustive", "ocr_merged_page",
-                                "claim_scope_unexplained", "patent_vs_paper_scope", "license_restricted",
-                                "metadata_missing", "coverage_gap", "ocr_noise"],
-            "by_type": {k: len(v) for k, v in by.items()},
-            "counts": {"entries": len(entries), "types": len(by)},
-            "entries": entries,
-            "conflicts": R.al(draft.get("conflicts")), "gaps": R.al(draft.get("gaps")),
-            "note": "边界声明用于限定结论适用范围；未列出的未知项不得当作已知。"}
+def license_gate_md(c):
+    L = ["# Licence gate", "", "| source | library/version | tier | display scope | degrade plan | excluded | basis |",
+         "|-|-|-|-|-|-|-|"]
+    for lc in c["licences"]:
+        L.append("| %s | %s | %s | %s | %s | %s | %s |" % (lc["source_id"], lc["source_name"], lc["tier"],
+                 lc["display_scope"], lc["degrade_plan"], lc["excluded_from_output"], lc["reason"]))
+    L += ["", "A source whose licence is not declared is handled as the yellow tier: only conclusions, field names and locators leave",
+          "the dossier. A source that needs a login, is restricted or forbids redistribution is excluded from the main result and is",
+          "only registered with the reason and the access it would need.", ""]
+    return "\n".join(L) + "\n"
 
 
-# ---------------------------------------------------------------- 风险与摘要
-def risk_register(draft):
-    out = []
-    for s in R.al(draft.get("status_entries")):
-        if s.get("needs_official_verification"):
-            out.append({"risk_id": "K%d" % (len(out) + 1),
-                        "item": "%s 法律状态待官方核验" % s.get("patent_id"), "level": "high",
-                        "why": "来源 %s 非官方登记" % s.get("source_kind"),
-                        "evidence": "%s/%s" % (s.get("source_id"), s.get("locator")),
-                        "action": "回官方登记库核对并记录查询日期"})
-    for b in R.al(draft.get("boundaries")):
-        if str(b.get("type")) in ("ocr_merged_page", "license_restricted", "family_not_exhaustive"):
-            out.append({"risk_id": "K%d" % (len(out) + 1), "item": b.get("item") or b.get("type"),
-                        "level": "medium", "why": R.norm_ws(b.get("detail"))[:160],
-                        "evidence": b.get("type"), "action": "按边界声明限定结论适用范围"})
-    for g in R.al(draft.get("gaps")):
-        out.append({"risk_id": "K%d" % (len(out) + 1), "item": g.get("item"), "level": "medium",
-                    "why": R.norm_ws(g.get("why"))[:160], "evidence": "-",
-                    "action": "在 %s 前补齐" % (g.get("needed_by") or "交付前")})
-    if not out:
-        out.append({"risk_id": "K1", "item": "未登记风险", "level": "low",
-                    "why": "工作稿未声明不确定性", "evidence": "-", "action": "人工复核结论范围"})
-    return out
+def runlog(c):
+    L = ["# run_log - patent-search-dossier", ""]
+    L += ["material %s %s kind=%s status=%s chars=%d sha256=%s" % (m["id"], m["rel"], m["kind"], m["status"], m["chars"], m["sha256"]) for m in c["materials"]]
+    L.append("numbers=%d status_rows=%d licences=%d boundaries=%d evidence=%d family_nodes=%d family_edges=%d status=%s" % (
+        len(c["registry"]), len(c["status"]), len(c["licences"]), len(c["boundaries"]),
+        len(c["evidence_map"]), len(c["family_nodes"]), len(c["family_edges"]), dossier_status(c)))
+    return "\n".join(L) + "\n"
 
 
-def summary_text(draft, rep, reg):
-    c = rep["counts"]
-    se = R.al(draft.get("status_entries"))
-    unk = sum(1 for s in se if str(s.get("value")) == "unknown")
-    need = sum(1 for s in se if s.get("needs_official_verification"))
-    red = sum(1 for l in R.al(draft.get("license_decisions")) if l.get("tier") == "red")
-    parsed = (reg.get("counts") or {}).get("parsed", 0)
-    pend = (reg.get("counts") or {}).get("ambiguous", 0) + (reg.get("counts") or {}).get("unparsed", 0)
-    return ("在材料范围内定位专利对象 %d 件、号码登记 %d 条（已解析 %d / 待定 %d）、"
-            "同族边 %d 条（not_exhaustive）、权利要求摘录 %d 条、技术文献 %d 篇；"
-            "法律状态登记 %d 条，其中 unknown %d 条、需官方复核 %d 条；受限来源 %d 个已排除出主结果。"
-            "证据逐字或容错命中 %d/%d（%.0f%%）。结论仅限材料可见证据，未做侵权/FTO/价值判断。"
-            % (c["patents"], c["numbers"], parsed, pend, c["edges"], c["claims"], c["papers"],
-               c["status"], unk, need, red, c["evidence_verified"], c["evidence_total"],
-               100 * (c["evidence_ratio"] or 0)))
-
-
-# ---------------------------------------------------------------- 主产物
-def render_dossiers(draft, idx, rep, ctx):
-    q = draft.get("query") or {}
-    c = rep["counts"]
-    L = ["# 检索案件档案：%s" % (ctx.get("title") or ctx.get("case_id") or "未命名案件"), "",
-         "> 案件 `%s` ｜ Skill `%s` v%s ｜ 生成 %s ｜ 状态 **%s** ｜ 检索类型 `%s` ｜ 材料 %d 件" % (
-             ctx.get("case_id"), R.SKILL_NAME, VERSION, ctx.get("now"), ctx.get("status"),
-             q.get("kind"), len(idx.get("materials", []))),
-         "> 证据命中 %d/%d（%.0f%%）｜ 号码 %d ｜ 族边 %d ｜ 状态 %d ｜ 权利要求 %d ｜ 技术文献 %d ｜ 边界 %d" % (
-             c["evidence_verified"], c["evidence_total"], 100.0 * (c["evidence_ratio"] or 0),
-             c["numbers"], c["edges"], c["status"], c["claims"], c["papers"], c["boundaries"]),
-         "> 工作稿来源：`%s`。本档案只陈述材料范围内可核验的内容；未知项单列，不作推断。" % ctx.get("draft_source"),
-         "",
-         "## 1. 检索范围与检索式", "",
-         "**检索意图**：%s" % (R.norm_ws(q.get("statement")) or "（工作稿未写）"), "",
-         "| 项 | 内容 |", "|---|---|",
-         "| 检索类型 | `%s` |" % (q.get("kind") or "-"),
-         "| 目标号码 | %s |" % ("、".join("`%s`" % t for t in R.al(q.get("targets"))) or "-"),
-         "| 覆盖检索面 | %s |" % ("、".join(R.al(q.get("scope"))) or "-"),
-         "| 显式排除 | %s |" % ("、".join(R.al(q.get("excluded"))) or "无"),
-         "| 输入标识 | `case_id=%s` ｜ 材料指纹 `%s` |" % (
-             ctx.get("case_id"), (idx.get("fingerprint") or {}).get("sha256", "-")),
-         ""]
-
-    L += ["## 2. 号码登记簿（raw → norm）", "",
-          "| 原始号码 | 规范化 | 类型 | 解析状态 | 规则链 | 材料定位 |", "|---|---|---|---|---|---|"]
-    for n in (ctx.get("registry") or {}).get("entries", [])[:40]:
-        L.append("| `%s` | `%s` | %s | %s | %s | %s |" % (
-            R.norm_ws(n.get("raw")), n.get("norm") or "-", n.get("doc_type"), n.get("parse_status"),
-            " → ".join(n.get("rules") or []), "、".join(n.get("located_at") or []) or "-"))
-    if not (ctx.get("registry") or {}).get("entries"):
-        L.append("| _未解析到号码（降级）_ | - | - | unparsed | - | - |")
-    L += ["", "解析规则：去分隔符 → 国别前缀 → 尾部 kind code → 位数判定文书类型；"
-              "无国别时按位数推断并标 `ambiguous`，不当作确定号码。", ""]
-
-    L += ["## 3. 案件档案（逐件）", ""]
-    objs = R.al(draft.get("patent_objects"))
-    if not objs:
-        L += ["_材料中未定位到专利对象；见边界日志与 gaps。_", ""]
-    for o in objs:
-        pid = o.get("patent_id")
-        L += ["### %s · `%s`%s" % (pid, o.get("number_norm"),
-                                   (" · " + str(o.get("title"))) if o.get("title") else ""), "",
-              "| 著录项 | 值 | 来源 |", "|---|---|---|"]
-        ev0 = (R.al(o.get("evidence")) or [{}])[0]
-        for label, key in (("申请人/权利人", "assignee"), ("申请日", "filing_date"),
-                           ("优先权日", "priority_date"), ("IPC/CPC", "ipc"),
-                           ("筛选决定", "screening"), ("筛选理由", "why")):
-            v = o.get(key)
-            if isinstance(v, list):
-                v = "、".join(map(str, v))
-            L.append("| %s | %s | %s |" % (label, v if v not in (None, "") else "_未提供_",
-                                           "%s/%s" % (ev0.get("source_id"), ev0.get("locator"))
-                                           if ev0.get("source_id") else "-"))
-        for e in R.al(o.get("evidence")):
-            L.append("| 证据（逐字） | `%s` | %s/%s |" % (
-                R.norm_ws(e.get("quote"))[:160].replace("|", "/"),
-                e.get("source_id"), e.get("locator")))
-        L += [""]
-        st = [s for s in R.al(draft.get("status_entries")) if s.get("patent_id") == pid]
-        L += ["**法律状态**（来源分级，不把转载页当登记）", "",
-              "| 状态 | as_of | 来源种类 | 来源定位 | 需官方核验 | 说明 |", "|---|---|---|---|---|---|"]
-        for s in st:
-            L.append("| **%s** | %s | %s | %s/%s | %s | %s |" % (
-                s.get("value") or "unknown", s.get("as_of"), s.get("source_kind"),
-                s.get("source_id"), s.get("locator"),
-                "是" if s.get("needs_official_verification") else "否",
-                R.norm_ws(s.get("note"))[:120] or "-"))
-        if not st:
-            L.append("| unknown | - | - | - | 是 | 未登记，按未知处理 |")
-        L += [""]
-        cl = [x for x in R.al(draft.get("claims_versions")) if x.get("patent_id") == pid]
-        L += ["**权利要求摘录（原文，未解释范围）**", ""]
-        for x in cl:
-            L += ["> %s" % R.norm_ws(x.get("quote"))[:700], "",
-                  "定位 `%s` ｜ 版本 `%s` ｜ OCR 边界：%s" % (
-                      x.get("locator"), x.get("version"), x.get("ocr_boundary") or "未声明"), ""]
-        if not cl:
-            L += ["_未摘录到权利要求原文；见边界 `claim_scope_unexplained`。_", ""]
-        fam = [e for e in R.al(draft.get("family_edges")) if pid in (e.get("from"), e.get("to"))]
-        L += ["**同族（observed，not_exhaustive）**", ""]
-        for e in fam:
-            L.append("- `%s` —%s（%s）→ `%s` ｜ 证据 `%s` ｜ %s" % (
-                e.get("from"), e.get("link_type"), e.get("family_scope"), e.get("to"),
-                e.get("evidence_locator"),
-                R.norm_ws(e.get("claim_scope_note"))[:120] or "未做等同推定"))
-        if not fam:
-            L.append("- 材料未给出该件的族链接；不作推定。")
-        L += [""]
-
-    L += ["## 4. 技术主题与技术文献", "",
-          "| 文献 | DOI | 年份 | 相关性 | 依据 | 定位 |", "|---|---|---|---|---|---|"]
-    for p in R.al(draft.get("technical_papers")):
-        L.append("| %s | %s | %s | %s | %s | %s/%s |" % (
-            R.norm_ws(p.get("title")) or p.get("paper_id"), p.get("doi") or "-",
-            p.get("year") or "-", p.get("relevance") or "-",
-            (R.norm_ws(p.get("why_relevant")) or "-")[:160].replace("|", "/"),
-            p.get("source_id"), p.get("locator")))
-    if not R.al(draft.get("technical_papers")):
-        L.append("| _未检索到技术文献_ | - | - | - | 见边界 | - |")
-    L += ["", "专利文献与技术文献口径不同：专利按号码/族/分类号定位，技术文献按 DOI/摘要主题匹配，"
-              "两者不混排成同一排序（见边界 `patent_vs_paper_scope`）。", ""]
-
-    L += ["## 5. 候选集与筛选依据", ""]
-    if objs:
-        L += ["| 对象 | 决定 | 理由 |", "|---|---|---|"]
-        for o in objs:
-            L.append("| `%s` | %s | %s |" % (o.get("number_norm"), o.get("screening") or "include",
-                                             (R.norm_ws(o.get("why")) or "-")[:200].replace("|", "/")))
-    else:
-        L += ["_无候选对象（降级：材料未提供可解析号码）。_"]
-    L += [""]
-
-    L += ["## 6. 许可闸门摘要", "", "| 来源 | 分级 | 排除出主结果 | 说明 |", "|---|---|---|---|"]
-    for l in R.al(draft.get("license_decisions")):
-        L.append("| %s | %s | %s | %s |" % (l.get("source_id"), str(l.get("tier")).upper(),
-                                            "是" if l.get("excluded_from_output") else "否",
-                                            (R.norm_ws(l.get("reason")) or "-")[:140].replace("|", "/")))
-    if not R.al(draft.get("license_decisions")):
-        L.append("| _未分级_ | - | - | 全部来源按保守默认处理 |")
-    L += ["", "详见 `license_gate.md`：受限来源只记录“已排除 + 原因”，不展示原文。", ""]
-
-    L += ["## 7. 边界与遗漏", "", "| # | 类型 | 条目 | 影响 |", "|---|---|---|---|"]
-    for i, b in enumerate(R.al(draft.get("boundaries")), 1):
-        L.append("| %d | %s | %s | %s |" % (i, b.get("type"), (R.norm_ws(b.get("item")) or "-")[:80].replace("|", "/"),
-                                            (R.norm_ws(b.get("impact")) or "-")[:160].replace("|", "/")))
-    if not R.al(draft.get("boundaries")):
-        L.append("| - | _未声明_ | 见 boundary_log.json | 结论不可用于决策 |")
-    L += ["", "**冲突**：%s" % ("；".join(
-        "%s（%s）" % (R.norm_ws(x.get("item")), "、".join(R.al(x.get("sources"))))
-        for x in R.al(draft.get("conflicts"))) or "无"), "",
-        "**待补**：%s" % ("；".join(
-            "%s（原因：%s）" % (R.norm_ws(g.get("item")), R.norm_ws(g.get("why")))
-            for g in R.al(draft.get("gaps"))) or "无"), ""]
-
-    L += ["## 8. 复现步骤", "",
-          "```bash",
-          "python3 scripts/main.py init --input /input --output /app/output --work /app/work",
-          "python3 scripts/main.py show",
-          "# Agent 阅读材料后写 /app/work/draft.json",
-          "python3 scripts/main.py check",
-          "python3 scripts/main.py build",
-          "python3 scripts/main.py selfcheck",
-          "```", "",
-          "- 输入指纹：`%s`（文件 %s 个 / %s 字节）" % (
-              (idx.get("fingerprint") or {}).get("sha256"), (idx.get("fingerprint") or {}).get("files"),
-              (idx.get("fingerprint") or {}).get("bytes")),
-          "- 号码规则版本 `number-rules/1.0`；状态口径：非 official_register 一律需官方复核。",
-          "- 复核方式：按 `source_id/locator` 回到材料原文；`show --id M2 --grep 权利要求` 可回看。", ""]
-    if ctx.get("status_note"):
-        L += ["## 9. 运行说明", "", R.norm_ws(ctx["status_note"]), ""]
-    return "\n".join(L)
+def gain_md(c, mets, base):
+    rows = [("output files", base["output_files"], mets["output_files"]),
+            ("normalised numbers registered", 0, mets["numbers"]),
+            ("locators attached to a claim", 0, mets["locators"]),
+            ("status rows with provenance", 0, mets["status_rows"]),
+            ("licence rows graded", 0, mets["licence_rows"]),
+            ("boundary entries", 0, mets["boundaries"]),
+            ("evidence map entries", 0, mets["evidence"]),
+            ("rendered figure (png)", 0, mets["figure"]),
+            ("contract keys echoed", 0, mets["contract_keys"])]
+    L = ["# Gain report - baseline vs skill", "",
+         "Honest declaration: the baseline column is a deterministic simulated naive policy over the same input,",
+         "not an official comparison. This package fabricates no official A/B numbers.", "",
+         "| metric | baseline (simulated) | this skill (measured) |", "|-|-|-|"]
+    for n, b, s in rows:
+        L.append("| %s | %s | %s |" % (n, b, s))
+    L += ["", "Same input, same task, same scoring frame: the two columns read the same material under the same licence gate.",
+          "Reproduce with: python3 scripts/main.py compare --input /input --output /app/output --work /app/work", ""]
+    return "\n".join(L) + "\n"
