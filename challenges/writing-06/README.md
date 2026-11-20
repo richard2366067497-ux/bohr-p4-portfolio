@@ -13,7 +13,9 @@ split / narrow / delete / insert），附预期效果与风险。纯 Python 标�
   SKILL.md
   scripts/{main.py,core.py,review.py}
   references/dimensions.md
-  README.md  SELFTEST.md  GITHUB_URL.txt
+  environment/resources.yaml
+  examples/{case.json,manuscript.md}
+  README.md  SELFTEST.md  GAIN_EVIDENCE.md  GITHUB_URL.txt
 ```
 
 ## 用法
@@ -50,7 +52,19 @@ python3 <skill>/scripts/main.py selfcheck --input /input --output /app/output --
 | `argument_map.json` | 研究问题句、主张-证据链、无证据链计数 |
 | `consistency_report.md` | 文件清单、标题层级、重复句、跨文档术语、引用与条目计数 |
 | `pending_human.json` | 需作者补充或确认的缺口 |
+| `semantic_audit.json` | 语义审读协议：机械预筛候选句（locator + 逐字引文）、固定提示词、四维度与判定取值、记录模式 |
+| `metrics.json` | 与包内声明阈值的基线对照，逐项可从其它产物复算 |
 | `result.json` | 契约回填 + 状态 + 来源 + 不确定性 + 修改记录 + 限制 + 错误 |
+
+离线自测（不联网、无第三方包，退出码 0）：
+
+```bash
+python3 <skill>/scripts/main.py selftest
+# 覆盖：PDF/DOCX 文本层、损坏件降级、契约回填、产物齐全、引文核验、占位符扫描、语义审读协议、基线指标
+```
+
+材料支持：`.md .txt .rst .tex .json .csv`，以及 **PDF 文本层**（FlateDecode + 字面串）与
+**DOCX**（`word/document.xml`）；解析不了的二进制/扫描件只清点、不编造，文件名写入 `degradations`。
 
 ## 示例（示意，非正式案例结果）
 
@@ -75,9 +89,9 @@ P1；若正文引用 `[7]` 在参考文献里没有条目，`argument_chain` 会
 
 ## 维护与版本策略
 
-- 版本 6.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMENSIONS`、检测器与
+- 版本 9.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与
   `references/dimensions.md`。
-- 改动后运行 `selfcheck` 与 `scripts/eval_sim.py`（rich/boundary × single/agent），见 `SELFTEST.md`。
+- 改动后运行 `selftest`、`selfcheck` 与 `scripts/eval_sim.py`（rich/boundary × single/agent），见 `SELFTEST.md`。
 - 预算与安全边界：完全离线、仅用 Python 标准库、只写 `--output` 与 `--work`，输入树从不改写；
-  包体 8 文件、单文件 ≤30KB、主脚本（`scripts/main.py`）≤25KB，因此代码拆在 `core.py`（共享层）
+  包体 12 文件、单文件 ≤30KB、主脚本（`scripts/main.py`）≤25KB，因此代码拆在 `core.py`（共享层）
   与 `review.py`（审读层）两个模块里。
