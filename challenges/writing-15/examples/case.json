@@ -1,0 +1,18 @@
+{
+  "case_id": "example-longdoc-01",
+  "language": "en",
+  "materials_root": ".",
+  "notes": "Illustrative example for the local walkthrough; not an official case.",
+  "output_contract": {
+    "term": "string",
+    "symbol": "string",
+    "definition": "string",
+    "numbering": "string",
+    "citation": "string",
+    "claim": "string",
+    "unit": "string",
+    "annotations_applied": "string",
+    "sha": "string",
+    "case_id": "string"
+  }
+}
