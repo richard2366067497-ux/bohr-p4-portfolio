@@ -1,0 +1,26 @@
+{
+  "records": [
+    {"row_id": "P1-01", "doi": "10.1000/j1", "page": "p.4 Table 1", "quantity": "solubility", "substance": "sodium chloride", "value (g)": "36.1"},
+    {"row_id": "P1-02", "doi": "10.1000/j1", "page": "p.4 Table 1", "quantity": "solubility", "substance": "sodium chloride", "value (g)": "36.1"},
+    {"row_id": "P1-03", "doi": "10.1000/j1b", "page": "p.5 Table 1b", "quantity": "solubility", "substance": "table salt", "value (g)": "35.9"},
+    {"row_id": "P1-06", "doi": "10.1000/j1b", "page": "p.5 Table 1b", "quantity": "solubility", "substance": "sodium chloride", "value (g)": "36.0"},
+    {"row_id": "P1-04", "doi": "10.1000/j1d", "page": "p.6 Table 1d", "quantity": "solubility", "substance": "sodium chloride", "value (g)": "41.0"},
+    {"row_id": "P1-07", "doi": "10.1000/j1d", "page": "p.6 Table 1d", "quantity": "solubility", "substance": "sodium chloride", "value (g)": "36.0"},
+    {"row_id": "P2-01", "doi": "10.1000/j2", "page": "p.9 Table 2", "quantity": "concentration", "substance": "potassium chloride", "value (M)": "1.5"},
+    {"row_id": "P2-02", "doi": "10.1000/j2", "page": "p.9 Table 2", "quantity": "concentration", "substance": "potassium chloride", "value (mM)": "1,500"},
+    {"row_id": "P2-03", "doi": "10.1000/j2", "page": "p.9 Table 2", "quantity": "concentration", "substance": "potassium chloride", "value (uM)": "1.49e6"},
+    {"row_id": "P2-05", "doi": "10.1000/j2b", "page": "p.11 Table 3", "quantity": "concentration", "substance": "KCl", "value (mM)": "1.50 ± 0.02"},
+    {"row_id": "P2-04", "doi": "10.1000/j2c", "page": "p.12 Table 3b", "quantity": "concentration", "substance": "KCl", "value (mM)": "2000"},
+    {"row_id": "P2-06", "doi": "10.1000/j2c", "page": "p.12 Table 3b", "quantity": "concentration", "substance": "KCl", "value (mM)": "1.500e3"},
+    {"row_id": "P3-01", "doi": "10.1000/j3", "page": "p.15 Table 4", "quantity": "melting point", "substance": "sodium chloride", "value (°C)": "801"},
+    {"row_id": "P3-02", "doi": "10.1000/j3", "page": "p.15 Table 4", "quantity": "melting point", "substance": "sodium chloride", "value (K)": "1074"},
+    {"row_id": "P3-03", "doi": "10.1000/j3b", "page": "p.16 Table 5", "quantity": "melting point", "substance": "NaCl", "value (°C)": "800 to 802"},
+    {"row_id": "P4-01", "doi": "10.1000/j4", "page": "p.20 Table 6", "quantity": "solubility", "substance": "sodium chloride", "value (a.u.)": "25"},
+    {"row_id": "P4-02", "doi": "10.1000/j4", "page": "p.20 Table 6", "quantity": "solubility", "substance": "sodium chloride", "value (%)": "12.5"},
+    {"row_id": "P4-03", "doi": "10.1000/j4", "page": "p.20 Table 6", "quantity": "solubility", "substance": "sodium chloride", "value": "36"},
+    {"row_id": "P4-04", "doi": "10.1000/j4", "page": "p.20 Table 6", "quantity": "solubility", "substance": "sodium chloride", "value (g)": "about 36"},
+    {"row_id": "P4-05", "doi": "10.1000/j4", "page": "p.21 Table 7", "quantity": "solubility", "substance": "potassium chloride", "value (g)": "n/a"},
+    {"page": "p.22 Table 8", "doi": "10.1000/j5", "quantity": "solubility", "substance": "sodium chloride", "value (g)": "36.05"},
+    {"row_id": "P4-01", "doi": "10.1000/j5", "page": "p.22 Table 8", "quantity": "solubility", "substance": "NaCl", "value (mg)": "35900"}
+  ]
+}
