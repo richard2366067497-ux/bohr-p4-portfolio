@@ -1,0 +1,21 @@
+{
+  "case_id": "research-05-demo",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "deliverable": "decision_brief.md",
+    "evidence_map": "evidence_index.jsonl",
+    "change_log": "change_log.json",
+    "coverage": "coverage.json"
+  },
+  "demo_materials": [
+    {
+      "name": "demo-rule-document.md",
+      "text": "# 研究判定规则（演示材料）\n\n## 1. 五门与四类交付的映射\n\n题面的四项交付不是四份并列文档，而是同一份判定的四个切面；五门各自回答一个问题。\n\n| 门 | 名称 | 要回答的问题 | 题面交付项 | 主要字段 |\n|-|-|-|-|-|\n| G1 | 值不值得做 | 这个问题拆开后是否可判伪 | 决策简报 | question, claims |\n| G2 | 有没有人做过 | 最接近的工作是否已覆盖该设想 | 对齐矩阵 | matrix, novelty |\n| G3 | 做不做得成 | 资源与许可是否够用 | 前提登记 | assumptions |\n| G4 | 是不是老瓶装新酒 | 与既有工作的边界差在哪 | 简报附录 | novelty, conflicts |\n| G5 | 下行风险是什么 | 最坏情况的代价是否可接受 | 决策简报 | decision, risks |\n\n## 2. verdict 阈值\n\n| 门 | go | conditional | no_go |\n|-|-|-|-|\n| G1 | 四项拆解齐全且各带判伪条件 | 拆解齐全但判伪条件需补 | 无法拆解或不可判伪 |\n| G2 | 有对照工作且边界清晰 | 有对照工作但边界需补 | 无任何可对照工作 |\n| G3 | 资源与许可均有材料依据 | 部分前提为假定 | 关键前提无依据 |\n| G4 | 边界差别可陈述且非重复 | 边界差别需进一步界定 | 与既有工作实质重复 |\n| G5 | 下行风险有缓解路径 | 下行风险需量化 | 下行风险不可接受 |\n\n## 3. 错误码\n\n| 码 | 触发条件 | 修法 |\n|-|-|-|\n| `E_G1_SPLIT` | G1 少于四项拆解 | 补齐四项拆解 |\n| `E_G1_FALSIFY` | 某拆解缺判伪条件 | 补判伪条件 |\n| `E_G3_GO` | 前提含 unsupported 却判 go | 降级为 conditional |\n| `E_DECISION_INCONSISTENT` | 总判定强于最弱门 | 取最弱门为上限 |\n| `E_CONFLICT_UNLOGGED` | 有相反证据但未登记 | 补进 conflicts |\n\n## 4. 警告码\n\n- `W_QUOTE`：引文未逐字时提醒改用 exact 或标注 quote_not_found\n- `W_SEARCH_WINDOW`：检索窗口未给依据时提醒补充\n- `W_G3_CATS`：前提类别不足四类时提醒补齐\n\n## 5. 枚举词表\n\n- `overlap`：no-overlap/partial/full\n- `comparison_status`：not_comparable/comparable\n- `novelty.type`：combination/application/scale/method\n- `gate.verdict`：go/conditional/no_go\n\n## 6. 模糊措辞词表\n\n- 需要替换为可测量的表述：`差不多｜大概｜显著提升`\n\n## 8. 证据核验的三种匹配\n\n| 匹配 | 含义 | 是否可用 |\n|-|-|-|\n| `exact` | 逐字一致 | 可用 |\n| `despaced` | 去空白后一致 | 可用但记降级 |\n| `quote_not_found` | 未找到 | 不可用 |\n\n## 9. 数字溯源\n\n- 可辨识单位表：`件｜人月｜万元｜周`\n\n## 13. 不适用的场景\n\n- 材料未给候选文献时不做文献级比较\n- 材料未给工作稿时五门一律给条件式判定\n"
+    },
+    {
+      "name": "demo-draft-schema.md",
+      "text": "# 字段字典（演示材料）\n\n## 0. 顶层\n\n| 字段 | 类型 | 必填 | 备注 |\n|-|-|-|-|\n| question | object | 是 | G1 的四项拆解 |\n| gates | array | 是 | 五门记分卡 |\n| novelty | array | 是 | 创新类型与判定 |\n\n## 5. novelty\n\n- 创新判定口径：`covered` / `novel` / `undetermined`\n- 不允许用\"检索不到\"支撑 novel；检索不到只能支撑 undetermined。\n\n## 7. claims\n\n- 每条主张都要带回链锚点，逐字引用材料原话。\n\n## 8. conflicts\n\n- 只在否定或免责语境下触发 forbidden-novelty 判定，其余情形按 undetermined 登记。\n"
+    }
+  ]
+}
