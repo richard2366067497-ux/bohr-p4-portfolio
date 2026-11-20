@@ -1,0 +1,14 @@
+{
+  "case_id": "example-writing-04",
+  "language": "en",
+  "output_contract": {
+    "numbering_policy": "value",
+    "key_to_number": "value",
+    "references": "value",
+    "duplicates": "value",
+    "unknown_keys": "value",
+    "sources": "value",
+    "uncertainty": "value",
+    "change_records": "value"
+  }
+}
