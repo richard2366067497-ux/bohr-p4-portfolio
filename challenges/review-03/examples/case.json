@@ -1,0 +1,20 @@
+{
+  "case_id": "example-not-a-formal-case",
+  "language": "en",
+  "materials_root": "materials",
+  "notes": "Minimal example (marked as an example, not a formal case). Point --input at a directory shaped like this to exercise the Skill end to end. The output directory will then contain result.json plus the audit artifacts.",
+  "example_files": {
+    "materials/review_checklist.md": "a five-facet review checklist",
+    "materials/rule_table.md": "| issue_type | meaning | facet / dimension / natures | rows, one per issue type"
+  },
+  "output_contract": {
+    "case_id": "string",
+    "status": "partial | insufficient_evidence | input_error",
+    "deliverable": "audit_report.md",
+    "findings": "findings.json",
+    "ledger": "statistics_ledger.json",
+    "coverage": "coverage.json",
+    "evidence_map": "evidence_map.json",
+    "change_log": "change_log.json"
+  }
+}
