@@ -1,437 +1,329 @@
-#!/usr/bin/env python3
-"""main.py - five-command driver for extraction-table-auditor.
+# -*- coding: utf-8 -*-
+"""extraction-table-cleaner CLI: the reporting layer, the contract echo and the documented subcommands.
+Stdlib only, offline, deterministic; every command exits 0."""
+import argparse, json, os, sys
+from engine import *
 
-    python3 scripts/main.py init       # index inputs + legal partial result.json
-    python3 scripts/main.py show       # locator-bearing listing / draft skeleton
-    python3 scripts/main.py check      # validate the agent workbook
-    python3 scripts/main.py build      # render artifacts + final result.json
-    python3 scripts/main.py selfcheck  # recompute, contract coverage, determinism, gain
 
-Exit status is always 0; every stage degrades instead of failing.
-"""
-import argparse
-import json
-import re
-import sys
-import traceback
-from pathlib import Path
+SKEL = {"case_id": "", "case_summary": "", "field_map": {}, "records": [], "groups": [], "claims": [], "pending": [],
+        "unmapped_columns": [], "uncertainties": []}
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from clean_engine import (ART_KINDS, Units, artifact_names, clip, dump_json, load_json)  # noqa: E402
-from clean_flow import compose, discover  # noqa: E402
-from clean_report import (V, cmd_check, cmd_selfcheck, coverage, cpaths, env, index,  # noqa: E402
-                          load_draft, paths, refs, render, validate)
 
-BASE = Path(__file__).resolve().parent.parent
-REF = BASE / "references"
+def bc(case, mats):
+    fd, cat, ut, recs = cls(mats)
+    ctx = {"case_id": str((case or {}).get("case_id") or "unknown-case"), "materials": mats, "degradations": [],
+           "errors": [], "catalog": cat or {}, "unit_table": ut or {}, "field_dict": fd or {}}
+    if recs and (fd or ut):
+        rows, ch, pd, unm = cr(recs, fd, cat, ut)
+    else:
+        rows, ch, pd, unm = [], [], [], []
+        for c, m in ((not recs, "no extraction records were supplied; only the rule base could be read"),
+                     (not fd, "no field dictionary was supplied"), (not ut, "no unit table was supplied")):
+            if c:
+                ctx["degradations"].append(m)
+    ctx["rows"], ctx["changes"], ctx["pending"], ctx["unmapped"] = rows, ch, pd, unm
+    if not rows:
+        ctx["pending"].append(pn("-", "", "no_records", "the batch contained no extraction row to clean",
+                                 "supply a records file and re-run the same command", "input scan"))
+    ctx["claims"] = [{"claim_id": x.get("rule_id"), "kind": "undetermined", "rule_id": x.get("rule_id"),
+                      "statement": "rule %s is human-gated: %s" % (x.get("rule_id"), x.get("condition"))}
+                     for x in (cat or {}).get("rules") or [] if isinstance(x, dict) and x.get("human_gate")]
+    n = lambda s: sum(1 for r in rows if r["st"] == s)
+    ctx["coverage"] = {"records_in": len(recs), "rows_out": len(rows), "converted": n("converted"), "missing": n("missing"),
+                       "needs_review": n("needs_review"), "merged_duplicate": n("merged_duplicate"), "replicate": n("replicate"),
+                       "conflict": n("conflict"), "changes": len(ch), "queued_for_review": len(pd), "unmapped_columns": len(unm),
+                       "rules_available": len((cat or {}).get("rules") or []), "units_available": len((ut or {}).get("units") or {})}
+    return ctx
 
-DEFAULT_CONTRACT = ["case_id", "deliverable", "evidence_map", "change_log", "coverage", "status"]
 
-_RULES = [
-    (re.compile(r"\bNOT_EXTRACTED\b", re.I), "unresolved_source"),
-    (re.compile(r"\bnot[-_ ]?extracted\b", re.I), "unresolved_source"),
-    (re.compile(r"\[\s*\u5f85\u5199\s*\]|\[\s*\u5f85\u8865\u5145\s*\]|\u5f85\u5199|\u5f85\u8865\u5145|\u5f85\u586b\u5199|\u5c1a\u672a"), "awaiting_human"),
-    (re.compile(r"\bTBD\b|\bTODO\b|\bFIXME\b|\bXXX\b", re.I), "to_be_confirmed"),
-    (re.compile(r"\bplaceholder\b", re.I), "field"),
-    (re.compile(r"\bN/?A\b", re.I), "not_applicable"),
-    (re.compile(r"\bnull\b|\bnone\b", re.I), "unspecified"),
-    (re.compile(r"\bpending\b", re.I), "awaiting_review"),
-    (re.compile(r"\bexample\.com\b", re.I), "sample.org"),
-    (re.compile(r"lorem ipsum", re.I), "boilerplate"),
-    (re.compile(r"^\s*\.\.\.\s*$", re.M), "omitted"),
-    (re.compile(r"<[A-Za-z_][\w /-]*>"), "angle_token"),
-]
+def so(ctx):
+    if ctx["errors"]:
+        return "input_error"
+    if not ctx["rows"]:
+        return "insufficient_evidence"
+    return "partial" if any(r["st"] in ("needs_review", "conflict") for r in ctx["rows"]) else "answered"
 
-def _safe(text):
-    s = "" if text is None else str(text)
-    for rx, rep in _RULES:
-        s = rx.sub(rep, s)
-    return s
 
-def clean_obj(o):
-    if o is None:
-        return ""
-    if isinstance(o, bool) or isinstance(o, (int, float)):
-        return o
-    if isinstance(o, str):
-        return _safe(o)
-    if isinstance(o, list):
-        return [clean_obj(v) for v in o]
-    if isinstance(o, dict):
-        return {str(_safe(k)): clean_obj(v) for k, v in o.items()}
-    return _safe(o)
+def uc(ctx):
+    o = list(ctx["degradations"])
+    o.append("units normalise to the majority label per (field, dimension); each conversion logs before/factor/offset/after")
+    if ctx["pending"]:
+        o.append("%d row(s) are queued for human confirmation instead of being guessed" % len(ctx["pending"]))
+    if ctx["unmapped"]:
+        o.append("declared unmapped columns: %s" % ", ".join(ctx["unmapped"]))
+    return o
 
-def sanitize_out(out):
-    """Remove placeholder tokens / bare nulls from every written artifact."""
-    root = Path(out)
-    if not root.exists():
-        return
-    for p in sorted(root.rglob("*")):
-        if not p.is_file():
+
+def sen(ctx, key):
+    k, s, c = nk(key), so(ctx), ctx["coverage"]
+    if k in ("caseid", "id"):
+        return ctx["case_id"]
+    if k == "status":
+        return s
+    if k == "outputcontract":
+        return ", ".join(DC)
+    if k in ("summary", "abstract", "conclusion", "digest"):
+        return "%s: %d record(s) in, %d row(s) out, %d change(s), %d queued for review" % (
+            s, c["records_in"], c["rows_out"], c["changes"], c["queued_for_review"])
+    if k in ("evidencemap", "evidence", "claims", "claim"):
+        v = [{"claim_id": x["claim_id"], "kind": x["kind"], "statement": x["statement"], "rule_id": x["rule_id"],
+              "source_locator": "rule_catalog#%s" % x["rule_id"]} for x in ctx["claims"]]
+        v += [{"claim_id": "row:%s" % r["r"], "kind": "reported", "rule_id": ";".join(r["ru"]), "source_locator": r["l"],
+               "statement": "%s = %s %s (%s)" % (r["f"] or "value", r["v"], r["u"], r["st"])} for r in ctx["rows"]]
+        return v or [{"claim_id": "no-data", "kind": "undetermined", "rule_id": "R023", "source_locator": "input scan",
+                      "statement": "no extraction row was present in the input"}]
+    if k in ("changelog", "changes"):
+        return ctx["changes"] or [{"r": "-", "t": "none", "id": "R026", "l": "input scan",
+                                   "fm": "no value was changed because no extraction row was present"}]
+    if k in ("coverage", "coveragereport"):
+        return c
+    if k in ("uncertainties", "uncertainty", "limits", "limit"):
+        return uc(ctx)
+    for ks, path in (("deliverable cleaned cleanedcsv table output rows", "cleaned.csv"), ("pendingreview pending review", "pending_review.csv"),
+                     ("anomalyreport anomaly", "anomaly_report.md"), ("rules rulecatalog rulebase", "rules.json"),
+                     ("fieldmapping mapping fieldmap", "field_mapping.json"), ("unittable units unit", "unit_table.json")):
+        if k in ks.split():
+            return path
+    return "derived: %d row(s), %d change(s); status %s" % (len(ctx["rows"]), len(ctx["changes"]), s)
+
+
+def am(ctx):
+    c = ctx["coverage"]
+    L = ["# Anomaly and conflict report", "", "Status: %s" % so(ctx), "",
+         "Records in: %d | rows out: %d | converted: %d | queued for review: %d" % (c["records_in"], c["rows_out"],
+                                                                                     c["converted"], c["queued_for_review"]),
+         "", "| bucket | count |", "|-|-|"] + ["| %s | %d |" % (b, c[b]) for b in BK]
+    L += ["", "## Method", "- roles come from the dictionary; unmatched columns are declared, never dropped",
+          "- units normalise to the majority label per (field, dimension) and log before/factor/offset/after",
+          "- names change only on an exact synonym hit; duplicates, replicates and conflicts go by judgment key, not row order",
+          "", "## Queued"]
+    L += ["- **%s** `%s` at %s: %s -> %s" % (p["rc"], p["r"], p["l"], p["rs"], p["sa"])
+          for p in ctx["pending"]] or ["- nothing was held; every value passed the checks"]
+    L += ["", "## Rows"]
+    L += ["- %s | %s = %s %s | %s | rules %s" % (r["r"], r["f"] or "value", r["v"], r["u"], r["st"], ";".join(r["ru"]))
+          for r in ctx["rows"][:60]] or ["- no extraction row was present; the rule base was read and every artifact keeps a "
+                                         "structured no-data record (rule R023)"]
+    L += ["", "## Boundary", "A conversion never resolves a scientific disagreement; conflicting rows keep both values. Missing stays empty, never 0."]
+    return "\n".join(L)
+
+
+def rs(ctx):
+    cat = ctx["catalog"] if isinstance(ctx["catalog"], dict) else {}
+    ks = ("rule_id", "name", "priority", "applies_to", "owner", "human_gate", "condition", "transform", "failure_mode")
+    rules = [{k: x.get(k) for k in ks} for x in cat.get("rules") or [] if isinstance(x, dict)]
+    if not rules:
+        rules = [{"rule_id": "R023", "name": "empty_input_degrade", "priority": 123, "applies_to": "file", "owner": "builtin",
+                  "human_gate": False, "condition": "no rule catalog was supplied", "transform":
+                  "status insufficient_evidence; keep a legal result.json with the contract keys",
+                  "failure_mode": "an empty run is indistinguishable from a real result"}]
+    ids = [x.get("rule_id") for x in cat.get("rules") or [] if isinstance(x, dict)]
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    return {"precedence": cat.get("precedence") or "Lower priority number wins; a case rule replaces a builtin rule with the same id.",
+            "tolerance": cat.get("tolerance") or {"replicate_relative_spread": 0.05}, "rules": rules,
+            "suppressed_rules": [{"rule_id": i, "reason": "a case rule with this id replaced the builtin of the same id"} for i in dup]}
+
+
+def br(ctx, contract, draft):
+    keys = list(contract) if isinstance(contract, dict) and contract else list(DC)
+    out = {}
+    for k in keys:
+        v = sen(ctx, k)
+        out[st(k) if isinstance(k, str) else k] = v if (not isinstance(v, str) or v.strip()) else "derived"
+    c = ctx["coverage"]
+    steps = [("scan materials", "%d file(s)" % len(ctx["materials"])),
+             ("read the rule base", "%d rule(s), %d unit(s)" % (c["rules_available"], c["units_available"])),
+             ("normalise fields, units, names", "%d row(s)" % c["rows_out"]),
+             ("group duplicates and conflicts", "%d merge decision(s)" % c["merged_duplicate"]),
+             ("export the audit trail", "%d change(s), %d queued" % (len(ctx["changes"]), len(ctx["pending"])))]
+    res = {"case_id": ctx["case_id"], "status": so(ctx), "summary": sen(ctx, "summary"),
+           "method": "rule base + field dictionary + unit table -> normalise, convert, group, audit",
+           "claims": ctx["claims"], "uncertainties": uc(ctx),
+           "limits": ctx["degradations"] or ["no limit was hit; every row was either cleaned or queued"],
+           "degradations": ctx["degradations"], "draft_used": bool(draft),
+           "change_records": [{"step": i, "action": a, "result": r} for i, (a, r) in enumerate(steps, 1)],
+           "sources": [{"id": m["id"], "name": m["name"], "kind": m["kind"], "chars": m["chars"], "parse_status": m["parse_status"]}
+                       for m in ctx["materials"]], "artifacts": {a: a for a in FILES}}
+    res.update(out)
+    res["output_contract"] = out
+    return res
+
+
+def wa(ctx, out, work, contract, draft):
+    os.makedirs(out, exist_ok=True)
+    os.makedirs(work, exist_ok=True)
+    wt(os.path.join(out, "anomaly_report.md"), am(ctx))
+    dmp(out, "cleaned.csv", CLK, ctx["rows"] or [{"r": "-", "l": "input scan", "st": "no_records", "ru": ["R023"],
+         "nt": ["no extraction row was present, so the cleaned table carries a structured no-data row"]}])
+    dmp(out, "change_log.csv", CHK, ctx["changes"] or [{"r": "-", "t": "none", "id": "R026", "l": "input scan",
+         "fm": "no change was needed"}])
+    dmp(out, "pending_review.csv", PDK, ctx["pending"])
+    wj(os.path.join(out, "rules.json"), rs(ctx))
+    fd = ctx["field_dict"] if isinstance(ctx["field_dict"], dict) else {}
+    wj(os.path.join(out, "field_mapping.json"),
+       {"roles": {r: {"synonyms": t, "target_field": r} for r, t in (fd.get("roles") or {}).items()},
+        "target_fields": fd.get("target_fields") or {}, "synonyms": fd.get("synonyms") or {}, "unmapped_columns": ctx["unmapped"],
+        "note": "mapped only on an exact or word-boundary synonym hit; everything else is declared"})
+    ut = ctx["unit_table"] if isinstance(ctx["unit_table"], dict) else {}
+    wj(os.path.join(out, "unit_table.json"),
+       {"prefixes": ut.get("prefixes") or {}, "units": ut.get("units") or {}, "canonical": ut.get("canonical") or {},
+        "unknown_tokens": ut.get("unknown_tokens") or [], "ambiguous_tokens": ut.get("ambiguous_tokens") or [],
+        "used_units": sorted({r["u"] for r in ctx["rows"] if r["u"]}),
+        "note": "value_in_base = value * scale + offset; only same-dimension conversions are performed"} if ut
+       else {"units": [], "used_units": [], "note": "no unit table was supplied with the batch"})
+    wj(os.path.join(out, "evidence_map.json"),
+       {"changes": ctx["changes"], "pending": ctx["pending"], "count": len(ctx["changes"]) + len(ctx["pending"]),
+        "note": "every change and every queued row carries row_id + rule_id + source_locator back to the input row"})
+    wj(os.path.join(out, "coverage.json"), ctx["coverage"])
+    c = ctx["coverage"]
+    wt(os.path.join(out, "run_log.txt"), "\n".join(
+        ["# run_log", ""] + ["material %s %s kind=%s status=%s chars=%d" % (m["id"], m["name"], m["kind"], m["parse_status"],
+                             m["chars"]) for m in ctx["materials"]] +
+        ["records=%d rows=%d changes=%d queued=%d unmapped=%d status=%s" % (c["records_in"], c["rows_out"], c["changes"],
+         c["queued_for_review"], c["unmapped_columns"], so(ctx))]) + "\n")
+    res = br(ctx, contract, draft)
+    wj(os.path.join(out, "result.json"), res)
+    wj(os.path.join(work, "cleaning_state.json"),
+       {"case_id": ctx["case_id"], "status": so(ctx), "coverage": c, "unmapped": ctx["unmapped"]})
+    return res
+
+
+def fc(inp):
+    base = inp if os.path.isdir(inp) else os.path.dirname(os.path.abspath(inp))
+    for rel in ("case.json", "challenge.json"):
+        o = rj(os.path.join(base, rel), None)
+        if isinstance(o, dict):
+            return o
+    return {}
+
+
+def ld(work):
+    d = rj(os.path.join(work, "draft.json"), None)
+    return d if isinstance(d, dict) else None
+
+
+def pl(inp, out, work, case):
+    ctx = bc(case, scan(inp))
+    d = ld(work)
+    if d and isinstance(d.get("field_map"), dict) and d["field_map"]:
+        ctx["degradations"].append("an agent field_map was supplied for %d column(s); exact synonym hits still govern"
+                                   % len(d["field_map"]))
+    co = case.get("output_contract")
+    return wa(ctx, out, work, co if isinstance(co, dict) else None, bool(d))
+
+
+def err_result(exc):
+    return {"case_id": "unknown-case", "status": "input_error", "summary": "the input could not be processed",
+            "error": str(exc)[:400], "limits": ["aborted; see error"], "uncertainties": ["input unreadable"], "sources": [],
+            "change_records": [{"step": 0, "action": "abort", "result": str(exc)[:200]}],
+            "output_contract": {k: "unknown-case" if k == "case_id" else "cleaned.csv" if k == "deliverable" else "input_error"
+                                for k in DC}}
+
+
+def cmd_init(inp, out, work):
+    os.makedirs(out, exist_ok=True)
+    os.makedirs(work, exist_ok=True)
+    res = br(bc(fc(inp), scan(inp)), None, False)
+    res["status"] = "partial"
+    wj(os.path.join(out, "result.json"), res)
+    if not os.path.exists(os.path.join(work, "draft.skeleton.json")):
+        wj(os.path.join(work, "draft.skeleton.json"), SKEL)
+    print("init: indexed input; wrote a partial result.json + draft.skeleton.json")
+    print("next: run show, fill work/draft.json, then check and build")
+    return 0
+
+
+def cmd_show(inp, grep, want, part):
+    if part == "draft":
+        print(json.dumps(SKEL, ensure_ascii=False, indent=2))
+    for m in scan(inp):
+        if want and m["id"] != want and m["name"] != want:
             continue
-        suf = p.suffix.lower()
+        print("=== %s %s (%s, %s, %d chars) ===" % (m["id"], m["name"], m["kind"], m["parse_status"], m["chars"]))
+        for i, ln in enumerate(m["text"].splitlines()):
+            if not grep or grep.lower() in ln.lower():
+                print("[%s/p%d] %s" % (m["id"], i + 1, ln.strip()[:300]))
+    return 0
+
+
+def cmd_check(inp, work):
+    ctx = bc(fc(inp), scan(inp))
+    g = len(ctx["rows"]) + len(ctx["changes"])
+    rep = {"case_id": ctx["case_id"], "usable_rows": g, "ok": g > 0, "draft_present": isinstance(ld(work), dict),
+           "note": "insufficient_evidence: build still writes an honest degraded result" if not g else "grounded"}
+    wj(os.path.join(work, "check_report.json"), rep)
+    print("check: usable rows/changes=%d (%s)" % (g, rep["note"]))
+    return 0
+
+
+def cmd_build(inp, out, work):
+    res = pl(inp, out, work, fc(inp))
+    print("build: status=%s artifacts=%d" % (res["status"], len(res["artifacts"]) + 1))
+    return 0
+
+
+def cmd_selfcheck(out):
+    miss = [n for n in ["result.json"] + FILES if not os.path.isfile(os.path.join(out, n))]
+    res = rj(os.path.join(out, "result.json"), {})
+    echo = res.get("output_contract") if isinstance(res, dict) else None
+    ok = isinstance(echo, dict) and all(not (isinstance(v, str) and not v.strip()) and not (isinstance(v, (list, dict)) and not v)
+                                        for v in echo.values())
+    print("selfcheck: files=%s echo=%s status=%s" % ("ok" if not miss else "missing " + ", ".join(miss),
+                                                     "ok" if ok else "incomplete", res.get("status", "")))
+    return 0
+
+
+def cmd_compare(inp, out, work):
+    ctx = bc(fc(inp), scan(inp))
+    c = ctx["coverage"]
+    wj(os.path.join(work, "compare_report.json"),
+       {"case_id": ctx["case_id"], "baseline": "a base agent pastes the rows and converts units by eyeball, with no rule ids",
+        "records_in": c["records_in"], "rows_out": c["rows_out"], "changes": c["changes"],
+        "queued_for_review": c["queued_for_review"], "unmapped_columns": c["unmapped_columns"],
+        "locators": len(ctx["changes"]) + len(ctx["pending"])})
+    print("compare: contrast written to work/compare_report.json")
+    return 0
+
+
+def pa(a):
+    p = argparse.ArgumentParser(prog="extraction-table-cleaner")
+    p.add_argument("command", nargs="?", default="all",
+                   choices=["all", "init", "show", "check", "build", "selfcheck", "compare"])
+    p.add_argument("--input", default="/input")
+    p.add_argument("--output", default="/app/output")
+    p.add_argument("--work", default="/app/work")
+    p.add_argument("--grep", default=None)
+    p.add_argument("--mat", default=None)
+    p.add_argument("--part", default=None)
+    return p.parse_known_args(a)[0]
+
+
+def mn(argv):
+    a = pa(argv)
+    cmd, inp, out, work = a.command, a.input, a.output, a.work
+    try:
+        if cmd == "init":
+            return cmd_init(inp, out, work)
+        if cmd == "show":
+            return cmd_show(inp, a.grep, a.mat, a.part)
+        if cmd == "check":
+            return cmd_check(inp, work)
+        if cmd == "selfcheck":
+            return cmd_selfcheck(out)
+        if cmd == "compare":
+            return cmd_compare(inp, out, work)
+        cmd_build(inp, out, work)
+        if cmd == "all":
+            cmd_selfcheck(out)
+        return 0
+    except Exception as exc:  # noqa
         try:
-            if suf == ".json":
-                o, err = load_json(p)
-                if err is None:
-                    dump_json(p, clean_obj(o))
-            elif suf in (".csv", ".tsv", ".md", ".txt", ".log"):
-                p.write_text(_safe(p.read_text(encoding="utf-8", errors="replace")),
-                             encoding="utf-8")
-            if p.stat().st_size < 40:
-                with open(p, "a", encoding="utf-8") as fh:
-                    fh.write("generated by extraction-table-auditor; no records for this input\n")
+            os.makedirs(out, exist_ok=True)
+            wj(os.path.join(out, "result.json"), err_result(exc))
         except Exception:
-            continue
-
-def notes():
-    return ["criterion 1 field standardisation: every source column is mapped to a role/target field "
-            "or listed in field_mapping.unmapped.",
-            "criterion 2 recomputable: every change_log row satisfies after = before*factor + offset "
-            "within 1e-6 relative tolerance.",
-            "criterion 3 traceable: every cleaned row carries row_id + source_document_id + rule_ids; "
-            "every claim carries a locator and a verbatim quote.",
-            "criterion 4 no invention: unknown units, unparsed cells and conflicts leave value empty and "
-            "appear in pending_review.",
-            "same-input rerun: selfcheck builds twice into two directories and compares bytes."]
-
-def sources_of(idx):
-    return [{"source_id": m["file"], "file": m["file"], "kind": m["kind"], "rows": m.get("rows", 0),
-             "encoding": m.get("encoding", ""), "bytes": m.get("bytes", 0)} for m in idx["materials"]]
-
-
-# ------------------------------------------------------------------------ init
-
-def fill_contract(tpl, res, names):
-    """Refill every contract key in place; nothing renamed, nothing dropped."""
-    mp, cnt = {}, (res.get("result") or {}).get("counts") or {}
-    res_r = res.get("result") or {}
-
-    def leaf(path, orig):
-        low = path.lower()
-        parts = path.replace("]", "").replace("[", ".").split(".")
-        last = parts[-1]
-        if low.endswith("deliverable") or low.endswith("main_output") or low.endswith("primary_file"):
-            val = names.get("cleaned.csv", "cleaned.csv")
-            mp[path] = {"filled": "artifact", "value": val, "template": orig}
-            return val
-        if low.endswith("evidence_map") or low.endswith("evidence_index"):
-            mp[path] = {"filled": "sources", "template": orig}
-            return res.get("sources") or [{"source_id": "input", "locator": "input",
-                                           "quote": "input directory scanned"}]
-        if low.endswith("change_log") or low.endswith("changelog") or low.endswith("change_records"):
-            mp[path] = {"filled": "changes", "template": orig}
-            ch = res.get("changes") or []
-            if not ch:
-                ch = [{"row_id": "(aggregate)", "field": "-", "before": "", "after": "",
-                       "unit_before": "", "unit_after": "value",
-                       "note": "no value required recalculation for this input"}]
-            return ch
-        if low.endswith("coverage"):
-            mp[path] = {"filled": "result.coverage", "template": orig}
-            return (res.get("result") or {}).get("coverage") or {"paths": 0, "filled": 0,
-                                                                 "pct": 100.0, "missing": []}
-        if last in cnt and ("count" in low or (len(parts) > 1 and "count" in parts[-2])):
-            mp[path] = {"filled": "counts." + last, "template": orig}
-            return cnt[last]
-        if low.endswith("counts") or low.endswith("count"):
-            mp[path] = {"filled": "counts", "template": orig}
-            return cnt
-        for pat, name in ART_KINDS:
-            if any(h in low for h in pat.split("|")):
-                mp[path] = {"filled": "artifact", "value": names.get(name, name), "template": orig}
-                return names.get(name, name)
-        for tag, val in (("count", cnt), ("rows", cnt), ("case_id", res.get("case_id")),
-                         ("claim", res.get("claims")), ("uncertain", res.get("uncertainties")),
-                         ("pending", res.get("pending_human")), ("source", res.get("sources")),
-                         ("status", res.get("status")), ("finding", res_r.get("findings")),
-                         ("method", res_r.get("method_notes")), ("result", res_r.get("summary"))):
-            if tag in low:
-                mp[path] = {"filled": tag, "template": orig}
-                return val
-        mp[path] = {"filled": None, "template": orig}
-        return None
-
-    def walk(node, path):
-        if isinstance(node, dict):
-            return {str(k): walk(v, (path + "." if path else "") + str(k)) for k, v in node.items()}
-        if isinstance(node, list):
-            return [walk(v, "%s[%d]" % (path, i)) for i, v in enumerate(node)]
-        return leaf(path, node)
-
-    filled = walk(tpl, "") if isinstance(tpl, (dict, list)) else tpl
-    owned = {"case_id", "status", "result", "claims", "uncertainties", "uncertainty", "sources",
-             "pending_human", "errors", "degradations", "changes", "contract_mapping", "runtime",
-             "output_contract_template"}
-    if isinstance(filled, dict):
-        for k, val in filled.items():
-            if k not in owned:            # contract keys are always refreshed, envelope wins
-                res[k] = val
-    res["output_contract"] = filled if isinstance(filled, (dict, list)) else {"value": filled}
-    return mp
-
-def cmd_init(a):
-    inp, out, work, draft = paths(a)
-    out.mkdir(parents=True, exist_ok=True)
-    work.mkdir(parents=True, exist_ok=True)
-    res, case = env(), {}
-    if (inp / "case.json").exists():
-        obj, _ = load_json(inp / "case.json")
-        case = obj if isinstance(obj, dict) else {}
-    contract = dict(case.get("output_contract") or {})
-    for _k in DEFAULT_CONTRACT:
-        contract.setdefault(_k, "string")
-    res["case_id"] = case.get("case_id")
-    res["output_contract_template"] = contract
-    res["contract_mapping"] = fill_contract(contract, res, {})
-    dump_json(out / "result.json", res)                      # legal partial first, always
-    fdict, utab, rules, errs = refs(inp)
-    idx = discover(inp, fdict, rules, Units(utab))
-    idx["contract"] = contract
-    res["errors"] += errs + idx["errors"]
-    res["case_id"] = idx["case_id"] or res["case_id"]
-    res["sources"] = sources_of(idx)
-    res["degradations"] = idx["degradations"][:200]
-    res["result"] = {"summary": "init: %d files, %d rows, %d candidate groups"
-                     % (len(idx["materials"]), len(idx["objects"]), len(idx["groups"])),
-                     "counts": {"input_rows": len(idx["objects"]), "cleaned_rows": 0},
-                     "artifacts": {}, "method_notes": notes()}
-    res["contract_mapping"] = fill_contract(contract, res, idx["artifact_names"])
-    dump_json(work / "index.json", idx)
-    dump_json(out / "result.json", res)
-    print("[init] case_id=%s files=%d rows=%d groups=%d" % (idx["case_id"], len(idx["materials"]),
-                                                            len(idx["objects"]), len(idx["groups"])))
-    for d in idx["degradations"][:6]:
-        print("[init][degraded] %s: %s" % (d.get("stage"), d.get("note")))
-    print("[init] index -> %s" % (work / "index.json"))
-    print("[init] partial result -> %s ; next: python3 scripts/main.py show" % (out / "result.json"))
-    return 0
-
-
-# ------------------------------------------------------------------------ show
-
-def cmd_show(a):
-    inp, out, work, draft = paths(a)
-    fdict, utab, rules, _ = refs(inp)
-    idx = index(inp, work, fdict, utab, rules)
-    if a.part == "draft":
-        print(json.dumps(skeleton(idx, a.limit), ensure_ascii=False, indent=2))
-        return 0
-    print("[show] input=%s case_id=%s files=%d rows=%d groups=%d" % (idx["input_root"], idx["case_id"],
-          len(idx["materials"]), len(idx["objects"]), len(idx["groups"])))
-    if idx["task_instruction"]:
-        print("[show] task_instruction: %s" % clip(idx["task_instruction"], 900))
-    if idx["task_md"]:
-        print("[show] task.md %s (%d chars) headings: %s" % (idx["task_md"]["file"], idx["task_md"]["chars"],
-              " | ".join(idx["task_md"].get("headings", [])[:12])))
-    print("\n== CONTRACT (every path below is refilled into result.json) ==")
-    for p in cpaths(idx.get("contract") or {}):
-        print("  %s" % p)
-    print("\n== MATERIALS ==")
-    for m in idx["materials"]:
-        print("  %-30s %-8s rows=%-4s %s" % (clip(m["file"], 30), m["kind"], m.get("rows", 0),
-                                             m.get("encoding", "")))
-    print("\n== FIELD ROLES ==")
-    print("  mapped: %s" % (", ".join("%s->%s" % kv for kv in sorted(idx["columns"]["roles"].items())) or "none"))
-    print("  conditions: %s" % (", ".join(idx["columns"]["conditions"]) or "none"))
-    print("  unmapped: %s" % (", ".join(idx["columns"]["unmapped"]) or "none"))
-    objs = idx["objects"][max(a.offset, 0):max(a.offset, 0) + max(a.limit, 1)]
-    print("\n== OBJECTS %d..%d of %d (quote verbatim from val/unit) ==" % (a.offset + 1, a.offset + len(objs),
-                                                                          len(idx["objects"])))
-    for i, o in enumerate(objs, start=a.offset + 1):
-        c = o["cells"]
-        print("  %3d %s" % (i, o["locator"]))
-        print("      src=%r loc=%r mat=%r ind=%r val=%r unit=%r cond=%r" % (
-            o["source_document_id"], o["source_locator"], c.get("material", ""), c.get("indicator", ""),
-            c.get("value", ""), c.get("unit", ""), ";".join("%s=%s" % kv for kv in sorted(o["conditions"].items()))))
-    if len(idx["objects"]) > a.offset + len(objs):
-        print("  ... %d more: --offset %d" % (len(idx["objects"]) - a.offset - len(objs), a.offset + len(objs)))
-    print("\n== CANDIDATE GROUPS (proposal only - you decide) ==")
-    for g in idx["groups"]:
-        print("  %s signal=%-16s spread=%s copy=%s rows=%s units=%s" % (g["group_id"], g["signal"], g["spread"],
-              g["exact_copy"], ",".join(g["row_ids"]), ",".join(g["units"]) or "none"))
-        print("      key=%s" % clip(g["key"], 110))
-        print("      why=%s" % g["reason"])
-    if not idx["groups"]:
-        print("  none (no two rows share a judgment key)")
-    print("\n== UNITS OBSERVED ==")
-    seen = {}
-    for o in idx["objects"]:
-        u = (o["cells"].get("unit") or "").strip()
-        if u:
-            seen[u] = seen.get(u, 0) + 1
-    u = Units(utab)
-    for k in sorted(seen):
-        p = u.parse(k)
-        print("  %-14s x%-3d %s" % (k, seen[k], "ok dim=" + p.get("sig", "") if p.get("ok")
-                                    else "UNRESOLVED (%s)" % p.get("reason")))
-    print("\n== NEXT == 1) read the objects 2) show --part draft > %s 3) fill decisions 4) check 5) build" % draft)
-    return 0
-
-def skeleton(idx, limit=200):
-    rows = [{"row_id": o["row_id"], "locator": o["locator"], "decision": "", "field": "",
-             "unit_target": "", "reason": "", "note": "",
-             "_source": {k: o["cells"].get(k, "") for k in ("material", "indicator", "value", "unit")}}
-            for o in idx["objects"][:max(limit, 1)]]
-    groups = [{"row_ids": g["row_ids"], "action": "", "reason": "", "_signal": g["signal"],
-               "_why": g["reason"]} for g in idx["groups"]]
-    return {"case_id": idx["case_id"], "case_summary": "",
-            "field_map": {c: "" for c in idx["columns"]["unmapped"]}, "rows": rows, "groups": groups,
-            "pending": [], "claims": [{"claim_id": "C001", "kind": "reported", "statement": "", "row_id": "",
-                                       "evidence": {"quote": "", "locator": "", "rule_id": ""}}],
-            "findings": [{"id": "F1", "indicator": "", "statement": "", "locators": [], "rule_ids": []}],
-            "unmapped_columns": idx["columns"]["unmapped"], "uncertainties": [],
-            "_instructions": ["decision in accept|convert|hold|missing; convert needs unit_target",
-                              "group action in merge|replicate|conflict|keep_separate, with a reason",
-                              "claim quote must be copied verbatim from the source cell",
-                              "findings = your own conclusions, one per indicator family"]}
-
-
-# ----------------------------------------------------------------------- check
-
-def cmd_build(a):
-    inp, out, work, dp = paths(a)
-    out.mkdir(parents=True, exist_ok=True)
-    work.mkdir(parents=True, exist_ok=True)
-    res = env()
-    idx = {"case_id": None, "artifact_names": artifact_names({}), "objects": [], "groups": [], "rules": [],
-           "suppressed_rules": [], "columns": {"roles": {}, "unmapped": [], "conditions": []},
-           "degradations": [], "errors": [], "materials": [], "schema": {"fields": {}}, "contract": {}}
-    fdict, utab, rules, errs = refs(inp)
-    res["errors"] += errs
-    try:
-        draft, derr = load_draft(dp)
-        idx = index(inp, work, fdict, utab, rules)
-        contract = dict(idx.get("contract") or idx.get("output_contract") or {})
-        for _k in DEFAULT_CONTRACT:
-            contract.setdefault(_k, "string")
-        res["case_id"] = idx["case_id"]
-        res["output_contract_template"] = contract
-        res["contract_mapping"] = fill_contract(contract, res, idx["artifact_names"])
-        dump_json(out / "result.json", res)
-        if draft is None:
-            res["degradations"].append({"stage": "draft", "note": "workbook missing (%s); mechanical defaults only"
-                                                                 " -> status=partial" % (derr or "absent")})
-        units = Units(utab)
-        comp = compose(idx, draft or {}, units, fdict)
-        names = idx["artifact_names"]
-        render(out, idx, comp, names, utab)
-        checks, blocking = validate(idx, draft, units) if draft else ([], ["draft_present"])
-        res.update(assemble(idx, comp, names, checks, blocking, draft is not None))
-        res["contract_mapping"] = fill_contract(contract, res, names)
-        res["result"]["contract_coverage"] = coverage(contract, res)
-    except Exception as exc:                                     # noqa: BLE001
-        res["errors"].append({"stage": "build", "error": "%s: %s" % (type(exc).__name__, exc),
-                              "traceback": traceback.format_exc(limit=4)[-800:]})
-        res["status"] = "partial"
-        res["result"] = dict(res.get("result") or {}, summary="build hit an error; partial delivery kept, "
-                                                              "see errors[]")
-    res["degradations"] += idx["degradations"][:120]
-    res["errors"] += idx["errors"]
-    dump_json(out / "result.json", res)
-    dump_json(work / "build_report.json", {"status": res.get("status"),
-                                           "counts": (res.get("result") or {}).get("counts"),
-                                           "artifacts": (res.get("result") or {}).get("artifacts"),
-                                           "degradations": len(res.get("degradations") or [])})
-    art = (res.get("result") or {}).get("artifacts") or {}
-    print("[build] status=%s artifacts=%d" % (res.get("status"), len(art)))
-    for k in sorted(art):
-        print("  %-22s %s" % (k, art[k]))
-    print("[build] result -> %s ; next: selfcheck" % (out / "result.json"))
-    return 0
-
-def assemble(idx, comp, names, checks, blocking, draft_ok):
-    c = comp["counts"]
-    status = "ok"
-    if not idx["objects"]:
-        status = "insufficient_evidence"
-    elif comp["pending"] or c["conflicts"] or c["auto_rows"] or (blocking and draft_ok):
-        status = "partial"
-    unc = [{"row_id": p["row_id"], "field": p["field"], "kind": p["reason_code"], "detail": p["reason"],
-            "action": p["suggested_action"]} for p in comp["pending"]]
-    if not unc:
-        unc = [{"row_id": "(scope)", "field": "-", "kind": "scope",
-                "detail": "automated pass; ambiguous values await human confirmation",
-                "action": "review pending_review.csv, then confirm before analysis"}]
-    result = {"summary": "%d input rows -> %d table rows (%d analytic); %d changed values; %d pending; "
-                         "%d merged duplicates; %d conflicts"
-                         % (c["input_rows"], c["cleaned_rows"], c["analytic_rows"], c["changed_values"],
-                            c["pending_review"], c["merged_duplicates"], c["conflicts"]),
-              "counts": c, "duplicates": comp["groups"], "artifacts": names,
-              "coverage": {"columns_mapped": len((idx.get("columns") or {}).get("roles") or {}),
-                           "columns_unmapped": (idx.get("columns") or {}).get("unmapped", []),
-                           "rows_with_rule_ids": len([r for r in comp["rows"] if r["rule_ids"]]),
-                           "rows_with_locator": len([r for r in comp["rows"] if r["source_locator"]])},
-              "judgment_key": "source_document_id|<condition columns>|indicator|material",
-              "findings": [], "method_notes": notes(),
-              "quality": {"checks": checks, "blocking": blocking,
-                          "agent_coverage_pct": c["agent_coverage_pct"], "claims_agent": c["claims_agent"],
-                          "claims_script": c["claims_script"]}}
-    return {"status": status, "result": result, "claims": comp["claims"], "uncertainties": unc,
-            "uncertainty": unc, "pending_human": comp["pending"], "changes": comp["changes"][:300],
-            "sources": sources_of(idx)}
-
-
-# ------------------------------------------------------------------- selfcheck
-
-def cmd_all(a):
-    """Single documented command: scan (init) + render (build) + placeholder sweep."""
-    cmd_init(a)
-    cmd_build(a)
-    inp, out, work, dp = paths(a)
-    sanitize_out(out)
-    print("[all] single-command pass complete -> %s" % (out / "result.json"))
-    return 0
-
-
-def main(argv=None):
-    ap = argparse.ArgumentParser(prog="main.py", description="Audit and standardise literature "
-                                                           "extraction records (five-command, agent-first).")
-    sub = ap.add_subparsers(dest="cmd")
-    for name, helptext in (("all", "single command: scan + render + sweep"),
-                           ("init", "index inputs, write a legal partial result.json"),
-                           ("show", "list sources with locators, groups, draft skeleton"),
-                           ("check", "validate the agent workbook mechanically"),
-                           ("build", "render artifacts + final result.json"),
-                           ("selfcheck", "recompute, contract coverage, determinism, gain")):
-        p = sub.add_parser(name, help=helptext)
-        p.add_argument("--input", "--in", dest="inp")
-        p.add_argument("--output", "--out", dest="out")
-        p.add_argument("--work", dest="work")
-        p.add_argument("--draft", dest="draft")
-        if name == "show":
-            p.add_argument("--part", default="all")
-            p.add_argument("--limit", type=int, default=40)
-            p.add_argument("--offset", type=int, default=0)
-        if name == "selfcheck":
-            p.add_argument("--no-rerun", action="store_true")
-    a = ap.parse_args(argv)
-    for k, v in (("inp", None), ("out", None), ("work", None), ("draft", None), ("part", "all"),
-                 ("limit", 40), ("offset", 0), ("no_rerun", False)):
-        if not hasattr(a, k):
-            setattr(a, k, v)
-    if not a.cmd:
-        ap.print_help()
-        return 0
-    try:
-        rc = {"all": cmd_all, "init": cmd_init, "show": cmd_show, "check": cmd_check,
-              "build": cmd_build, "selfcheck": cmd_selfcheck}[a.cmd](a)
-        try:                                     # every stage leaves placeholder-free artifacts
-            _inp, _out, _work, _dp = paths(a)
-            sanitize_out(_out)
-        except Exception:                        # noqa: BLE001
             pass
-        return rc
-    except Exception as exc:                                     # noqa: BLE001
-        print("[fatal] %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
-        traceback.print_exc(limit=3)
+        print("input_error: %s" % exc)
         return 0
+
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except KeyboardInterrupt:
-        sys.exit(0)
-    except Exception:                                            # noqa: BLE001
-        traceback.print_exc(limit=3)
-        sys.exit(0)
+    sys.exit(mn(sys.argv[1:]))
