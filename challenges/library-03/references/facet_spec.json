@@ -1,0 +1,607 @@
+{
+  "version": "1.0.0",
+  "description": "面元目录（facet catalog）默认规格。案例若在 case.json 里给出 facet_spec/facets/naming_template 等字段，则以案例为准，覆盖项会写入 degradations:config_override。本文件不含任何具体案例的答案，只定义判定规则、受控词表与渲染/命名策略。",
+  "facets": [
+    {
+      "facet": "project",
+      "definition": "该资料在资料库中归属的项目/课题分组；优先取输入库的顶层目录名或案例给出的项目映射，取不到记 _unassigned。",
+      "allowed_values": null,
+      "pattern": null,
+      "rule": "path_priority: 案例 project_map > 相对路径第 1 段目录 > case.json 的 project 字段 > _unassigned；无路径证据时可作为整理者的分组判断（evidence_kind=path_or_judgment）",
+      "multi": false,
+      "sources_priority": [
+        "case_config",
+        "path",
+        "companion_metadata"
+      ],
+      "from_path_segment": 0,
+      "evidence_kind": "path_or_judgment"
+    },
+    {
+      "facet": "doc_type",
+      "definition": "文献/资料的体裁：期刊论文、预印本、会议论文、学位论文、补充材料、数据集、扫描件或未知。判定依据是正文中的体裁标记词，不是文件名猜测。",
+      "allowed_values": [
+        "article",
+        "preprint",
+        "conference",
+        "thesis",
+        "supplement",
+        "dataset",
+        "scan",
+        "unknown"
+      ],
+      "pattern": null,
+      "rule": "按 doc_type_markers 的优先级（supplement > thesis > conference > dataset > preprint > article）匹配正文；命中记 marker 与 quote；无命中且 text_layer=no_text_layer 记 scan；其余 unknown。",
+      "multi": false,
+      "sources_priority": [
+        "document_text",
+        "companion_metadata",
+        "filename",
+        "path"
+      ],
+      "evidence_kind": "quote"
+    },
+    {
+      "facet": "year",
+      "definition": "该资料的出版/发布年份（四位数字）。预印本取其发布年份，正式版取期刊年份。",
+      "allowed_values": null,
+      "pattern": "^(19[5-9]\\d|20[0-4]\\d)$",
+      "rule": "优先取伴随元数据表 year 列；否则取正文中与 published/accepted/copyright/© 邻近的年份；再否则取正文首个 19xx/20xx。无证据记 null 并进 unresolved。禁止推算。",
+      "multi": false,
+      "sources_priority": [
+        "companion_metadata",
+        "document_text",
+        "filename"
+      ],
+      "evidence_kind": "quote"
+    },
+    {
+      "facet": "method",
+      "definition": "文献使用的核心研究方法/表征手段，取受控词表（method_keywords）中的值，单文件最多 6 个。",
+      "allowed_values": null,
+      "pattern": null,
+      "rule": "在标题+摘要+方法段文本中匹配 method_keywords 的别名，按出现次数降序取前 6 个；每个值必须能给出命中片段。",
+      "multi": true,
+      "sources_priority": [
+        "document_text",
+        "companion_metadata"
+      ],
+      "evidence_kind": "quote"
+    },
+    {
+      "facet": "topic",
+      "definition": "文献的主题标签，取受控词表（topic_keywords）中的值，用于跨项目检索，单文件最多 6 个。",
+      "allowed_values": null,
+      "pattern": null,
+      "rule": "在标题+摘要文本中匹配 topic_keywords 的别名，按首次出现位置排序取前 6 个；每个值必须给出命中片段。",
+      "multi": true,
+      "sources_priority": [
+        "document_text",
+        "companion_metadata"
+      ],
+      "evidence_kind": "quote"
+    },
+    {
+      "facet": "source_type",
+      "definition": "资料获取渠道：出版商正式版、预印本仓储、数据集仓储、个人扫描、内部共享、未知。",
+      "allowed_values": [
+        "publisher",
+        "repository",
+        "data_repository",
+        "personal_scan",
+        "internal",
+        "unknown"
+      ],
+      "pattern": null,
+      "rule": "正文/元数据含 doi.org/elsevier/springer/wiley/acs/ieee/nature.com → publisher；arXiv/bioRxiv/medRxiv/SSRN/ResearchGate → repository；figshare/zenodo/dryad/OSF → data_repository；scan/scanned/扫描 → personal_scan；其余 unknown。",
+      "multi": false,
+      "sources_priority": [
+        "document_text",
+        "companion_metadata",
+        "filename"
+      ],
+      "evidence_kind": "quote"
+    },
+    {
+      "facet": "version_state",
+      "definition": "该文件在同一作品版本链中的位置：正式发表版、预印本、作者接受稿、补充材料、修订/勘误版、数据集、未知。",
+      "allowed_values": [
+        "published",
+        "preprint",
+        "postprint",
+        "supplementary",
+        "revision",
+        "dataset",
+        "unknown"
+      ],
+      "pattern": null,
+      "rule": "含 accepted manuscript/author accepted/postprint → postprint；含 arXiv/bioRxiv/preprint/preprint server → preprint；含 supplementary/supporting information → supplementary；含 erratum/corrigendum/revised version → revision；有期刊卷期或正式 DOI 且无预印本标记 → published；数据集标记 → dataset；其余 unknown。",
+      "multi": false,
+      "sources_priority": [
+        "document_text",
+        "companion_metadata",
+        "filename"
+      ],
+      "evidence_kind": "quote"
+    },
+    {
+      "facet": "language",
+      "definition": "正文主要语言，用于命名与检索分组。",
+      "allowed_values": [
+        "en",
+        "zh",
+        "other",
+        "unknown"
+      ],
+      "pattern": null,
+      "rule": "统计正文 CJK 字符占比 >0.2 → zh；拉丁字母主导 → en；文本不可读 → unknown。",
+      "multi": false,
+      "sources_priority": [
+        "document_text",
+        "filename"
+      ],
+      "evidence_kind": "quote"
+    },
+    {
+      "facet": "identifier",
+      "definition": "作品的稳定标识（DOI 或 arXiv id），原样保留大小写与标点，不做补全。",
+      "allowed_values": null,
+      "pattern": null,
+      "rule": "只接受正文/元数据中逐字出现的 DOI 或 arXiv id；取不到记 null，禁止按标题推断 DOI。",
+      "multi": false,
+      "sources_priority": [
+        "document_text",
+        "companion_metadata"
+      ],
+      "evidence_kind": "quote"
+    }
+  ],
+  "doc_type_markers": {
+    "supplement": [
+      "supplementary material",
+      "supplementary information",
+      "supporting information",
+      "supplemental material",
+      "补充材料",
+      "附录"
+    ],
+    "thesis": [
+      "doctoral dissertation",
+      "phd thesis",
+      "master thesis",
+      "dissertation",
+      "thesis submitted",
+      "学位论文",
+      "博士论文",
+      "硕士论文"
+    ],
+    "conference": [
+      "proceedings of",
+      "conference on",
+      "symposium",
+      "workshop on",
+      "ieee international conference",
+      "会议论文"
+    ],
+    "dataset": [
+      "dataset",
+      "data set",
+      "figshare",
+      "zenodo",
+      "dryad",
+      "deposited in",
+      "数据集"
+    ],
+    "preprint": [
+      "arxiv",
+      "biorxiv",
+      "medrxiv",
+      "ssrn",
+      "preprint",
+      "not peer reviewed",
+      "this version posted"
+    ],
+    "article": [
+      "journal",
+      "volume",
+      "issue",
+      "received",
+      "accepted manuscript",
+      "doi.org",
+      "elsevier",
+      "springer",
+      "wiley",
+      "nature",
+      "science",
+      "摘要",
+      "关键词",
+      "学报",
+      "《"
+    ]
+  },
+  "version_markers": {
+    "postprint": [
+      "accepted manuscript",
+      "author accepted manuscript",
+      "postprint",
+      "accepted for publication"
+    ],
+    "preprint": [
+      "arxiv",
+      "biorxiv",
+      "medrxiv",
+      "preprint",
+      "preprint server"
+    ],
+    "supplementary": [
+      "supplementary",
+      "supporting information",
+      "supplemental"
+    ],
+    "revision": [
+      "erratum",
+      "corrigendum",
+      "revised version",
+      "revision",
+      "corrected version",
+      "supersedes"
+    ],
+    "published": [
+      "doi.org",
+      "volume",
+      "issue",
+      "published online",
+      "journal homepage",
+      "elsevier",
+      "springer",
+      "wiley",
+      "acs publications",
+      "ieee xplore",
+      "doi:",
+      "issn",
+      "卷"
+    ]
+  },
+  "source_markers": {
+    "publisher": [
+      "doi.org",
+      "elsevier",
+      "springer",
+      "wiley",
+      "acs publications",
+      "ieee xplore",
+      "nature.com",
+      "sciencedirect",
+      "tandfonline",
+      "doi:",
+      "issn",
+      "学报"
+    ],
+    "repository": [
+      "arxiv",
+      "biorxiv",
+      "medrxiv",
+      "ssrn",
+      "researchgate",
+      "preprint server"
+    ],
+    "data_repository": [
+      "figshare",
+      "zenodo",
+      "dryad",
+      "osf.io",
+      "dataverse"
+    ],
+    "personal_scan": [
+      "scan",
+      "scanned",
+      "扫描",
+      "scanner",
+      "camscanner"
+    ]
+  },
+  "method_keywords": {
+    "xrd": [
+      "x-ray diffraction",
+      "xrd",
+      "衍射"
+    ],
+    "sem": [
+      "scanning electron",
+      "sem image",
+      "扫描电镜"
+    ],
+    "tem": [
+      "transmission electron",
+      "tem image",
+      "透射电镜"
+    ],
+    "nmr": [
+      "nuclear magnetic resonance",
+      "nmr spectrum",
+      "核磁"
+    ],
+    "ftir": [
+      "fourier transform infrared",
+      "ftir",
+      "红外光谱"
+    ],
+    "raman": [
+      "raman"
+    ],
+    "dft": [
+      "density functional",
+      "dft calculation",
+      "第一性原理"
+    ],
+    "md": [
+      "molecular dynamics",
+      "md simulation",
+      "分子动力学"
+    ],
+    "fem": [
+      "finite element",
+      "fem model",
+      "有限元"
+    ],
+    "cfd": [
+      "computational fluid dynamics",
+      "cfd"
+    ],
+    "pcr": [
+      "polymerase chain reaction",
+      "qrt-pcr",
+      "pcr"
+    ],
+    "sequencing": [
+      "rna-seq",
+      "whole genome sequencing",
+      "sequencing"
+    ],
+    "microscopy": [
+      "confocal",
+      "fluorescence microscopy",
+      "optical microscopy"
+    ],
+    "chromatography": [
+      "hplc",
+      "gas chromatography",
+      "chromatography"
+    ],
+    "spectroscopy": [
+      "uv-vis",
+      "photoluminescence",
+      "xps",
+      "spectroscopy"
+    ],
+    "rheology": [
+      "rheology",
+      "viscosity measurement"
+    ],
+    "statistics": [
+      "regression",
+      "meta-analysis",
+      "bayesian model",
+      "statistical analysis"
+    ]
+  },
+  "topic_keywords": {
+    "materials": [
+      "alloy",
+      "ceramic",
+      "polymer",
+      "nanoparticle",
+      "composite",
+      "catalyst",
+      "材料"
+    ],
+    "energy": [
+      "battery",
+      "photovoltaic",
+      "solar cell",
+      "fuel cell",
+      "electrolyte",
+      "energy storage",
+      "电池"
+    ],
+    "biology": [
+      "protein",
+      "gene",
+      "cell line",
+      "enzyme",
+      "bacteria",
+      "protein expression"
+    ],
+    "medicine": [
+      "patient",
+      "clinical trial",
+      "cohort",
+      "diagnosis",
+      "therapy"
+    ],
+    "environment": [
+      "soil",
+      "groundwater",
+      "emission",
+      "pollution",
+      "climate"
+    ],
+    "data-science": [
+      "machine learning",
+      "neural network",
+      "dataset",
+      "algorithm",
+      "classification model"
+    ],
+    "synthesis": [
+      "synthesis",
+      "hydrothermal",
+      "sol-gel",
+      "calcination",
+      "annealing"
+    ]
+  },
+  "venue_markers": [
+    "journal of",
+    "proceedings of",
+    "nature",
+    "science",
+    "physical review",
+    "applied physics",
+    "chemistry",
+    "materials",
+    "ieee transactions",
+    "plos",
+    "elife",
+    "arxiv"
+  ],
+  "naming": {
+    "template": "{first_author}-{year}-{short_title}",
+    "dir_template": "library/{project}/{doc_type}/{year}",
+    "max_len": 120,
+    "fallback_order": [
+      "{first_author}-{year}-{short_title}",
+      "{first_author}-{year}-{identifier_tail}",
+      "{year}-{short_title}",
+      "{identifier_tail}",
+      "{original_stem}_unresolved"
+    ],
+    "char_map": {
+      "\\": "-",
+      "/": "-",
+      ":": "-",
+      "*": "",
+      "?": "",
+      "\"": "",
+      "<": "",
+      ">": "",
+      "|": "-",
+      "\n": " ",
+      "\t": " ",
+      "　": " "
+    },
+    "space_to": "_",
+    "strip_chars": " ._-",
+    "dup_suffix": "_dup",
+    "short_title_words": 4
+  },
+  "reconciliation": {
+    "min_title_tokens": 3,
+    "title_similarity": 0.86,
+    "relations": [
+      "duplicate",
+      "version_chain",
+      "preprint_vs_published",
+      "supplement",
+      "rename_alias",
+      "needs_human"
+    ],
+    "decisions": [
+      "merge",
+      "keep_both",
+      "version_chain",
+      "archive",
+      "needs_human"
+    ],
+    "bases": [
+      "sha256",
+      "doi",
+      "metadata",
+      "version_note"
+    ],
+    "never_delete": true
+  },
+  "companion": {
+    "header_synonyms": {
+      "file": [
+        "file",
+        "filename",
+        "file_name",
+        "path",
+        "name",
+        "文件名",
+        "文件"
+      ],
+      "title": [
+        "title",
+        "paper_title",
+        "标题",
+        "题目"
+      ],
+      "doi": [
+        "doi",
+        "DOI",
+        "identifier",
+        "doi_url"
+      ],
+      "authors": [
+        "authors",
+        "author",
+        "作者",
+        "creator"
+      ],
+      "year": [
+        "year",
+        "pub_year",
+        "date",
+        "年份",
+        "年"
+      ],
+      "venue": [
+        "venue",
+        "journal",
+        "source",
+        "published_in",
+        "期刊"
+      ],
+      "version_note": [
+        "version",
+        "note",
+        "notes",
+        "status",
+        "comment",
+        "备注",
+        "说明"
+      ],
+      "doc_type": [
+        "type",
+        "doc_type",
+        "kind",
+        "类型"
+      ]
+    },
+    "version_note_keywords": [
+      "supersede",
+      "replace",
+      "superseded",
+      "renamed",
+      "alias",
+      "aka",
+      "formerly",
+      "corrected",
+      "erratum",
+      "duplicate",
+      "preprint",
+      "published",
+      "final version",
+      "accepted",
+      "版本",
+      "取代",
+      "更名为",
+      "重复",
+      "预印本"
+    ]
+  },
+  "encoding_cascade": [
+    "utf-8-sig",
+    "utf-8",
+    "gb18030",
+    "latin-1"
+  ],
+  "limits": {
+    "max_text_chars": 200000,
+    "excerpt_chars": 400,
+    "min_quote_chars": 8,
+    "max_files": 4000
+  }
+}
