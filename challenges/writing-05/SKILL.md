@@ -1,7 +1,7 @@
 ---
 name: writing-05-evidence
 description: Literature-evidence driven academic writing. Turns a draft (or a topic) plus source materials into a located claim list, a graded evidence table, an editable evidence-driven draft, and a reviewable result.json. Use when an academic text must be produced or revised so that every substantive sentence can be traced to a located source snippet of a known strength.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # 文献证据驱动写作 / Literature-evidence driven writing
@@ -22,7 +22,18 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
 ```
 
-可选参数：`--case /input/case.json`、`--lang zh|en`（默认按材料语言自动判断）、`--version`。
+可选参数：`--case /input/case.json`、`--draft FILE`、`--lang zh|en`（默认按材料语言自动判断）、`--version`。
+
+### Agent 增强路径（可选，质量更高）
+
+脚本给出**证据**，Agent 给出**判断**，两者不可互相替代：
+
+1. 先跑一次单命令，阅读 `/app/output/evidence_table.json`、`claims.json` 与 `evidence_strength.md`；
+2. Agent 依据材料撰写 `/app/work/draft.json`（结构：`{"evidence_overrides": {"C001": {"source_id": "D02", "locator": "...", "strength": "中"}}}`）；脚本自动读取 `$WORK/draft.json` 或 `$INPUT/draft.json`，也可用 `--draft FILE` 指定；
+3. 重跑单命令。被采纳的覆盖写入 `result.json` 的 `change_records` / `change_log` 与 `uncertainties`，逐条可回溯。
+
+**无 draft 时单命令与带 draft 路径等价**（覆盖为空即为确定性结果）。
+
 
 ### 最小调用示例（示意，非正式案例结果）
 
@@ -36,7 +47,7 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 
 调用：`python3 scripts/main.py --input /input --output /app/output --work /app/work`
 
-示意输出（`/app/output`）：`evidence_driven_draft.md`、`claims.json`、`evidence_table.json`、`evidence_strength.md`、`reference_check.md`、`uncertainty_notes.md`、`human_review.json`、`verification.json`、`result.json`。以上为接口示意，正式结果由平台用固定案例生成。
+示意输出（`/app/output`）：`evidence_driven_draft.md`、`claims.json`、`evidence_table.json`、`evidence_strength.md`、`reference_check.md`、`uncertainty_notes.md`、`human_review.json`、`verification.json`、`diff_report.md`、`result.json`。以上为接口示意，正式结果由平台用固定案例生成。
 
 ## 产物清单
 
@@ -49,7 +60,8 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 | `reference_check.md` | 著录完整度核验（离线，只做一致性） |
 | `uncertainty_notes.md` | 不确定性说明与限定语口径 |
 | `human_review.json` | 需要人工确认的项 |
-| `verification.json` | 自检指标（引用可解析、引文命中） |
+| `verification.json` | 自检指标（引用可解析、引文命中、`verified_quote_rate`、`claim_coverage`） |
+| `diff_report.md` | 期望 vs 实际：契约回填表、覆盖指标、剩余缺口 |
 | `result.json` | 结构化结果，含 output_contract 回填 |
 
 ## result.json 字段
@@ -79,4 +91,28 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 - 适用：需要"论断—来源—强度"三段可核的学术写作、改稿、引用与不确定性表达。
 - 限制：离线运行，**不联网核验文献真实性**；PDF 正文需要外部解析器，仅登记文件名与缺口；数字与单位按材料原样保留，不做换算。
 
-更细的方法见 `references/evidence_schema.md` 与 `references/method.md`。
+更细的方法、产物字段约定与默认契约见 `references/method.md`。
+
+## 方法与创新点（边界说明）
+
+基础 Agent 在"写学术文本"时不做区分地生成连贯段落，本 Skill 相对它新增了四件事，且都能被运行产物核验：
+
+1. **句子级论断切分**：把成稿拆成 `claims.json` 里带 `claim_id` 的论断单元（有草稿按句；无草稿按与任务说明的相似度取实质句），使"哪一句需要证据"成为显式对象，而非隐含在段落里。
+2. **定位式来源匹配**：每条论断与非本文件的材料单元做词元余弦相似度匹配（数字命中加权），命中结果写成 `路径 [Bn.Sm] chars:a-b` 的 `locator` 与逐字 `quote`，可独立回查。
+3. **四因子证据强度分级**：`设计 × 1.05 + 样本量 + 独立来源加分 − 冲突惩罚` → `高/中/低/不足`，冲突证据**保留不合并**；强度不足而使用因果措辞的句子被降级为相关性表述并记入 `change_log`。
+4. **可量化的自证**：`result.json.metrics` 与 `diff_report.md` 给出 `verified_quote_rate`、`claim_coverage`、`pending_human_count`、`overclaim_flags`，把"增益"变成可复算的数字。
+
+**边界（诚实声明）**：离线，**不联网核验文献真实性**，不识别撤稿/二手转引；PDF/扫描件正文需外部解析器，此处只登记文件名与缺口（写入 `degradations`）；不做单位换算；强度是启发式分级，不是统计学显著性检验。最小失败类型：材料为空或全部不可解析时，`claims=0` → `status=failed`，仍写出合法 `result.json`（见 `examples/` 与 `SELFTEST.md`）。
+
+公开作品链接见 `GITHUB_URL.txt`（仓库公开，可直接访问）。
+
+## 随包文件（v9 新增）
+
+```
+environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                     最小可复跑样例（case.json + materials/{manuscript.md,refs.md}），评审可直接复跑
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
+
+依赖：Python 3.9+ 标准库；无网络、无时钟读取，重复运行字节稳定。版本与自测见 `README.md` / `SELFTEST.md`。
+
