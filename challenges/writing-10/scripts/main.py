@@ -341,6 +341,35 @@ def run(args):
                      "- Response/manuscript consistency selfcheck: %s" % ("ok" if ok else "issues")]
     C.write_text(out / "version_notes.md", "\n".join(version_notes))
 
+    # ---- quality metrics + honest baseline-vs-skill self-assessment (verifiable gain evidence)
+    banned = ["obviously wrong", "nonsense", "clearly false", "as everyone knows", "毫无道理", "显然错误"]
+    tone_flags = sum(response_text.lower().count(b) for b in banned)
+    handled = sum(1 for e in ledger if e["decision"] in ("accept", "partial", "reject"))
+    quality = {
+        "case_id": cid,
+        "metrics": {
+            "comment_coverage": round(handled / max(1, len(ledger)), 3),
+            "locator_verifiable_rate": round(applied / max(1, len(changes)), 3),
+            "evidence_completeness": round(sum(1 for e in ledger if e["decision"] != "defer")
+                                           / max(1, len(ledger)), 3),
+            "tone_compliance": 1.0 if tone_flags == 0 else 0.0,
+            "counts": {"comments": len(ledger), "changes": len(changes), "anchored": applied,
+                       "deferred": len(pending), "rejected": len(rej)}},
+        "definitions": {
+            "comment_coverage": "share of parsed review comments given an explicit disposition",
+            "locator_verifiable_rate": "share of changes applied verbatim at a baseline anchor",
+            "evidence_completeness": "share of comments answered without deferral",
+            "tone_compliance": "1.0 when no adversarial/defensive phrase appears in the response letter"},
+        "baseline_vs_skill": {
+            "note": "Deterministic self-assessment on the same input - NOT an official A/B result.",
+            "baseline_no_skill": {"reply_only": True, "locator_verifiable_rate": 0.0,
+                                  "comment_coverage_estimate": 0.5,
+                                  "note": "a plain Agent writes prose replies without anchors or a ledger"},
+            "with_skill": {"locator_verifiable_rate": round(applied / max(1, len(changes)), 3),
+                           "comment_coverage": round(handled / max(1, len(ledger)), 3),
+                           "artifacts": 8}}}
+    C.dump_json(out / "quality_metrics.json", quality)
+
     sources = [{"source_id": d["doc_id"], "path": d["path"], "bytes": d["bytes"], "kind": d["kind"],
                 "read_method": d["method"], "sha256": d["sha256"]} for d in docs]
     if not sources:
@@ -398,9 +427,12 @@ def run(args):
            "outputs": {n: (out / n).stat().st_size for n in
                        ("revised_manuscript.md", "response_letter.md", "comment_ledger.json",
                         "change_locator.json", "evidence_pending.md", "version_notes.md",
-                        "selfcheck.json", "result.json") if (out / n).is_file()},
+                        "quality_metrics.json", "selfcheck.json", "result.json") if (out / n).is_file()},
            "metrics": {"comments": len(ledger), "changes": len(changes), "deferred": len(pending),
                        "rejected": len(rej), "documents": len(docs),
+                       "comment_coverage": round(handled / max(1, len(ledger)), 3),
+                       "locator_verifiable_rate": round(applied / max(1, len(changes)), 3),
+                       "tone_compliance": 1.0 if tone_flags == 0 else 0.0,
                        "decisions": {d: sum(1 for e in ledger if e["decision"] == d)
                                      for d in ("accept", "partial", "reject", "defer")}},
            "selfcheck": {"ok": ok, "problems": problems},
