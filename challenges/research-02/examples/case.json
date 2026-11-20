@@ -1,0 +1,17 @@
+{
+  "case_id": "example-research-02",
+  "language": "en",
+  "materials_root": "materials",
+  "research_question": "Which modelling choices drive reported top-1 accuracy across the reviewed studies?",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "review_draft": "string",
+    "evidence_matrix": "string",
+    "screening_log": "string",
+    "coverage_report": "string",
+    "conflicts_and_gaps": "string",
+    "audit_report": "string",
+    "uncertainties": "string"
+  }
+}
