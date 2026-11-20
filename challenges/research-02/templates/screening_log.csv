@@ -1,0 +1,5 @@
+record_id,source_id,locator,decision,flag,reason
+"R001","M02","M02/records[0]","included","core","title + abstract present; passes de-duplication and relevance"
+"R002","M02","M02/records[1]","included","core","title + abstract present; passes de-duplication and relevance"
+"R003","M02","M02/records[2]","excluded","repeated","duplicate of R001"
+"R004","M02","M02/records[3]","excluded","abstract-only","no usable text after a heading"
