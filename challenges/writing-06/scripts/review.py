@@ -356,7 +356,9 @@ def run(input_dir, out_dir, work_dir):
     wj(out / "argument_map.json", am)
     wt(out / "consistency_report.md", report_md(files, au, st, mode))
     wj(out / "pending_human.json", pending)
+    wj(out / "semantic_audit.json", semantic_audit(st, review, mode, cid))
     if man:
+        binr = [f["rel"] for f in files if f["binary"]]
         verified = ("Examined %d chapters and %d paragraphs (%d words); %d findings carry a verbatim quote "
                     "(hit rate %.3f); %d executable actions generated."
                     % (stats["chapters"], stats["paragraphs"], stats["words"], ok,
@@ -366,7 +368,11 @@ def run(input_dir, out_dir, work_dir):
         if not st["findings"]:
             unverified += " No structural rule fired here, which is not proof of sound structure."
         degradations = "No reduced mode was used; all six detectors ran on the identified manuscript."
+        if binr:
+            degradations += (" Unparsed material recorded without text: %s (PDF/DOCX are read through their text "
+                             "layer; other binary or scanned files are inventoried only)." % ", ".join(binr[:5]))
     else:
+        binr = [f["rel"] for f in files if f["binary"]]
         verified = ("Audited %d readable documents: %d headings, %d duplicated sentences at the 55-character threshold "
                     "and %d terms shared across documents."
                     % (len(uniq), au["heading_count"], len(au["duplicates"]), len(au["recurring_terms"])))
@@ -377,6 +383,8 @@ def run(input_dir, out_dir, work_dir):
                         "target outline and the material still required.") if uniq else \
                        ("Reduced to an inventory-only audit: no readable text was available, so the review records the "
                         "gaps instead of inventing a manuscript.")
+        if binr:
+            degradations += (" Unparsed material recorded without text: %s." % ", ".join(binr[:5]))
     status = "input_error" if not files else \
         "insufficient_evidence" if not uniq or not any(wc(f["text"]) > 0 for f in uniq) else \
         "partial" if (mode == "packet" or errs) else "ok"
@@ -398,7 +406,8 @@ def run(input_dir, out_dir, work_dir):
            "deliverable": {"path": "edit_plan.md", "editable": True, "structured_result": "structural_review.json"},
            "structural_review": "structural_review.json", "edit_plan": "edit_plan.md",
            "outline_after": "outline_after.md", "argument_map": "argument_map.json",
-           "consistency_report": "consistency_report.md", "metrics": stats, "verified": verified,
+           "consistency_report": "consistency_report.md", "semantic_audit": "semantic_audit.json",
+           "baseline_metrics": "metrics.json", "metrics": stats, "verified": verified,
            "unverified": unverified, "degradations": degradations, "sources": srcs, "uncertainty": unc,
            "uncertainties": unc, "pending_human": pending, "limits": limits, "errors": errs,
            "change_records": [{"step": "review" if man else "packet-audit", "detail": "detector pass completed",
@@ -408,6 +417,7 @@ def run(input_dir, out_dir, work_dir):
            "output_contract": contract}
     for k, v in contract.items():
         res.setdefault(k, v)
+    wj(out / "metrics.json", metrics_payload(res, review))
     wj(out / "result.json", res)
     wj(work / "review.json", {"mode": mode, "status": status, "findings": len(st["findings"]),
                               "actions": len(acts), "metrics": stats, "seconds": res["runtime"]["seconds"]})
