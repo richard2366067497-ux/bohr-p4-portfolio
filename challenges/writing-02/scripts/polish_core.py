@@ -1,665 +1,541 @@
-# -*- coding: utf-8 -*-
-"""Deterministic core for the academic-language-polish skill (stdlib only, offline).
+"""claim-preserving-polish — core library (Python stdlib only).
 
-Owns reading, sentence segmentation with stable locators, protected-atom
-extraction, the high-precision edit catalogue, hedge conservation and glossary
-scanning. The pipeline that writes deliverables lives in ``main.py``.
+本模块只做确定性重活：解析输入、切段、抽取可核验原子、限定强度分级、
+契约字段解析、差异度量。语义判断（怎么写、为什么改）由 Agent 写进工作稿。
 """
+import csv
+import difflib
 import hashlib
 import json
 import os
 import re
+import time
 from collections import Counter
 
-# --------------------------------------------------------------------- hygiene
-_ANGLE = re.compile(r"<[A-Za-z_][\w /-]*>")
-_SCRUB = [
-    (re.compile(r"\[\s*待写\s*\]"), ""), (re.compile(r"\[\s*待补充\s*\]"), ""),
-    (re.compile("待写"), "缺"), (re.compile("待补充"), "缺"), (re.compile("待填写"), "缺"),
-    (re.compile("尚未"), "未有"), (re.compile(r"\bTBD\b", re.I), "to decide"),
-    (re.compile(r"\bTODO\b", re.I), "task"), (re.compile(r"\bFIXME\b", re.I), "fix"),
-    (re.compile(r"\bXXX\b", re.I), "xx"),
-    (re.compile(r"\bplaceholder\b", re.I), "field marker"),
-    (re.compile(r"\bNOT[_-]?EXTRACTED\b", re.I), "not captured"),
-    (re.compile(r"\bpending\b", re.I), "open"), (re.compile(r"\bnull\b", re.I), "unset"),
-    (re.compile(r"\bNone\b"), "unset"), (re.compile(r"\bN/?A\b", re.I), "unknown"),
-    (re.compile(r"example\.com", re.I), "a site address"),
-    (re.compile(r"lorem ipsum", re.I), "filler text"),
-    (re.compile(r"^\s*\.\.\.\s*$", re.M), ""),
-    (re.compile(r"^\s*(string|path|array|object|number|boolean|value|待填写|示例)\s*$", re.M), "item"),
+SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSET_PATH = os.path.join(SKILL_ROOT, "assets", "hedge_lexicon.json")
+SKILL_NAME = "claim-preserving-polish"
+SKILL_VERSION = "1.0.0"
+
+EDIT_TYPES = [
+    "grammar", "syntax", "terminology", "register", "punctuation", "concision",
+    "cohesion", "word_choice", "article", "preposition", "tense", "voice",
+    "agreement", "spelling", "capitalization", "restructure", "translate", "other",
 ]
+OVERRIDE_TYPES = {"restructure", "translate"}
+WEAK_REASONS = {"", "better", "improve", "改进", "更学术", "优化", "润色", "更好", "ok", "n/a"}
 
+_FALLBACK_LEX = {
+    "hedge_levels": {
+        "4": {"en": ["demonstrate", "prove", "confirm", "clearly", "always", "never", "conclusively"],
+              "zh": ["证明", "证实", "显然", "必然", "总是", "从不"]},
+        "3": {"en": ["show", "indicate", "reveal", "likely", "primarily"],
+              "zh": ["显示", "表明", "发现", "很可能", "主要"]},
+        "2": {"en": ["suggest", "may", "might", "could", "appear", "seem", "possibly", "potential"],
+              "zh": ["提示", "可能", "或许", "似乎", "潜在"]},
+        "1": {"en": ["associated with", "correlat", "linked to"], "zh": ["相关", "关联", "伴随"]},
+        "0": {"en": ["cannot exclude", "remains unclear", "insufficient"],
+              "zh": ["无法排除", "尚不清楚", "证据不足"]},
+    },
+    "absolute_markers": {"en": ["always", "never", "all", "none", "entirely"],
+                         "zh": ["总是", "从不", "所有", "全部", "完全"]},
+    "association_markers": {"en": ["associated with", "correlat", "linked to"], "zh": ["相关", "关联"]},
+    "causal_markers": {"en": ["causes", "leads to", "results in", "drives", "due to"],
+                       "zh": ["导致", "引起", "造成", "驱动"]},
+    "negation_markers": {"en": ["not", "no", "none", "never", "without", "cannot", "fail to"],
+                         "zh": ["没有", "无法", "不能", "并非", "未能"]},
+    "claim_core": {"en": ["may", "might", "could", "suggest", "indicate", "appear", "seem", "likely",
+                          "demonstrate", "confirm", "associated with", "correlat"],
+                   "zh": ["可能", "提示", "似乎", "显示", "表明", "证明", "相关"]},
+    "units": ["%", "mg", "kg", "mL", "min", "mm", "cm", "nm", "kDa", "mM", "µM", "mM", "h", "yr", "°C", "Hz", "eV"],
+    "citation_patterns": [r"\[\s*\d+(?:\s*[-,–—]\s*\d+)*\s*\]",
+                          r"\(\s*[A-Z][A-Za-z\-']{1,30}(?:\s+et\s+al\.?)?\s*,\s*\d{4}[a-z]?\s*\)"],
+    "pointer_patterns": [r"(?:Fig(?:ure)?\.?|fig\.?)\s*\d+[A-Za-z]?",
+                         r"(?:Table|Tab\.?)\s*\d+[A-Za-z]?", r"(?:Sec(?:tion)?\.?)\s*\d+(?:\.\d+)*"],
+    "abbrev_pattern": r"\b(?:[A-Z]{2,6}s?|[A-Z][a-z]?[A-Z]{1,4}[a-z]?)\b",
+    "abbrev_stopwords": ["A", "I", "AN", "AND", "OR", "THE", "NOT", "ALL", "FOR", "IS", "ARE", "WE", "IN"],
+    "term_candidate_suffixes": ["网络", "模型", "算法", "分析", "方法", "机制", "network", "model", "analysis"],
+    "equivalence_hints": [],
+}
 
-def sanitize(value):
-    if not isinstance(value, str):
-        return value
-    out = value
-    for pat, rep in _SCRUB:
-        out = pat.sub(rep, out)
-    return _ANGLE.sub(lambda m: "(" + m.group(0)[1:-1] + ")", out)
+_LEX_CACHE = {}
 
-
-def deep_clean(obj):
-    if isinstance(obj, str):
-        return sanitize(obj)
-    if isinstance(obj, list):
-        return [deep_clean(x) for x in obj]
-    if isinstance(obj, dict):
-        return {str(k): deep_clean(v) for k, v in obj.items()}
-    return "" if obj is None else obj
-
-
-def write_text(path, text):
-    d = os.path.dirname(str(path))
-    if d:
-        os.makedirs(d, exist_ok=True)
-    with open(str(path), "w", encoding="utf-8", newline="") as fh:
-        fh.write(sanitize(str(text)))
-
-
-def dump_json(path, obj):
-    write_text(path, json.dumps(deep_clean(obj), ensure_ascii=False, indent=2))
-
-
-def sha256_file(path):
+def load_lexicon():
+    """读取词表资产；资产缺失或损坏时退回内置最小词表，绝不让流程中断。"""
+    salt = ASSET_PATH
+    if salt in _LEX_CACHE:
+        return _LEX_CACHE[salt]
+    lex = json.loads(json.dumps(_FALLBACK_LEX))
+    note = ""
     try:
-        h = hashlib.sha256()
-        with open(str(path), "rb") as fh:
-            for chunk in iter(lambda: fh.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()[:16]
-    except OSError:
-        return ""
+        with open(ASSET_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            for key, val in data.items():
+                if val is not None:
+                    lex[key] = val
+    except Exception as exc:  # noqa: BLE001 - 资产缺失必须降级而不是崩
+        note = "lexicon fallback: %s" % exc
+    lex["_load_note"] = note
+    _LEX_CACHE[salt] = lex
+    return lex
 
+def norm_ws(text):
+    return re.sub(r"[ \t\u00a0\u3000]+", " ", (text or "").replace("\r", "")).strip()
 
-# ------------------------------------------------------------------- reading
-SKIP_NAMES = {"case.json", "task.md", "task.txt", "challenge.json", "result.json",
-              "draft.json", "index.json", "resources.yaml", "prep_report.json"}
+def sha256_text(text):
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
-
-def _flatten(obj, depth=0):
-    pad = "  " * depth
-    if isinstance(obj, dict):
-        out = []
-        for k, v in obj.items():
-            if isinstance(v, (dict, list)):
-                out.append("%s%s:" % (pad, k))
-                out.append(_flatten(v, depth + 1))
-            else:
-                out.append("%s%s: %s" % (pad, k, v))
-        return "\n".join(out)
-    if isinstance(obj, list):
-        return "\n".join(_flatten(v, depth) for v in obj)
-    return "%s%s" % (pad, obj)
-
-
-def read_document(path):
-    suf = os.path.splitext(str(path))[1].lower()
+def read_text_any(path):
+    """宽松读取：依次尝试 utf-8 / utf-8-sig / gb18030 / latin-1，返回 (text, encoding, warning)。"""
     try:
-        with open(str(path), "rb") as fh:
-            raw = fh.read()
-    except OSError:
-        return None
-    if suf == ".json":
+        raw = open(path, "rb").read()
+    except Exception as exc:  # noqa: BLE001
+        return "", "", "unreadable: %s" % exc
+    for enc in ("utf-8", "utf-8-sig", "gb18030"):
         try:
-            return {"text": _flatten(json.loads(raw.decode("utf-8", "replace"))),
-                    "method": "json", "note": ""}
-        except Exception:
-            return {"text": "", "method": "json", "note": "json_parse_failed"}
-    if suf in (".md", ".markdown", ".txt", ".tex", ".bib", ".rst", ".html", ".htm", ".csv", ".tsv"):
-        return {"text": raw.decode("utf-8", "replace"), "method": "text", "note": ""}
-    if suf in (".docx", ".xlsx", ".pptx"):
-        return {"text": "", "method": "office", "note": "office_body_needs_external_parser"}
-    if suf == ".pdf":
-        return {"text": "", "method": "pdf", "note": "pdf_body_needs_external_parser"}
-    return {"text": "", "method": "binary", "note": "unsupported_binary_type"}
-
-
-def doc_role(rel):
-    low = rel.lower()
-    if re.search(r"(glossar|terminolog|术语|词表|名词表)", low):
-        return "glossary"
-    if re.search(r"(format|style|template|规格|格式|模板|投稿要求|requirements)", low):
-        return "constraints"
-    if re.search(r"(reference|bibliograph|\bbib\b|citation|文献|参考)", low):
-        return "references"
-    if re.search(r"(manuscript|paper|draft|submission|正文|稿件|论文|原稿|chapter|section)", low):
-        return "manuscript"
-    return "material"
-
-
-def discover(root):
-    docs = []
-    if not os.path.isdir(str(root)):
-        return docs
-    seen = set()
-    for cur, dirs, files in os.walk(str(root)):
-        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-        for name in sorted(files):
-            if name in SKIP_NAMES or name.startswith("."):
-                continue
-            full = os.path.join(cur, name)
-            sha = sha256_file(full)
-            if sha and sha in seen:
-                continue
-            seen.add(sha)
-            got = read_document(full)
-            if got is None:
-                continue
-            try:
-                size = os.path.getsize(full)
-            except OSError:
-                size = len(got["text"].encode("utf-8"))
-            docs.append({"doc_id": "D%02d" % (len(docs) + 1),
-                         "path": os.path.relpath(full, str(root)).replace("\\", "/"),
-                         "role": doc_role(os.path.relpath(full, str(root))),
-                         "text": got["text"], "method": got["method"], "note": got["note"],
-                         "bytes": size, "sha256": sha})
-    return docs
-
-
-def choose_manuscript(docs):
-    best, best_score = None, 0.0
-    for d in docs:
-        text = d["text"] or ""
-        if len(text.strip()) < 40:
+            txt = raw.decode(enc)
+            warn = ""
+            if "\ufffd" in txt:
+                warn = "replacement-char present after %s decode" % enc
+            return txt, enc, warn
+        except UnicodeDecodeError:
             continue
-        score = {"manuscript": 4.0, "material": 1.0}.get(d["role"], -5.0)
-        if re.search(r"(^|\n)\s*#{1,6}\s|\bAbstract\b|\b摘要\b|\\section\{", text, re.I):
-            score += 2.0
-        score += min(4.0, len(text) / 600.0)
-        if re.search(r"\[\d+(?:[-,]\d+)*\]", text):
-            score += 1.5
-        if len(re.findall(r"[。.!?]\s", text)) >= 4:
-            score += 1.0
-        if d["method"] not in ("text", "json"):
-            score -= 6.0
-        if score > best_score:
-            best, best_score = d, score
-    return (best, round(best_score, 2)) if best_score >= 3.0 else (None, round(best_score, 2))
+    return raw.decode("latin-1", errors="replace"), "latin-1", "decoded with latin-1 (encoding suspect)"
 
+def cjk_ratio(text):
+    body = [ch for ch in (text or "") if not ch.isspace()]
+    if not body:
+        return 0.0
+    cjk = sum(1 for ch in body if "\u4e00" <= ch <= "\u9fff")
+    return cjk / float(len(body))
 
-# --------------------------------------------------------------- segmentation
-_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
-ABBREV = {"e.g", "i.e", "et al", "fig", "figs", "eq", "eqs", "vs", "etc", "no", "dr",
-          "prof", "approx", "ca", "cf", "al", "ref", "refs", "vol", "pp", "p"}
-HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
-TEX_STRUCT = re.compile(r"^\\(documentclass|usepackage|begin|end|section|subsection|"
-                        r"subsubsection|chapter|title|author|maketitle|label|ref|cite|"
-                        r"caption|bibliography|bibliographystyle|includegraphics|"
-                        r"setmainfont|setCJKmainfont|onehalfspacing|newpage|clearpage)\b")
-REF_HEAD = re.compile(r"^\s*(参考文献|references|bibliography|literature cited)\s*[:：]?\s*$", re.I)
-REF_ENTRY = re.compile(r"^\s*(?:\[\d+\]|\d+[.)]\s|\[\d+(?:[-,]\d+)*\]\s)")
+def detect_language(text):
+    if not (text or "").strip():
+        return "unknown"
+    return "zh" if cjk_ratio(text) >= 0.30 else "en"
 
+def similarity(before, after):
+    a, b = norm_ws(before), norm_ws(after)
+    if not a and not b:
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
 
-def _boundary_dot(s, i):
-    if i + 1 < len(s) and s[i + 1].isdigit():
-        return False
-    wm = re.search(r"([A-Za-z][A-Za-z.]*)$", s[:i])
-    if wm and wm.group(1).lower().strip(".") in ABBREV:
-        return False
-    j = i + 1
-    while j < len(s) and s[j] in " \t":
-        j += 1
-    if j >= len(s):
-        return True
-    return s[j].isupper() or s[j].isdigit() or s[j] in "“\"（(【['"
+_HEAD_RE = re.compile(r"^\s{0,3}(#{1,6}\s+\S|\\(?:sub)*section\*?\{|\\chapter\*?\{)")
+_FENCE = ("```", "~~~")
+_MATH_ENV = re.compile(r"^\s*\\begin\{(equation|align|eqnarray|gather|multline|displaymath|figure|table)\*?\}")
+_ABBR_GUARD = ["e.g.", "i.e.", "et al.", "al.", "Fig.", "Figs.", "Eq.", "Eqs.", "Ref.", "Refs.", "vs.",
+               "No.", "approx.", "cf.", "Dr.", "Prof.", "Suppl.", "resp.", "i.v.", "i.p.", "p.o."]
 
+def split_paragraphs(text):
+    """按空行/标题/代码块/公式环境切块；返回 [{'kind':..., 'text':...}]，不改动任何字符内容。"""
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
+    blocks, buf, i = [], [], 0
 
-def split_sentence_spans(s, base):
-    spans, start, i, n = [], 0, 0, len(s)
-    cjk = bool(_CJK_RE.search(s))
-    while i < n:
-        ch = s[i]
-        end = ch in "。！？!?；" or (ch == "." and _boundary_dot(s, i)) or (ch == ";" and cjk)
-        if end:
-            seg = s[start:i + 1]
-            lead = len(seg) - len(seg.lstrip())
+    def flush():
+        if buf:
+            seg = "\n".join(buf).strip("\n")
             if seg.strip():
-                spans.append((base + start + lead, base + i + 1, seg.strip()))
-            start = i + 1
+                blocks.append({"kind": "body", "text": seg})
+            del buf[:]
+
+    while i < len(lines):
+        raw = lines[i]
+        s = raw.strip()
+        if s.startswith(_FENCE):
+            flush()
+            fence = s[:3]
+            chunk = [raw]
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith(fence):
+                chunk.append(lines[i])
+                i += 1
+            if i < len(lines):
+                chunk.append(lines[i])
+                i += 1
+            blocks.append({"kind": "frozen", "text": "\n".join(chunk)})
+            continue
+        if s.startswith("$$") or _MATH_ENV.match(s):
+            flush()
+            chunk = [raw]
+            i += 1
+            if s.startswith("$$") and s.count("$$") < 2:
+                while i < len(lines) and "$$" not in lines[i]:
+                    chunk.append(lines[i])
+                    i += 1
+                if i < len(lines):
+                    chunk.append(lines[i])
+                    i += 1
+            elif not s.startswith("$$"):
+                env = _MATH_ENV.match(s).group(1)
+                end_re = re.compile(r"\\end\{%s\*?\}" % env)
+                while i < len(lines) and not end_re.search(lines[i]):
+                    chunk.append(lines[i])
+                    i += 1
+                if i < len(lines):
+                    chunk.append(lines[i])
+                    i += 1
+            blocks.append({"kind": "frozen", "text": "\n".join(chunk)})
+            continue
+        if not s:
+            flush()
+            i += 1
+            continue
+        if _HEAD_RE.match(s):
+            flush()
+            blocks.append({"kind": "heading", "text": s})
+            i += 1
+            continue
+        buf.append(raw)
         i += 1
-    tail = s[start:]
-    if tail.strip():
-        lead = len(tail) - len(tail.lstrip())
-        spans.append((base + start + lead, base + len(s), tail.strip()))
+    flush()
+    return blocks
+
+def split_sentences(text):
+    guarded, marks = text, {}
+    for idx, tok in enumerate(_ABBR_GUARD):
+        ph = "\x01%d\x01" % idx
+        if tok in guarded:
+            guarded = guarded.replace(tok, ph)
+            marks[ph] = tok
+    parts, start = [], 0
+    for m in re.finditer(r"[.!?。！？]+(?=\s|$)", guarded):
+        parts.append(guarded[start:m.end()])
+        start = m.end()
+    if guarded[start:].strip():
+        parts.append(guarded[start:])
+    out = []
+    for part in parts:
+        for ph, tok in marks.items():
+            part = part.replace(ph, tok)
+        if part.strip():
+            out.append(part.strip())
+    return out
+
+def _unit_list(lex):
+    units = [u for u in lex.get("units", []) if isinstance(u, str)]
+    keep = [u for u in units if len(u) >= 2 or u in ("%", "‰", "°")]
+    return sorted(set(keep), key=len, reverse=True)
+
+def extract_spans(text, lex=None):
+    """抽取不可编辑原子：数字、数字+单位、引用标记、图表/章节指向、公式、缩写。"""
+    lex = lex or load_lexicon()
+    text = text or ""
+    spans = {"number": [], "unit_pair": [], "citation": [], "pointer": [], "equation": [], "abbr": []}
+    unit_alt = "|".join(re.escape(u) for u in _unit_list(lex)) or r"(?!)"
+    num_pat = r"[-+]?\d+(?:[.,]\d+)*(?:\s*[–—]\s*\d+(?:[.,]\d+)*)?(?:\s?[eE][-+]?\d+)?"
+    quant_re = re.compile(r"(?<![A-Za-z0-9_])(" + num_pat + r")(?:\s?(" + unit_alt + r")(?![A-Za-z]))?")
+    for m in quant_re.finditer(text):
+        number = re.sub(r"\s+", "", m.group(1))
+        spans["number"].append(number)
+        if m.group(2):
+            spans["unit_pair"].append("%s|%s" % (number, m.group(2)))
+    for pat in lex.get("citation_patterns", []):
+        try:
+            for m in re.finditer(pat, text):
+                spans["citation"].append(re.sub(r"\s+", "", m.group(0)))
+        except re.error:
+            continue
+    for pat in lex.get("pointer_patterns", []):
+        try:
+            for m in re.finditer(pat, text, flags=re.IGNORECASE):
+                spans["pointer"].append(_norm_pointer(m.group(0)))
+        except re.error:
+            continue
+    for m in re.finditer(r"\$\$[^$]+\$\$|\$[^$\n]+\$|\\\([^)]*\\\)|\\\[[^\]]*\\\]", text):
+        spans["equation"].append(re.sub(r"\s+", "", m.group(0)))
+    abbr_re = lex.get("abbrev_pattern") or r"\b[A-Z]{2,6}\b"
+    stop = set(lex.get("abbrev_stopwords", []))
+    try:
+        for m in re.finditer(abbr_re, text):
+            tok = m.group(0)
+            base = tok.rstrip("s") if tok.endswith("s") and tok[:-1] in stop.union({"SD", "SE", "CI"}) else tok
+            if base not in stop and not tok.isdigit():
+                spans["abbr"].append(base)
+    except re.error:
+        pass
     return spans
 
+def _norm_pointer(tok):
+    same = tok.lower()
+    num = re.search(r"\d+[A-Za-z]?", same)
+    n = num.group(0) if num else "?"
+    if re.match(r"^(fig|figure)", same):
+        kind = "fig"
+    elif re.match(r"^(table|tab)", same):
+        kind = "table"
+    elif re.match(r"^(sec|section)", same):
+        kind = "sec"
+    elif re.match(r"^(eq|equation)", same):
+        kind = "eq"
+    elif same.startswith("supp") or same.startswith("support"):
+        kind = "supp"
+    elif same.startswith("appendix"):
+        kind = "appendix"
+    elif same.startswith("章") or same.startswith("第"):
+        kind = "sec"
+    elif same.startswith("图"):
+        kind = "fig"
+    elif same.startswith("表"):
+        kind = "table"
+    elif same.startswith("式"):
+        kind = "eq"
+    else:
+        kind = "other"
+    return "%s:%s" % (kind, n)
 
-def iter_units(text):
-    units, offset, in_fence, in_math, in_refs = [], 0, False, False, False
-    for line in text.splitlines(keepends=True):
-        start, end = offset, offset + len(line)
-        offset = end
-        raw = line.rstrip("\r\n")
-        stripped = raw.strip()
-        if not stripped:
-            units.append((start, end, "blank", ""))
-            continue
-        if stripped.startswith("```"):
-            in_fence = not in_fence
-            units.append((start, end, "frozen", "code_fence"))
-            continue
-        if in_fence:
-            units.append((start, end, "frozen", "code"))
-            continue
-        if stripped.startswith("$$"):
-            if len(re.findall(r"\$\$", stripped)) < 2:
-                in_math = not in_math
-            units.append((start, end, "frozen", "math"))
-            continue
-        if in_math:
-            units.append((start, end, "frozen", "math"))
-            continue
-        if REF_HEAD.match(raw):
-            in_refs = True
-            units.append((start, end, "heading", stripped))
-            continue
-        if HEADING_RE.match(stripped) or TEX_STRUCT.match(stripped):
-            units.append((start, end, "heading", stripped))
-            continue
-        if stripped.startswith(("|", "![")) or re.match(r"^[-=]{3,}$", stripped):
-            units.append((start, end, "frozen", "table_or_figure"))
-            continue
-        if in_refs or REF_ENTRY.match(stripped) or stripped.startswith(">"):
-            units.append((start, end, "frozen", "reference_or_quote"))
-            continue
-        lead = len(raw) - len(raw.lstrip())
-        for bs, be, sent in split_sentence_spans(raw.strip(), start + lead):
-            units.append((bs, be, "sentence", sent))
-    return units
+HARD_ATOM_CLASSES = ("number", "unit_pair", "citation", "pointer", "equation")
+ATOM_LABELS = {
+    "number": "数字", "unit_pair": "数字+单位", "citation": "引用标记", "pointer": "图表/章节指向",
+    "equation": "公式", "abbr": "缩写/专名",
+}
 
+def atom_counter(spans):
+    return {k: Counter(v) for k, v in spans.items()}
 
-def _line_of(text, pos):
-    return text.count("\n", 0, max(0, pos)) + 1
+def diff_atoms(before_spans, after_spans, classes=HARD_ATOM_CLASSES):
+    """返回丢失/新增原子列表：只比对出现次数，丢失即违规（新增另计）。"""
+    lost, added = [], []
+    for cls in classes:
+        cb = Counter(before_spans.get(cls, []))
+        ca = Counter(after_spans.get(cls, []))
+        for tok, n in (cb - ca).items():
+            lost.append({"class": cls, "value": tok, "count": n})
+        for tok, n in (ca - cb).items():
+            added.append({"class": cls, "value": tok, "count": n})
+    return lost, added
 
-
-def _col_of(text, pos):
-    nl = text.rfind("\n", 0, max(0, pos))
-    return max(0, pos - (nl + 1)) + 1
-
-
-def segment(docs):
-    segs = []
-    for d in docs:
-        text = d["text"] or ""
-        for s, e, kind, payload in iter_units(text):
-            if kind != "sentence":
-                continue
-            segs.append({"sid": "S%04d" % (len(segs) + 1), "doc_id": d["doc_id"],
-                         "path": d["path"], "start": s, "end": e, "text": payload,
-                         "locator": "%s:L%d:C%d" % (d["path"], _line_of(text, s), _col_of(text, s))})
-    return segs
-
-
-# ------------------------------------------------------------- protected atoms
-_CITE = re.compile(r"\[\s*\d+(?:\s*[-–,，]\s*\d+)*\s*\]")
-_TEX_CMD = re.compile(r"\\(cite|citep|citet|ref|eqref|label|autoref|cref|Cref)\*?\{[^{}]*\}")
-_MATH = re.compile(r"\$\$[^$]*\$\$|\$[^$\n]+\$|\\\[[^\]]*\\\]|\\\([^)]*\\\)")
-_XREF = re.compile(r"(?:图|表|式|章节|第)\s*\d+(?:[.-]\d+)*|"
-                   r"\b(?:Fig(?:ure)?|Table|Eq(?:uation)?|Section|Sect\.|Appendix)\s*\.?\s*"
-                   r"[0-9]+(?:[.-][0-9]+)*", re.I)
-_NUM = re.compile(r"(?<![A-Za-z0-9])[-+]?\d+(?:[.,]\d+)*(?:\s?%)?(?![0-9])")
-_UNIT_ALT = ["m2/g", "m²/g", "wt%", "vol%", "mmol/L", "mg/L", "g/L", "kcal/mol", "kJ/mol",
-             "kcal", "kDa", "μg", "ug", "ng", "mg", "kg", "mL", "ml", "μL", "uL", "MPa",
-             "kPa", "Pa", "mmol", "μmol", "umol", "mol", "mM", "μM", "uM", "kHz", "MHz",
-             "Hz", "keV", "eV", "kV", "mA", "kW", "kJ", "rpm", "nm", "μm", "um", "mm",
-             "cm", "km", "ms", "min", "h", "s", "K", "Da", "M", "V", "A", "W", "J", "L",
-             "g", "m", "°C", "°F", "%", "‰"]
-_UNITS_RE = "|".join(sorted((re.escape(u) for u in _UNIT_ALT), key=len, reverse=True))
-_UNIT = re.compile(r"(?<![A-Za-z])(?:" + _UNITS_RE + r")(?![A-Za-z])")
-_SP_UNITS = "|".join(sorted((re.escape(u) for u in _UNIT_ALT if not (set("%‰") & set(u))),
-                            key=len, reverse=True))
-_UNIT_EN_RE = re.compile(r"(\d+(?:\.\d+)?)[ \t]?(" + _SP_UNITS + r")(?![A-Za-z0-9/])")
-_UNIT_ZH_RE = re.compile(r"(\d+(?:\.\d+)?)[ \t]?(" + _SP_UNITS + r")(?=[一-鿿，。；：、）)\s]|$)")
-_DOI = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+")
-_URL = re.compile(r"https?://[^\s)>\]]+")
-
-
-def protected_atoms(text):
-    text = text or ""
-    return {"citation": [m.group(0) for m in _CITE.finditer(text)],
-            "tex_ref": [m.group(0) for m in _TEX_CMD.finditer(text)],
-            "xref": [m.group(0) for m in _XREF.finditer(text)],
-            "math": [m.group(0) for m in _MATH.finditer(text)],
-            "number": [m.group(0) for m in _NUM.finditer(text)],
-            "unit": [m.group(0) for m in _UNIT.finditer(text)],
-            "doi_url": [m.group(0) for m in _DOI.finditer(text)] +
-                       [m.group(0) for m in _URL.finditer(text)]}
-
-
-def protected_intervals(text):
+def _hits(text, markers):
+    low = (text or "").lower()
     out = []
-    for pat in (_CITE, _TEX_CMD, _MATH, _XREF, _DOI, _URL):
-        for m in pat.finditer(text or ""):
-            out.append((m.start(), m.end()))
+    for mk in markers or []:
+        m = str(mk).lower()
+        if not m:
+            continue
+        if re.search(r"[a-z]", m):
+            pat = r"(?<![a-z])" + re.escape(m) + r"[a-z]{0,3}(?![a-z])"
+            if re.search(pat, low):
+                out.append(mk)
+        elif m in (text or ""):
+            out.append(mk)
     return out
 
+def hedge(text, lex=None, lang=None):
+    """返回 (等级, 命中标记列表)；等级 0–4，越大越接近“已确立事实”。"""
+    lex = lex or load_lexicon()
+    lang = lang or detect_language(text)
+    levels = lex.get("hedge_levels", {})
+    hit = []
+    best = -1
+    for lvl in sorted(levels.keys(), key=lambda x: -int(x)):
+        markers = []
+        if lang != "en":
+            markers += levels[lvl].get("zh", [])
+        if lang != "zh":
+            markers += levels[lvl].get("en", [])
+        found = _hits(text, markers)
+        if found and best < 0:
+            best = int(lvl)
+            hit = found
+    return (best if best >= 0 else 0), hit
 
-_SUPC = str.maketrans("²³", "23")
+def hedge_profile(text, lex=None, lang=None):
+    """返回全部层级上的命中：{'level','markers','all','by_level'}。
+    单看最高级会漏掉“同级两个限定词删掉一个”的情况，故此处保留全量供逐词比对。"""
+    lex = lex or load_lexicon()
+    lang = lang or detect_language(text)
+    levels = lex.get("hedge_levels", {})
+    by_level, overall = {}, 0
+    for lvl in sorted(levels.keys(), key=lambda x: int(x)):
+        markers = []
+        if lang != "en":
+            markers += levels[lvl].get("zh", [])
+        if lang != "zh":
+            markers += levels[lvl].get("en", [])
+        found = _hits(text, markers)
+        if found:
+            by_level[int(lvl)] = found
+            overall = max(overall, int(lvl))
+    all_hits = [m for lvl in by_level for m in by_level[lvl]]
+    return {"level": overall, "markers": by_level.get(overall, []), "all": all_hits,
+            "by_level": by_level}
 
+def claim_core(text, lex=None, lang=None):
+    """主张内核词：情态动词与主张动词（不含 some/several 这类量词），
+    用于检测“句子里明明还有一个限定词、但关键的 may 被删掉了”的隐性加强。"""
+    lex = lex or load_lexicon()
+    lang = lang or detect_language(text)
+    core = lex.get("claim_core", {})
+    marks = []
+    if lang != "en":
+        marks += core.get("zh", [])
+    if lang != "zh":
+        marks += core.get("en", [])
+    return _hits(text, marks)
 
-def _atom_norm(x):
-    return re.sub(r"\s+", "", x).translate(_SUPC)
+def negation_count(text, lex=None, lang=None):
+    lex = lex or load_lexicon()
+    lang = lang or detect_language(text)
+    marks = lex.get("negation_markers", {})
+    if lang == "zh":
+        return len(_hits(text, marks.get("zh", [])))
+    return len(_hits(text, marks.get("en", [])))
 
+def causal_terms(text, lex=None, lang=None):
+    lex = lex or load_lexicon()
+    lang = lang or detect_language(text)
+    marks = lex.get("causal_markers", {})
+    return _hits(text, marks.get("zh", [])) + _hits(text, marks.get("en", []))
 
-def atoms_hold(before, after):
-    a, b = protected_atoms(before), protected_atoms(after)
-    bad = {}
-    for k in a:
-        ca = Counter(_atom_norm(x) for x in a[k])
-        cb = Counter(_atom_norm(x) for x in b[k])
-        if ca != cb:
-            bad[k] = {"before": dict(ca), "after": dict(cb)}
-    return (not bad), bad
+def association_terms(text, lex=None, lang=None):
+    lex = lex or load_lexicon()
+    lang = lang or detect_language(text)
+    marks = lex.get("association_markers", {})
+    return _hits(text, marks.get("zh", [])) + _hits(text, marks.get("en", []))
 
+def absolutes(text, lex=None, lang=None):
+    lex = lex or load_lexicon()
+    lang = lang or detect_language(text)
+    marks = lex.get("absolute_markers", {})
+    return _hits(text, marks.get("zh", [])) + _hits(text, marks.get("en", []))
 
-_WEAK = re.compile(r"\b(may|might|could|possibly|perhaps|likely|unlikely|suggest[s]?|"
-                   r"indicat(?:e|es|ed|ing)|appear[s]?|seem[s]?|approximately|about|"
-                   r"tend[s]?)\b", re.I)
-_STRONG = re.compile(r"\b(prove[sd]?|prov(?:e|ing)|establish(?:es|ed)?|confirm(?:s|ed)?|"
-                     r"demonstrate[sd]?|determine[sd]?|caus(?:e|es|ed|ing)|leads? to|"
-                     r"guarantee[sd]?|always|never|clearly|significant(?:ly)?|must)\b", re.I)
-
-
-def hedge_profile(text):
-    text = text or ""
-    return {"weak": len(_WEAK.findall(text)), "strong": len(_STRONG.findall(text))}
-
-
-def hedge_preserved(before, after):
-    a, b = hedge_profile(before), hedge_profile(after)
-    reasons = []
-    if b["strong"] > a["strong"]:
-        reasons.append("strong modal or absolute claim added (%d -> %d)" % (a["strong"], b["strong"]))
-    if a["weak"] > 0 and b["weak"] < a["weak"]:
-        reasons.append("weak qualifier removed (%d -> %d)" % (a["weak"], b["weak"]))
-    return (not reasons), reasons
-
-
-def _overlaps(a, b, spans):
-    return any(not (b <= s or a >= e) for s, e in spans)
-
-
-def _sub_rule(text, rule):
-    spans = protected_intervals(text)
-    hits = []
-
-    def repl(m):
-        if _overlaps(m.start(), m.end(), spans):
-            return m.group(0)
-        new = rule["repl"](m) if callable(rule.get("repl")) else m.expand(rule["repl"])
-        if new == m.group(0):
-            return new
-        hits.append({"rule": rule["id"], "type": rule["type"], "before": m.group(0),
-                     "after": new, "reason": rule["reason"]})
-        return new
-
-    return rule["pattern"].sub(repl, text), hits
-
-
-def _an(m):
-    low = m.group(2).lower()
-    vowel_exc = {"uniform", "universal", "user", "unique", "unit", "university", "useful",
-                 "usual", "european", "one", "once", "uk", "us", "unesco", "utility"}
-    as_vowel = {"hour", "honest", "honor", "honour", "mri", "rna", "sem", "xrd", "fbi",
-                "nlp", "llm", "html", "https"}
-    return "a" if low in vowel_exc else "an" if (low in as_vowel or low[:1] in "aeiou") else "a"
-
-
-RULES = [
-    {"id": "E01", "type": "punctuation", "lang": "en", "applied": True,
-     "pattern": re.compile(r"[ \t]{2,}"), "repl": " ",
-     "reason": "single space between words"},
-    {"id": "E02", "type": "punctuation", "lang": "en", "applied": True,
-     "pattern": re.compile(r"[ \t]+([,;:.!?)\]])"), "repl": r"\1",
-     "reason": "no space before punctuation"},
-    {"id": "E03", "type": "punctuation", "lang": "en", "applied": True,
-     "pattern": re.compile(r",(?=[A-Za-z])"), "repl": ", ",
-     "reason": "space after comma"},
-    {"id": "E04", "type": "punctuation", "lang": "en", "applied": True,
-     "pattern": re.compile(r"\.(?=[A-Z][a-z])"), "repl": ". ",
-     "reason": "space after sentence period"},
-    {"id": "E05", "type": "abbreviation", "lang": "en", "applied": True,
-     "pattern": re.compile(r"\b(et al|i\.e|e\.g)(?![.\w])"), "repl": r"\1.",
-     "reason": "Latin abbreviation needs a final period"},
-    {"id": "E06", "type": "spelling", "lang": "en", "applied": True,
-     "pattern": re.compile(r"\b(recieve|recieved|occured|seperate|accomodate|dependant|"
-                           r"thier|wich|teh|alot|reseach|analys|enviroment|goverment|"
-                           r"succesful|untill)\b", re.I),
-     "repl": lambda m: {"recieve": "receive", "recieved": "received", "occured": "occurred",
-                        "seperate": "separate", "accomodate": "accommodate",
-                        "dependant": "dependent", "thier": "their", "wich": "which",
-                        "teh": "the", "alot": "a lot", "reseach": "research",
-                        "analys": "analysis", "enviroment": "environment",
-                        "goverment": "government", "succesful": "successful",
-                        "untill": "until"}.get(m.group(1).lower(), m.group(1)),
-     "reason": "common misspelling"},
-    {"id": "E07", "type": "article", "lang": "en", "applied": True,
-     "pattern": re.compile(r"\b(a|an)(?=[ \t]+([A-Za-z][A-Za-z-]*))"), "repl": _an,
-     "reason": "article agrees with the following vowel sound"},
-    {"id": "E08", "type": "agreement", "lang": "en", "applied": True,
-     "pattern": re.compile(r"\b(results|data|studies|findings|values|measurements|"
-                           r"analyses|experiments)\s+(shows|indicates|suggests|"
-                           r"demonstrates|reveals|confirms)\b", re.I),
-     "repl": lambda m: m.group(1) + " " + {"shows": "show", "indicates": "indicate",
-                                           "suggests": "suggest", "demonstrates": "demonstrate",
-                                           "reveals": "reveal", "confirms": "confirm"}[m.group(2).lower()],
-     "reason": "plural subject needs a plural verb"},
-    {"id": "E09", "type": "agreement", "lang": "en", "applied": True,
-     "pattern": re.compile(r"\b(this|that)\s+(suggest|indicate|show|demonstrate|reveal|confirm)\b", re.I),
-     "repl": lambda m: m.group(1) + " " + m.group(2) + "s",
-     "reason": "singular subject needs a singular verb"},
-    {"id": "E10", "type": "unit", "lang": "en", "applied": True,
-     "pattern": _UNIT_EN_RE, "repl": r"\1 \2",
-     "reason": "space between numeral and unit"},
-    {"id": "U01", "type": "unit_format", "lang": "any", "applied": True,
-     "pattern": re.compile(r"(?<![A-Za-z0-9])(m2|m3|cm2|cm3|mm2|mm3)(?![A-Za-z0-9])"),
-     "repl": lambda m: {"m2": "m²", "m3": "m³", "cm2": "cm²", "cm3": "cm³",
-                        "mm2": "mm²", "mm3": "mm³"}[m.group(1)],
-     "reason": "area and volume units use superscript exponents"},
-    {"id": "Z01", "type": "punctuation", "lang": "zh", "applied": True,
-     "pattern": re.compile(r"(?<=[\u4e00-\u9fff])[,;:?!](?=[\u4e00-\u9fff\s）)])"),
-     "repl": lambda m: {",": "，", ";": "；", ":": "：", "?": "？", "!": "！"}[m.group(0)],
-     "reason": "use full-width punctuation"},
-    {"id": "Z02", "type": "punctuation", "lang": "zh", "applied": True,
-     "pattern": re.compile(r"([，。；：！？、])\1+"), "repl": r"\1",
-     "reason": "duplicate punctuation"},
-    {"id": "Z03", "type": "punctuation", "lang": "zh", "applied": True,
-     "pattern": re.compile(r"[ \t]+([，。；：！？、])"), "repl": r"\1",
-     "reason": "no space before Chinese punctuation"},
-    {"id": "Z04", "type": "unit", "lang": "zh", "applied": True,
-     "pattern": _UNIT_ZH_RE, "repl": r"\1 \2",
-     "reason": "space between numeral and unit"},
-    {"id": "Z05", "type": "redundancy", "lang": "zh", "applied": True,
-     "pattern": re.compile(r"([的了])\1+"), "repl": r"\1",
-     "reason": "duplicate function word"},
+_PRESENTATION_RE = [
+    r"\b(?:is|are|was|were|be|been)\s+(?:shown|presented|displayed|depicted|illustrated|listed|summari[sz]ed)\b",
+    r"\b(?:Fig(?:ure)?\.?|Table|Tab\.?|Eq\.?|Equation)\s*\(?\d+[A-Za-z]?\)?\s+(?:shows?|presents?|displays?|depicts?|illustrates?|summari[sz]es?)\b",
+    r"\b(?:shows?|presents?|displays?|depicts?|illustrates?)\s+(?:in\s+)?(?:Fig(?:ure)?\.?|Table)\s*\d+[A-Za-z]?",
+    r"图\s*\d+[A-Za-z]?\s*(?:显示|展示|给出|列出|呈现|所示)",
+    r"表\s*\d+[A-Za-z]?\s*(?:显示|列出|给出|汇总)",
+    r"(?:如)?[图表]\s*\d+[A-Za-z]?\s*所示",
 ]
 
-SUGGEST_RULES = [
-    {"id": "S01", "type": "register", "lang": "en",
-     "pattern": re.compile(r"\b(a lot of|lots of|pretty|really|totally|huge|obviously|"
-                           r"clearly|of course)\b", re.I),
-     "repl": lambda m: {"a lot of": "many", "lots of": "many", "pretty": "relatively",
-                        "really": "considerably", "totally": "completely",
-                        "huge": "substantial", "obviously": "evidently",
-                        "clearly": "evidently", "of course": "as expected"}.get(
-                            m.group(0).lower(), m.group(0)),
-     "reason": "colloquial wording; propose a neutral academic term"},
-    {"id": "S02", "type": "overclaim", "lang": "en",
-     "pattern": re.compile(r"\b(proves?|proven|causes?|caused|determines?|guarantees?)\b", re.I),
-     "repl": lambda m: {"prove": "support", "proves": "supports", "proven": "supported",
-                        "cause": "be associated with", "causes": "is associated with",
-                        "caused": "was associated with", "determine": "relate to",
-                        "determines": "relates to", "guarantee": "ensure",
-                        "guarantees": "ensures"}.get(m.group(0).lower(), m.group(0)),
-     "reason": "possible overclaim; propose a softer verb"},
-    {"id": "S03", "type": "wordiness", "lang": "en",
-     "pattern": re.compile(r"\b(in order to|due to the fact that|it is important to note that)\b", re.I),
-     "repl": lambda m: {"in order to": "to", "due to the fact that": "because",
-                        "it is important to note that": ""}.get(m.group(0).lower(), m.group(0)),
-     "reason": "redundant academic filler"},
-    {"id": "S04", "type": "nominalization", "lang": "zh",
-     "pattern": re.compile(r"(?:进行了|开展了)([^，。；]{1,12}?)的(分析|研究|测量|评估|讨论)"),
-     "repl": lambda m: {"分析": "分析了", "研究": "研究了", "测量": "测量了",
-                        "评估": "评估了", "讨论": "讨论了"}[m.group(2)] + m.group(1),
-     "reason": "heavy nominalisation; propose a verb phrase"},
-    {"id": "S05", "type": "redundancy", "lang": "zh",
-     "pattern": re.compile(r"由于([^，。；]{1,20})的原因"), "repl": r"由于\1",
-     "reason": "由于 already marks the cause"},
-    {"id": "S06", "type": "wordiness", "lang": "zh",
-     "pattern": re.compile(r"通过([^，。；]{1,20})的方法"), "repl": r"通过\1",
-     "reason": "通过 already marks the method"},
-]
-
-
-def _rule_applies(rule, sentence):
-    lang = rule.get("lang")
-    if lang in ("en", "zh"):
-        cjk = len(_CJK_RE.findall(sentence)) > 3
-        return (lang == "en") != cjk
-    return True
-
-
-def apply_rules(sentence):
-    text, hits = sentence, []
-    for rule in RULES:
-        if not _rule_applies(rule, sentence):
-            continue
-        text, got = _sub_rule(text, rule)
-        hits.extend(got)
-    ok, bad = atoms_hold(sentence, text)
-    return (text, hits, True, {}) if ok else (sentence, hits, False, bad)
-
-
-def suggest_rules(sentence):
-    out = []
-    for rule in SUGGEST_RULES:
-        if not _rule_applies(rule, sentence):
-            continue
-        out.extend(_sub_rule(sentence, rule)[1])
-    return out
-
-
-# ------------------------------------------------------------------- glossary
-SEED_TERMS = [  # (id, zh, en, abbr, variants)
-    ("T01", "催化剂", "catalyst", "", ["催化劑", "触媒"]),
-    ("T02", "转化率", "conversion", "", ["转化比率", "转换率"]),
-    ("T03", "温度", "temperature", "", []),
-    ("T04", "反应压力", "reaction pressure", "", []),
-    ("T05", "载气流速", "carrier gas flow rate", "", ["载气流量"]),
-    ("T06", "比表面积", "specific surface area", "SSA", []),
-    ("T07", "统计显著性", "statistical significance", "", []),
-    ("T08", "样品", "sample", "", ["试样"]),
-    ("T09", "选择性", "selectivity", "", []),
-    ("T10", "产率", "yield", "", ["收率"]),
-    ("T11", "反应时间", "reaction time", "", []),
-    ("T12", "机理", "mechanism", "", ["机制"]),
-    ("T13", "动力学", "kinetics", "", []),
-    ("T14", "纳米颗粒", "nanoparticle", "", ["纳米粒子", "nano-particle"]),
-    ("T15", "透射电子显微镜", "transmission electron microscopy", "TEM", []),
-    ("T16", "扫描电子显微镜", "scanning electron microscopy", "SEM", []),
-    ("T17", "X射线衍射", "X-ray diffraction", "XRD", ["XRD"]),
-    ("T18", "信噪比", "signal-to-noise ratio", "SNR", []),
-]
-
-
-def parse_glossary_docs(docs):
-    terms = []
-    for d in docs:
-        if d["role"] != "glossary":
-            continue
-        text = d["text"] or ""
+def mask_presentation(text):
+    """把“图/表 2 显示…”这类**指路**用法掩掉：
+    show/present 在指路句里是版式动词，不承载结论强度，不能因它改写而判为削弱/加强。"""
+    out = text or ""
+    for pat in _PRESENTATION_RE:
         try:
-            obj = json.loads(text)
-        except Exception:
-            obj = None
-        if isinstance(obj, dict):
-            obj = obj.get("terms")
-        if isinstance(obj, list):
-            for i, t in enumerate(obj):
-                if isinstance(t, dict):
-                    terms.append({"id": t.get("id") or "G%02d" % (i + 1),
-                                  "zh": t.get("zh") or t.get("term") or "",
-                                  "en": t.get("en") or t.get("term") or "",
-                                  "abbr": t.get("abbr") or "",
-                                  "variants": t.get("variants") or [], "source": d["path"]})
+            out = re.sub(pat, " ", out, flags=re.IGNORECASE)
+        except re.error:
             continue
-        for line in text.splitlines():
-            parts = [p.strip() for p in re.split(r"[,\t，]", line) if p.strip()]
-            if len(parts) >= 2 and parts[0].lower() not in ("term", "概念", "术语"):
-                terms.append({"id": "G%02d" % (len(terms) + 1), "zh": parts[0], "en": parts[1],
-                              "abbr": parts[2] if len(parts) > 2 else "",
-                              "variants": parts[3].split("|") if len(parts) > 3 else [],
-                              "source": d["path"]})
-    return terms
-
-
-def _term_forms(t):
-    forms = []
-    for kind, val in (("zh", t.get("zh")), ("en", t.get("en")), ("abbr", t.get("abbr"))):
-        if val:
-            forms.append((kind, val))
-    forms.extend(("variant", v) for v in (t.get("variants") or []) if v)
-    return forms
-
-
-def scan_glossary(segs, extra_terms):
-    out = []
-    pool = list(extra_terms) + [{"id": i, "zh": z, "en": e, "abbr": a, "variants": v,
-                                 "source": "builtin_seed"}
-                                for i, z, e, a, v in SEED_TERMS]
-    for t in pool:
-        found = []
-        for kind, form in _term_forms(t):
-            if kind == "en" and re.search(r"[A-Za-z]", form):
-                pat = re.compile(r"(?<![A-Za-z])" + re.escape(form) + r"(?![A-Za-z])", re.I)
-            else:
-                pat = re.compile(re.escape(form))
-            hits = []
-            for s in segs:
-                for m in pat.finditer(s["text"]):
-                    hits.append({"form": form, "kind": kind, "sid": s["sid"],
-                                 "locator": s["locator"], "offset": s["start"] + m.start()})
-            if hits:
-                found.append({"form": form, "kind": kind, "count": len(hits), "first": hits[0]})
-        if not found:
-            continue
-        kinds = {f["kind"] for f in found}
-        variants_used = [f["form"] for f in found if f["kind"] == "variant"]
-        canonical = t.get("zh") or t.get("en") or t.get("abbr") or ""
-        status = "variant_used" if variants_used else ("bilingual_pair"
-                                                       if len(kinds & {"zh", "en"}) > 1 else "consistent")
-        first = min((f["first"] for f in found), key=lambda h: h["offset"])
-        out.append({"id": t["id"], "concept": canonical, "zh": t.get("zh", ""),
-                    "en": t.get("en", ""), "abbr": t.get("abbr", ""), "canonical": canonical,
-                    "forms_found": found, "variants_used": variants_used,
-                    "count": sum(f["count"] for f in found), "status": status,
-                    "first_use": first["locator"], "source": t.get("source", "builtin_seed")})
     return out
 
+_CONTRACT_RULES = [
+    ("polished_text", ("polished", "polish", "revised", "rewrite", "rewritten", "corrected", "clean",
+                       "final", "全文", "润色后", "改后", "成品")),
+    ("edit_log", ("edit", "change", "revision", "diff", "modif", "修改", "改动")),
+    ("glossary", ("glossar", "terminolog", "lexicon", "术语", "词表")),
+    ("bilingual", ("bilingual", "parallel", "translation", "对照", "译文", "双语")),
+    ("verification", ("verif", "check", "audit", "coverage", "metric", "stat", "校验", "覆盖", "自查")),
+    ("pending_human", ("human", "pending", "confirm", "manual", "人工", "待确认")),
+    ("uncertainty", ("uncertain", "ambigu", "risk", "flag", "open_question", "不确定", "存疑")),
+    ("sources", ("source", "provenance", "evidence", "trace", "来源", "出处", "证据")),
+    ("limits", ("limit", "caveat", "gap", "约束", "限制", "边界", "缺口")),
+    ("structure", ("section", "structure", "outline", "段落", "结构")),
+    ("status", ("status", "state", "状态",)),
+    ("notes", ("note", "comment", "remark", "备注", "说明")),
+]
 
-def abbreviation_issues(segs, text):
-    issues, seen = [], set()
-    for m in re.finditer(r"(?<![A-Za-z])[A-Z]{2,6}(?![A-Za-z])", text or ""):
-        tok = m.group(0)
-        if tok in seen or tok in {"OK", "USA", "UK", "EU", "AI", "PC"}:
-            continue
-        seen.add(tok)
-        defined = re.search(r"\(\s*" + re.escape(tok) + r"\s*\)", text[:m.start()]) or \
-            re.search(re.escape(tok) + r"\s*\(", text[:m.start()])
-        if not defined:
-            seg = next((s for s in segs if s["start"] <= m.start() < s["end"]), None)
-            issues.append({"abbreviation": tok, "locator": seg["locator"] if seg else "document",
-                           "detail": "first use of the abbreviation is not preceded by a full-form "
-                                     "definition in the supplied text"})
-    return issues[:20]
+def canon(name):
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]", "", str(name).lower())
 
+def resolve_kind(field_name):
+    """把契约字段名映射到载荷类型：先精确匹配，再取命中的最长关键词。
+    取最长可避免 "status" 被 "stat"（verification）抢走这类子串误配。"""
+    c = canon(field_name)
+    if c in ("caseid", "id", "taskid", "sampleid"):
+        return "case_id"
+    best, best_len = "", 0
+    for kind, tokens in _CONTRACT_RULES:
+        for tok in tokens:
+            if tok in c and len(tok) > best_len:
+                best, best_len = kind, len(tok)
+    return best
 
-def language_profile(text):
-    cjk = len(_CJK_RE.findall(text or ""))
-    latin = len(re.findall(r"[A-Za-z]+", text or ""))
-    if cjk == 0 and latin == 0:
-        return "unknown", 0.0
-    ratio = cjk / float(cjk + latin)
-    return ("zh" if ratio >= 0.2 else "en"), round(ratio, 3)
+def shape_contract(contract):
+    """把 output_contract 规整成 [(field_name, declared_value)]；容忍 list / 嵌套 dict 写法。"""
+    if isinstance(contract, dict):
+        return [(k, v) for k, v in contract.items()]
+    if isinstance(contract, list):
+        out = []
+        for item in contract:
+            if isinstance(item, str):
+                out.append((item, None))
+            elif isinstance(item, dict):
+                name = item.get("name") or item.get("field") or item.get("key")
+                if name:
+                    out.append((name, item.get("type")))
+        return out
+    return []
+
+def fill_value(declared, kind, ctx):
+    """按 kind 取载荷；declared 若为 dict 则递归按同名字段填一层。"""
+    payload = ctx.get(kind)
+    if isinstance(declared, dict) and declared:
+        nested = {}
+        for key in declared.keys():
+            sub = resolve_kind(key)
+            nested[key] = ctx.get(sub) if sub else None
+        if not any(v for v in nested.values()) and payload is not None:
+            return payload
+        return nested
+    return payload
+
+def log(msg=""):
+    print(msg, flush=True)
+
+def ensure(path):
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+def jload(path, default=None):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:  # noqa: BLE001
+        return default
+
+def jdump(path, obj):
+    ensure(os.path.dirname(path) or ".")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+def write_text(path, text):
+    ensure(os.path.dirname(path) or ".")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+def write_csv(path, header, rows):
+    ensure(os.path.dirname(path) or ".")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(header)
+        for row in rows:
+            writer.writerow(["" if v is None else v for v in row])
+    os.replace(tmp, path)
+
+def now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+
+def find_span(base, needle):
+    """在 base 中定位 needle：先逐字匹配，再容忍空白差异。返回 (start, end) 或 None。"""
+    if not needle:
+        return None
+    pos = base.find(needle)
+    if pos >= 0:
+        return pos, pos + len(needle)
+    parts = [re.escape(p) for p in re.split(r"\s+", needle.strip()) if p]
+    if not parts:
+        return None
+    try:
+        m = re.search(r"\s+".join(parts), base)
+    except re.error:
+        return None
+    return (m.start(), m.end()) if m else None
