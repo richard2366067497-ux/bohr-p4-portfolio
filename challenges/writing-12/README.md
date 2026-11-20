@@ -42,7 +42,8 @@ python3 /skills/weekly-skill/scripts/latex_build.py selfcheck --input /input --o
 
 `main.tex`（修复后可编辑根文件）· `source/`（工程树副本）· `main.pdf`（编译成功时）·
 `diff.patch`（输入→`main.tex` 统一 diff）· `lint_report.json` · `fixes.json` · `build.json` ·
-`log-check.json` · `packages.md`（宏包说明 + 固定编译命令）· `compile.sh` · `result.json`。
+`log-check.json` · `packages.md`（宏包说明 + 固定编译命令）· `comparison_report.md`
+（对照实验记录：基础 Agent vs 加载本 Skill 的**确定性自评表**，明确标注非官方 A/B）· `compile.sh` · `result.json`。
 
 ## 依赖
 
