@@ -1,0 +1,72 @@
+# environment/resources.yaml - reading-09 / paper-notes-structurer (v9)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: paper-notes-structurer
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init --input /input --output /app/output --work /app/work
+    - "Agent: run show, read the paper with locators, optionally write /app/work/draft.json"
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py compare --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all / init / show / check / build / selfcheck / compare (all = full pipeline)
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  paper_source: "an explicit paper/text/abstract field in a JSON material, else the largest prose file (task.md, case.json and other instruction files are skipped)"
+  section_split: "the paper's own '#' headings and numbered sections (1, 3.2, 4.1 ...) become S0..Sn; each paragraph gets an anchor S3 ¶2/L17"
+  card_fields: [research_question, data, method_conditions, main_findings, conclusion, limitations]
+  candidates: "reproduction numbers from a JSON {\"candidates\": [{name, metrics}]} list, or a python file assigning a metrics dict"
+  unusable_files: "binary / empty / placeholder-only files are recorded with a parse_status and never quoted"
+
+required_outputs:
+  - result.json
+  - notes.md
+  - note_units.jsonl
+  - paper_card.json
+  - coverage.json
+  - claims.json
+  - run_log.txt
+
+reusable_templates:
+  - templates/paper_card_template.json
+  - templates/notes_template.md
+  - templates/note_units_schema.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 120
+  max_output_files: 24
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, status, result, notes, note_units, paper_card, coverage, claims, uncertainties]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> challenges/<key>.json -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  placeholders: forbidden
+
+dependencies: []            # standard library only
+exit_code_policy: always 0 (usage error 2)
