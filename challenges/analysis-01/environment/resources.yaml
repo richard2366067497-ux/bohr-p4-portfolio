@@ -1,0 +1,41 @@
+# environment/resources.yaml · field-contract-cleaner
+
+skill: field-contract-cleaner
+version: 7.0.0
+runtime:
+  language: python
+  min_version: "3.8"
+  dependencies: []          # 纯标准库（csv/json/sqlite3/hashlib/re）
+  network: false
+  clock: false
+entry:
+  command: "python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work"
+  positional: all
+  flags: [--input, --output, --work]
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+inputs:
+  - /input/case.json                 # case_id / output_contract
+  - /input/**/*.csv|tsv|json|jsonl|sqlite   # 待清洗汇总表
+  - /input/**/rules.json             # 缺失码 / 单位 / 别名 / 禁止动作 / QC 不变式
+  - /input/**/*.md                   # 字段字典与工单
+outputs:
+  - cleaned_table.csv
+  - transform_ledger.jsonl
+  - field_issues.csv
+  - field_contract.json
+  - reconciliation.json
+  - data_quality_report.md
+  - case_materials.json
+  - result.json
+defaults:
+  iqr_k: 1.5
+  mad_k: 3.0
+  empty_input_status: partial
+  error_status: input_error
+budget:
+  model_requests: 64
+  seconds: 900
+  tokens_per_response: 16384
