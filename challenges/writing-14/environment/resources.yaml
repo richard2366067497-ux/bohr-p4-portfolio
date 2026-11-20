@@ -1,0 +1,47 @@
+# Resource entry declaration — sci-mindmap-builder (writing-14)
+skill: sci-mindmap-builder
+version: 2.0.0
+entrypoint:
+  command: python3 /skills/weekly-skill/scripts/main.py run --input /input --output /app/output --work /app/work
+  script: scripts/main.py
+  argument: run              # subcommands: init | show | check | build | run
+  reads:  /input             # case.json + materials (md, txt, json, csv, tsv, docx, pdf, images)
+  writes: /app/output        # mindmap.svg/.json, content_map.json, mindmap.png, structure.md, five assets, result.json
+  scratch: /app/work         # mindmap.json draft (Agent input), index.json, check.json, run.log, version_state.json
+  exit_code: 0               # always 0 except argparse usage error (2)
+
+paths:
+  input: /input
+  out: /app/output
+  work: /app/work
+  install_root: /skills/weekly-skill
+
+resources:
+  network: none              # fully offline; no retrieval, no package download
+  packages: none             # Python 3.9+ standard library only
+  python: ">=3.9"
+  optional_tools: [pdftotext]  # only used to read PDF materials; flate fallback built in
+
+inputs:
+  case_json:
+    case_id: optional        # falls back to id / challenge_id / input directory name
+    language: en | zh        # controls the generated label language
+    output_contract: optional  # when absent, the five standard keys in SKILL.md §7 are used
+  materials: md | markdown | txt | rst | tex | json | csv | tsv | docx | pdf | png | jpg
+  skip: [case.json, challenge.json, task.md, draft.json, mindmap.json, content_map.json]
+
+outputs:
+  editable: [mindmap.svg, mindmap.json]
+  derived: [content_map.json, mindmap.png, structure.md]
+  assets: [golden_standard.json, diff_report.md, version_history.md, run.log, self_check.json]
+  result: result.json        # output_contract keys echoed verbatim, case_id passed through
+
+budgets:
+  wall_clock_seconds: 900
+  requests: 64
+  tokens: 16384
+
+security:
+  shell: never               # no shell execution of input content; pdftotext is argv-only
+  external_scripts: never
+  write_scope: [out, work]   # never rewrites the input tree
