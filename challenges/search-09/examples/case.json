@@ -1,0 +1,17 @@
+{
+  "case_id": "example-not-a-formal-case",
+  "language": "en",
+  "materials_root": "materials",
+  "notes": "Minimal example (marked as an example, not a formal case). Point --input at a directory shaped like this to exercise the Skill end to end. It carries one checklist material with a rules block, two check points and one judgment-rule row plus one numbered threshold; the output directory will then contain result.json plus the candidate pool, the anchor table and the grading trace.",
+  "example_files": {
+    "materials/appraisal_rules.md": "# rules\n```rules\nkw control|control (group|arm)|comparator|placebo\nkw effect|95%\\s*(CI|confidence interval)|odds ratio|hazard ratio\ncp D2|DESIGN|有无明确对照|control|-|Methods|low|-\ncp T2|STATSREP|效应量与不确定性|effect|-|Results|low|-\n```\n| rule | trigger | judgment | risk |\n|---|---|---|---|\n| `R_J1_ABSTAIN` | no keyword hit | `not_assessable` | `insufficient` |\n| `R_J3_MET` | at least two anchors | `met` | `floor` |\n1. A dimension with a `major` risk in DESIGN, SAMPLE or BIAS forces the overall `high_risk`.",
+    "materials/corpus.md": "## Methods\nThe trial compared the intervention with a placebo control group (n = 120).\n## Results\nThe hazard ratio was 0.62 (95% CI 0.48 to 0.80), p = 0.001.",
+    "materials/empty_note.txt": ""
+  },
+  "output_contract": {
+    "page": "M01 p1-p6",
+    "anchor_table": "anchor_table.csv",
+    "some": "some=-; major=-",
+    "low_risk": "low_risk"
+  }
+}
