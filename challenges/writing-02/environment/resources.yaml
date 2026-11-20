@@ -1,0 +1,35 @@
+# Resource entry declaration — academic-language-polish (writing-02)
+skill: academic-language-polish
+version: 2.0.0
+entrypoint:
+  command: python3 /skills/weekly-skill/scripts/main.py build --input /input --out /app/output --work /app/work
+  script: scripts/main.py
+  argument: build            # subcommands: build | lint | check | selfcheck
+  reads:  /input             # case.json + task.md + manuscript / requirements / template materials
+  writes: /app/output        # polished.md, changes.{json,csv}, coverage.json, glossary.json,
+                             # preserved_facts.json, evidence_map.json, lint_report.json, result.json
+  scratch: /app/work         # draft.json (optional, agent-authored), run_report.json
+  exit_code: 0               # always 0 except argparse usage error (2)
+
+paths:
+  input: /input
+  out: /app/output
+  work: /app/work
+  install_root: /skills/weekly-skill
+
+resources:
+  network: none              # fully offline; no translation/download service
+  packages: none             # Python 3.9+ standard library only
+  python: ">=3.9"
+  models: none               # no external LLM; agent judgement enters only via draft.json
+
+budgets:
+  wall_clock_seconds: 900
+  requests: 64
+  tokens: 16384
+  per_command_timeout_seconds: 300
+
+security:
+  external_scripts: never
+  write_scope: [out, work]   # never rewrites the input tree
+  fabrication_guard: never_invent_citations_statistics_or_figures
