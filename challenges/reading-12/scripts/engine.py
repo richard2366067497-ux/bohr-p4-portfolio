@@ -25,6 +25,7 @@ CHK = [("row_id", "r"), ("field", "f"), ("change_type", "t"), ("original_value",
 PDK = [("row_id", "r"), ("field", "f"), ("reason_code", "rc"), ("reason", "rs"), ("suggested_action", "sa"),
        ("source_locator", "l")]
 BK = ("missing", "needs_review", "merged_duplicate", "replicate", "conflict", "queued_for_review")
+FN = {"v": "value", "lo": "value_low", "hi": "value_high", "e": "value_err"}
 SKEL = {"case_id": "", "case_summary": "", "field_map": {}, "records": [], "groups": [], "claims": [], "pending": [],
         "unmapped_columns": [], "uncertainties": []}
 
@@ -266,7 +267,7 @@ def cr(recs, fd, cat, ut):
         if not rid:
             rid = "derived-%d" % (i + 1)
             rules.append("R002")
-            note.append("derived identifier (the source row had none)")
+            note.append("derived identifier (the source row carried no id)")
         else:
             rules.append("R001")
         b = rid.split("#")[0]
@@ -281,7 +282,7 @@ def cr(recs, fd, cat, ut):
         for role in ("indicator", "material"):
             v = iraw if role == "indicator" else mraw
             t = (syn.get(role) or {}).get(nm(v)) if v else None
-            if t:
+            if t and nm(t) != nm(v):
                 ind, mat = (t, mat) if role == "indicator" else (ind, t)
                 if "R014" not in rules:
                     rules.append("R014")
@@ -354,7 +355,7 @@ def cr(recs, fd, cat, ut):
             if c is None:
                 continue
             r[k] = c[0]
-            ch.append({"r": r["r"], "f": k, "t": "unit_conversion", "ov": r["ov"], "ou": r["u"], "b": r["ov"],
+            ch.append({"r": r["r"], "f": FN[k], "t": "unit_conversion", "ov": r["ov"], "ou": r["u"], "b": r["ov"],
                        "fa": c[1], "of": c[2], "a": c[0], "ut": t, "p": r["d"], "id": "R011", "l": r["l"],
                        "fm": "after = before * %s + %s" % (c[1], c[2])})
         r["u"] = t
