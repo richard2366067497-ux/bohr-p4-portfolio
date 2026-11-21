@@ -1,0 +1,31 @@
+# Resource entry point — sci-analysis-dag (analysis-05, v10)
+schema: resource-entry/v1
+skill: sci-analysis-dag
+entry:
+  command: python3 /skills/weekly-skill/scripts/main.py all
+  arguments: ["--input /input", "--output /app/output", "--work /app/work"]
+  exit_code_expected: 0
+  alternatives: [init, show, check, build, selfcheck]
+references: [references/expert_playbook.md, references/method-notes.md]   # 八步流程/公式/前提检验/陷阱/自查表
+examples: {dir: examples, data: examples/sample_data.csv, expected: "status=ok, 4 checkpoints, 3 inferential tests, 2 figures, 12 artifacts"}
+runtime: {language: python3, version: ">=3.8", third_party: none, network: false, clock: false, model_calls: 0}
+budget: {max_requests: 64, max_seconds: 900, max_tokens: 16384}
+limits:
+  files_per_material_scan: 60   # further files are indexed and left unread
+  bytes_per_file: 500000        # a larger file is read up to the cap; truncation is reported
+  group_min_n_for_test: 3       # below three per group the test is marked indicative only
+  outlier_rule: "IQR 1.5"       # outlier candidates are flagged, never auto-deleted
+inputs:
+  - {path: /input/case.json, required: false, note: "case_id, data_file, task_file, output_contract (authoritative)"}
+  - {path: /input, required: true, note: "csv, tsv, json, jsonl, sqlite, md or txt; anything else is snapshotted and named"}
+  - {path: /app/work/draft.json, required: false, note: "decisions such as {dedupe, missing.required}; overrides the default cleaning policy"}
+outputs:
+  [analysis_report.md, stats.json, cleaned/data_clean.csv, checkpoint_ledger.jsonl, pipeline_dag.json,
+   field_mapping.json, data_quality.json, verification.json, code/reproduce.md, figures/figure_01.svg,
+   figures/figure_02.svg, result.json]
+workdir: /app/work
+degradation:
+  missing_input: status=failed, every contract key present with an honest envelope, exit 0
+  unreadable_material: snapshotted, named in the inventory, nothing guessed
+  no_tabular_data: input-inventory chart + all honest artifacts, status=partial
+  small_group: the test is withheld or marked indicative with its n recorded
