@@ -1,0 +1,8 @@
+Methylene blue removal on TiO2 P25 (runnable example material)
+
+Methylene blue (MB) at 10 mg/L was degraded over TiO2 P25 (0.5 g/L) under 365 nm UV light.
+After 120 min at pH 3 the removal efficiency reached 95%, with an equilibrium concentration
+Ce of 0.5 mg/L.
+
+At pH 9 the removal efficiency fell to 62% (Ce = 3.8 mg/L), consistent with weaker adsorption
+of the cationic dye at alkaline pH.
