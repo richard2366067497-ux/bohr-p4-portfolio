@@ -19,6 +19,14 @@ description: 给定研究问题、纳排标准与标题摘要题录快照，做�
 - 冲突用**标准仲裁**（记录分歧点、类型、依据），不用多数投票；模拟双标注如实标注，不声称真实人类；
 - 标准版本哈希锁定，所有判断记录 `standard_version`；只对给定快照负责，不声称全局召回。
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -52,10 +60,6 @@ description: 给定研究问题、纳排标准与标题摘要题录快照，做�
 ```
 
 ## 单命令（one-shot，评测入口）
-
-```bash
-python3 scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 - 一条命令走完：扫描材料 → 定义并冻结纳排标准版本 → 记录检索协议 → 去重（含预印本/正式版合并）→
   逐条标题摘要筛选 → 双人独立判断与标准仲裁 → 计数闭合校验 → 落盘。
