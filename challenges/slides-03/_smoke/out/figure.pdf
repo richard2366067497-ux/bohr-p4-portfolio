@@ -1,0 +1,61 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1200.0 750.0] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >> >> /Contents 7 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+7 0 obj
+<< /Length 1773 >>
+stream
+BT /F2 18.75 Tf 0.106 0.165 0.200 rg 289.69 694.50 Td (Mechanism figure \(draft not supplied - degraded from workorder/material\)) Tj ET
+BT /F1 10.50 Tf 0.365 0.427 0.494 rg 413.20 675.00 Td (status=partial: entity types, arrow semantics and compartments are unconfirmed) Tj ET
+0.980 0.984 0.988 rg 36.00 93.00 1128.00 558.00 re f
+0.835 0.859 0.875 RG 0.75 w 36.00 93.00 1128.00 558.00 re S
+BT /F3 11.25 Tf 0.216 0.278 0.310 rg 45.00 633.00 Td (Cytoplasm) Tj ET
+0.925 0.937 0.945 rg 520.50 351.75 159.00 40.50 re f
+0.329 0.431 0.478 RG 0.98 w 520.50 351.75 159.00 40.50 re S
+0.122 0.435 0.698 RG 1.80 w [] 0 d 520.50 372.00 m 600.00 372.00 l S
+0.122 0.435 0.698 RG 1.80 w [] 0 d 600.00 372.00 m 600.00 372.00 l S
+0.122 0.435 0.698 RG 1.80 w [] 0 d 600.00 372.00 m 679.50 372.00 l S
+0.122 0.435 0.698 rg 679.50 372.00 m 671.25 368.55 l 671.25 375.45 l h f
+0.122 0.435 0.698 RG 0.75 w 679.50 372.00 m 671.25 368.55 l 671.25 375.45 l h S
+0.812 0.847 0.863 RG 0.75 w [] 0 d 36.00 93.00 m 1164.00 93.00 l S
+BT /F3 10.50 Tf 0.216 0.278 0.310 rg 36.00 76.50 Td (Legend \(generated from what the canvas encodes\)) Tj ET
+0.925 0.937 0.945 rg 36.00 57.00 13.50 10.50 re f
+0.329 0.431 0.478 RG 0.75 w 36.00 57.00 13.50 10.50 re S
+BT /F1 10.50 Tf 0.216 0.278 0.310 rg 57.00 58.50 Td (entity type: unspecified) Tj ET
+0.122 0.435 0.698 RG 1.80 w [] 0 d 318.00 62.25 m 334.50 62.25 l S
+0.122 0.435 0.698 rg 334.50 62.25 m 326.25 58.80 l 326.25 65.70 l h f
+0.122 0.435 0.698 RG 0.75 w 334.50 62.25 m 326.25 58.80 l 326.25 65.70 l h S
+BT /F1 10.50 Tf 0.216 0.278 0.310 rg 339.00 58.50 Td (relation type: activation) Tj ET
+BT /F1 10.50 Tf 0.471 0.565 0.612 rg 36.00 12.00 Td (Every node and edge carries a locator and a verbatim quote in content_map.json; all text is editable <text>.) Tj ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000266 00000 n 
+0000000363 00000 n 
+0000000468 00000 n 
+0000000570 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+2395
+%%EOF
