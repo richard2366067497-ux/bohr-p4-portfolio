@@ -1,7 +1,8 @@
-# SELFTEST — latex-free-format-adapter（writing-03）
+# SELFTEST — latex-free-format-adapter（writing-03, v10）
 
 记录本包的自测结果：一键入口、脚本级降级路径、产物字节区间与已知边界。
 所有命令用 `python3 <pkg>/scripts/main.py …`；退出码恒为 0（仅 argparse 用法错误为 2）。
+随包新增专家方法论 `references/expert_playbook.md`，SKILL.md §0 要求执行前必读并按其检查表产出。
 
 ## 1. 一键复现
 
@@ -68,3 +69,32 @@ python3 <pkg>/scripts/main.py selfcheck --input <case>/rich --output /tmp/out --
 - 证据链依赖参考文献的 DOI 与包内原文片段；缺 DOI 时只判到 `source_not_found`。
 - 版面视觉效果未与渲染样本比对，`limits` 中明写该边界。
 - 输入含 UTF-8 BOM 时按 `utf-8-sig` 读取，BOM 不进入正文或定位符。
+
+## 6. v10 复跑结果
+
+`eval_sim.py` 四组组合（`work/p4/v10/writing-03` × {rich,boundary} × {single,agent}）全 **PASS**，
+`failures=[] warnings=[]`；入口识别为 single-command（上下文取 SKILL.md §1）。
+契约来源：rich `case.json:output_contract`（5 键）、boundary `SKILL.md (json sample)`（同 5 键）。
+
+单命令实跑（输入 `examples/`）：`exit 0`，写出 7 个交付物与合法 `result.json`
+（无模板/无要求文件 → 10 个规格项标 inferred、`status=partial`，未冒充已验证）。`__pycache__` 已清理。
+
+## 7. 包清单（v10）
+
+```
+SKILL.md                      14414 B
+README.md                      4326 B
+SELFTEST.md                   <this file>
+GITHUB_URL.txt                  112 B
+GAIN_EVIDENCE.md               2319 B
+environment/resources.yaml     1589 B
+examples/case.json              368 B
+examples/manuscript.md          986 B
+references/format-spec.md      3792 B
+references/expert_playbook.md 11626 B
+scripts/main.py                2407 B
+scripts/core.py               22753 B
+scripts/adapter.py            22698 B
+```
+
+13 个文件、合计 92,204 B（≤14 文件、≤150KB、单文件 ≤30000B、纯标准库、无网络）。
