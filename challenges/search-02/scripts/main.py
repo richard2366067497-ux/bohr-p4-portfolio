@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""rq-driven-retrieval v6: `all` + init/show/check/build/selfcheck; stdlib, offline, exit 0."""
+"""rq-driven-retrieval v10: `all` + init/show/check/build/selfcheck; stdlib, offline, exit 0."""
 import argparse, json, os, re, sys, time, traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-SKILL, VERSION = "rq-driven-retrieval", "6.0.0"
+SKILL, VERSION = "rq-driven-retrieval", "10.0.0"
 T0 = time.time()
 TEXT_EXT = {".md", ".markdown", ".txt", ".json", ".jsonl", ".tex", ".csv", ".tsv",
             ".yaml", ".yml", ".bib", ".html", ".htm", ".svg"}
@@ -411,7 +411,9 @@ def build_artifacts(out, idx, ctx):
     wj(out / "subquestions.json", {"case_id": ctx["case_id"], "question": ctx["question"], "subquestions": ctx["subquestions"]})
     (out / "candidates.jsonl").write_text(
         "".join(json.dumps(deep_clean(c), ensure_ascii=False) + "\n" for c in ctx["candidates"]) or
-        json.dumps({"status": "no_candidate_records"}, ensure_ascii=False) + "\n", encoding="utf-8")
+        json.dumps({"status": "no_candidate_records", "candidates": [],
+                    "note": "no bibliographic record was detected in the supplied snapshot; an honest empty candidate set is delivered and the gap is recorded in degradations"},
+                   ensure_ascii=False) + "\n", encoding="utf-8")
     led = ctx["ledger"]
     wj(out / "evidence_ledger.json", {"entries": led, "verified": len([x for x in led if x.get("verified")]),
                                       "unverified": len([x for x in led if not x.get("verified")])})
