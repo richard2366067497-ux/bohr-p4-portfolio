@@ -1,0 +1,13 @@
+{
+  "case_id": "example-reading-06",
+  "language": "en",
+  "materials_root": ".",
+  "notes": "Synthetic runnable example for field-extraction; not an official test case.",
+  "output_contract": {
+    "case_id": "case identifier echoed back",
+    "status": "overall run status",
+    "result": "per-field ledger with coverage counters",
+    "claims": "one claim record per settled field",
+    "uncertainties": "open items that a re-read could settle"
+  }
+}
