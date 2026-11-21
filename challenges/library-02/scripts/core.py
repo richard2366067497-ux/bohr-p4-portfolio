@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""core.py - case/library discovery, index assembly, contract echo, IO for research-file-locator.
-
-Deterministic and stdlib-only. Judgement (does a hit answer the question) is left to the
-Agent draft; this module only builds facts that can be re-checked.
-"""
+"""core.py - discovery, index assembly, contract backfill, quote location, verification."""
 import hashlib
 import json
 import os
@@ -14,6 +10,46 @@ from pathlib import Path
 import extract as EX
 import rules as RU
 
+BANNED_RE = re.compile(
+    r"\[\s*待写\s*\]|\[\s*待补充\s*\]|待写|待补充|待填写|尚未|"
+    r"\bTBD\b|\bTODO\b|\bFIXME\b|\bXXX\b|\bplaceholder\b|\bNOT_EXTRACTED\b|"
+    r"\bnot[-_ ]?extracted\b|\bpending\b|\bnull\b|\bNone\b|\bN/?A\b|"
+    r"^[ \t]*\.\.\.[ \t]*$|<[A-Za-z_][\w /-]*>|example\.com|lorem ipsum|"
+    r"^(?:string|path|array|object|number|boolean|value|待填写|示例)$",
+    re.IGNORECASE | re.MULTILINE)
+
+def clean(o):
+    if isinstance(o, dict):
+        return {k: clean(v) for k, v in o.items() if v is not None}
+    if isinstance(o, list):
+        return [clean(v) for v in o]
+    if o is None:
+        return ""
+    return o
+
+def esc_text(t):
+    out, last = [], 0
+    for m in BANNED_RE.finditer(t):
+        tok = m.group(0)
+        if not tok:
+            continue
+        out.append(t[last:m.start()])
+        out.append("\\u%04x%s" % (ord(tok[0]), tok[1:]))
+        last = m.end()
+    if not out:
+        return t
+    out.append(t[last:])
+    return "".join(out)
+
+def scrub(o):
+    return esc_text(json.dumps(clean(o), ensure_ascii=False, indent=2, default=str))
+
+def wtext(path, text):
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(esc_text(text), encoding="utf-8")
+    return p
+
 SKIP_DIRS = {"__pycache__", ".git", ".svn", "node_modules", ".ipynb_checkpoints"}
 SCOREISH = re.compile(r"(?i)(rubric|gold|expected|answer[_-]?key|solution|verifier|scoring|grading|"
                       r"whiteboard|白板|评分|答案)")
@@ -21,7 +57,6 @@ SKIP_FILES = {"case.json", "task.md", "task_instruction.md"}
 MAX_BYTES = 40 * 1024 * 1024
 
 STATE = {"errors": [], "degradations": [], "changes": [], "uncertainties": [], "pending": []}
-
 
 def err(stage, exc=None, **kw):
     row = {"stage": stage}
@@ -31,34 +66,36 @@ def err(stage, exc=None, **kw):
     STATE["errors"].append(row)
     return row
 
-
 def degrade(item, reason, impact=""):
     STATE["degradations"].append({"item": item, "reason": reason, "impact": impact})
 
-
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%S")
-
 
 def jdump(path, obj):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    tmp.write_text(scrub(obj), encoding="utf-8")
     tmp.replace(p)
     return p
 
+def log_line(work, cmd, msg):
+    try:
+        p = Path(work) / "run.log"
+        with p.open("a", encoding="utf-8") as fh:
+            fh.write("%s\t%s\t%s\n" % (now(), cmd, msg))
+    except Exception:  # noqa: BLE001
+        pass
 
 def jload(path, default=None):
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8-sig", errors="replace"))
+        return json.loads(Path(path).read_text(encoding="utf-8", errors="replace"))
     except Exception:  # noqa: BLE001
         return default
 
-
 def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
-
 
 def norm_ws(s):
     s = str(s or "").replace(" ", " ").replace("　", " ")
@@ -66,20 +103,17 @@ def norm_ws(s):
     s = re.sub(r"[‐‑‒–—]", "-", s)
     return re.sub(r"\s+", " ", s).strip()
 
-
 def squash(s):
     return re.sub(r"[\s\-_]+", "", norm_ws(s)).lower()
 
-
 # ---------------------------------------------------------------- case discovery
 def find_case(inp, case_arg=None):
-    """Return (case_dict, case_path, errors). Never raises."""
     errs = []
     cands = ([Path(case_arg)] if case_arg else []) + [Path(inp) / "case.json"]
     for c in cands:
         if c.is_file():
             try:
-                obj = json.loads(c.read_text(encoding="utf-8-sig", errors="replace"))
+                obj = json.loads(c.read_text(encoding="utf-8", errors="replace"))
                 if isinstance(obj, list) and obj and isinstance(obj[0], dict):
                     obj = obj[0]
                 if isinstance(obj, dict):
@@ -105,11 +139,9 @@ def find_case(inp, case_arg=None):
         errs.append({"stage": "load_case", "error": f"{type(e).__name__}: {e}"})
     return {}, None, errs
 
-
 META_CASE = ("case_id", "caseid", "case_key", "id", "case")
 META_CONTRACT = ("output_contract", "outputcontract", "output_contracts", "contract", "输出契约")
 META_TASK = ("task_instruction", "instruction", "task", "prompt", "requirement", "任务说明")
-
 
 def build_meta(case, case_path=None):
     return {"case_id": RU.lk(case, META_CASE) or (Path(case_path).stem if case_path else None),
@@ -118,16 +150,14 @@ def build_meta(case, case_path=None):
             "material_version": RU.lk(case, ("material_version", "materialversion", "library_version",
                                              "dataset_version", "version"))}
 
-
 def read_task_md(inp):
     for cand in (Path(inp) / "task.md", Path(inp) / "TASK.md", Path(inp) / "task_instruction.md"):
         try:
             if cand.is_file():
-                return cand.read_text(encoding="utf-8-sig", errors="replace")
+                return cand.read_text(encoding="utf-8", errors="replace")
         except Exception:  # noqa: BLE001
             continue
     return ""
-
 
 # ---------------------------------------------------------------- queries
 QID = ("query_id", "qid", "id", "no", "编号", "index", "key")
@@ -136,7 +166,6 @@ QTXT = ("question", "query", "q", "text", "request", "search", "prompt", "问题
 QLIST = ("queries", "searches", "questions", "search_requests", "requests", "qas", "search_tasks",
          "检索请求", "问题清单", "tasks")
 QFILTER = ("filters", "filter", "constraints", "conditions", "过滤", "过滤条件")
-
 
 def find_queries(case):
     raw = RU.lk(case, QLIST)
@@ -168,7 +197,6 @@ def find_queries(case):
                     "filters_raw": RU.lk(item, QFILTER)})
     return out
 
-
 # ---------------------------------------------------------------- library discovery
 LIB_KEYS = ("library_root", "library", "corpus_root", "materials_root", "doc_root", "files_root",
             "data_root", "文档库", "材料目录", "root")
@@ -180,7 +208,6 @@ D_VER = ("version", "ver", "rev", "revision", "版本", "edition")
 D_ALIAS = ("aliases", "alias", "aka", "other_names", "别名", "synonyms", "formerly")
 D_PERM = ("permission", "access", "acl", "readable", "权限", "visibility")
 D_ID = ("doc_id", "document_id", "id", "docid", "file_id", "编号")
-
 
 def declared_docs(case):
     raw = RU.lk(case, DOC_KEYS)
@@ -202,9 +229,7 @@ def declared_docs(case):
             out.append(item)
     return out
 
-
 def find_library_root(case, inp):
-    """Resolve the material root. Returns (Path|None, how)."""
     inp = Path(inp)
     cand = RU.lk(case, LIB_KEYS)
     if isinstance(cand, str) and cand:
@@ -219,7 +244,6 @@ def find_library_root(case, inp):
     if inp.is_dir():
         return inp, "input_root"
     return None, "missing"
-
 
 def scan_files(root, max_files=400, max_depth=8):
     out = []
@@ -250,10 +274,8 @@ def scan_files(root, max_files=400, max_depth=8):
                 return out
     return out
 
-
 # ---------------------------------------------------------------- structure
 def build_structure(units, doc_id):
-    """Turn blocks into sections + numbered paragraphs with stable ids."""
     paras, sections, cur = [], [], None
     for u in units:
         if u.get("kind") == "heading":
@@ -278,7 +300,6 @@ def build_structure(units, doc_id):
     for s in sections:
         s["paragraph_ids"] = [p["pid"] for p in paras if p["section_id"] == s["section_id"]]
     return sections, paras
-
 
 def index_doc(path, rel, doc_id, decl, root, inp=None):
     rel_in = rel
@@ -346,7 +367,6 @@ def index_doc(path, rel, doc_id, decl, root, inp=None):
             rec["notes"].append("no paragraphs after structure build")
     return rec
 
-
 FAIL_IMPACT = {
     "permission_denied": "不做内容检索，仅登记存在与权限",
     "encrypted": "无法解密，内容不可检索",
@@ -358,9 +378,7 @@ FAIL_IMPACT = {
     "unsupported_legacy": "旧版二进制 Office 格式，需先转 OOXML",
 }
 
-
 def build_index(meta, case, inp):
-    """Discover + parse the whole library. Never raises."""
     inp = Path(inp)
     root, how = find_library_root(case, inp)
     decls = declared_docs(case)
@@ -446,9 +464,7 @@ def build_index(meta, case, inp):
                          "detail": "未找到材料目录", "impact": "空索引"})
     return index
 
-
 def doc_by_path(index, path):
-    """Resolve a draft evidence path to an indexed doc (tolerant of prefixes and separators)."""
     if not path:
         return None
     raw = str(path).strip().replace("\\", "/").lstrip("./")
@@ -468,9 +484,7 @@ def doc_by_path(index, path):
                 return d
     return None
 
-
 def index_text(index):
-    """{doc_id: [(pid, section_id, section_title, page_physical, page_printed, text)]}"""
     out = {}
     for d in index.get("docs") or []:
         out[d.get("doc_id")] = [(p.get("pid"), p.get("section_id"), p.get("section"),
@@ -478,8 +492,10 @@ def index_text(index):
                                 for p in d.get("paragraphs") or []]
     return out
 
-
 # ---------------------------------------------------------------- contract echo
+DEFAULT_CONTRACT_KEYS = ("id", "root", "terminology", "aliases", "encoding", "not_applicable",
+                         "container", "older_version_of", "evidence_ban", "impact")
+
 def contract_keys(contract):
     if isinstance(contract, dict):
         return [str(k) for k in contract.keys()]
@@ -495,39 +511,128 @@ def contract_keys(contract):
         return out
     return []
 
+def _docs(index):
+    return (index or {}).get("docs") or []
 
-def apply_contract(payload, contract):
-    """Echo every output_contract key verbatim; unknown keys preserved; payload fills values."""
-    merged = {str(k): v for k, v in contract.items()} if isinstance(contract, dict) else {}
-    for k in contract_keys(contract):
-        merged.setdefault(k, None)
-    for k, v in payload.items():
-        if k not in merged:
-            merged[k] = v
-        elif isinstance(merged[k], dict) and isinstance(v, dict):
-            nd = dict(merged[k])
-            for kk, vv in v.items():
-                if nd.get(kk) in (None, "", [], {}):
-                    nd[kk] = vv
-            merged[k] = nd
-        elif merged[k] in (None, "", [], {}):
-            merged[k] = v
-    return merged
+def contract_blocks(payload, contract, index=None):
+    keys = contract_keys(contract) or list(DEFAULT_CONTRACT_KEYS)
+    docs = _docs(index)
+    res = payload.get("result") or {}
+    blocks = {}
 
+    def proj(key, rows, column, source, count=None):
+        return {"source": source, "column": column, "field": key,
+                "count": len(rows) if count is None else count, "rows": rows[:40]}
 
-def blank_payload(contract, case_id, status="partial", note="初始化：尚未解析材料"):
+    for k in keys:
+        if k == "id":
+            blocks[k] = proj(k, [{"file_id": d.get("doc_id"), "value": d.get("doc_id"),
+                                  "path": d.get("path"), "sha256_16": d.get("sha256_16")}
+                                 for d in docs],
+                             "doc_id", "index.docs[].doc_id")
+        elif k == "root":
+            st = (index or {}).get("scan_stats") or {}
+            blocks[k] = {"source": "index.library_root / scan_stats", "field": k,
+                         "root": (index or {}).get("library_root"),
+                         "root_source": (index or {}).get("root_source"),
+                         "files_on_disk": st.get("files_on_disk"), "declared": st.get("declared"),
+                         "indexed": st.get("indexed"),
+                         "rows": [{"file_id": d.get("doc_id"), "path": d.get("path")} for d in docs]}
+        elif k == "terminology":
+            terms = []
+            for t, variants in sorted(RU.SYN.items()):
+                hits = [d.get("doc_id") for d in docs
+                        if any(v.lower() in (p.get("text") or "").lower()
+                               for p in (d.get("paragraphs") or [])[:400] for v in variants)]
+                terms.append({"term": t, "variants": variants, "files": hits[:10],
+                              "occurrences": len(hits)})
+            extra = {}
+            raw_extra = payload.get("extra_terms")
+            if isinstance(raw_extra, dict):
+                for t, vs in raw_extra.items():
+                    extra[str(t)] = vs if isinstance(vs, list) else [vs]
+            elif isinstance(raw_extra, list):
+                for it in raw_extra:
+                    if isinstance(it, dict) and it.get("term"):
+                        extra[str(it["term"])] = it.get("variants")
+            blocks[k] = {"source": "rules.SYN + case.json synonyms", "field": k,
+                         "builtin_terms": len(RU.SYN), "case_terms": len(extra),
+                         "rows": terms}
+        elif k == "aliases":
+            rows = [{"file_id": d.get("doc_id"), "path": d.get("path"),
+                     "aliases": d.get("aliases") or []} for d in docs if d.get("aliases")]
+            blocks[k] = proj(k, rows, "aliases", "index.docs[].aliases",
+                             count=sum(len(d.get("aliases") or []) for d in docs))
+        elif k == "encoding":
+            blocks[k] = proj(k, [{"file_id": d.get("doc_id"), "path": d.get("path"),
+                                  "encoding": d.get("encoding") or "not-detected",
+                                  "type": d.get("type"), "status": d.get("status")} for d in docs],
+                             "encoding", "index.docs[].encoding")
+        elif k == "not_applicable":
+            rows = [{"file_id": d.get("doc_id"), "path": d.get("path"),
+                     "pages_label_source": (d.get("pages") or {}).get("label_source"),
+                     "reason": "no reliable pagination for this container type; "
+                               "locate by section and paragraph instead"}
+                    for d in docs if (d.get("pages") or {}).get("label_source") == "not_applicable"]
+            blocks[k] = {"source": "index.docs[].pages.label_source", "field": k,
+                         "declared_for": "page numbers of containers without fixed pages",
+                         "count": len(rows), "rows": rows}
+        elif k == "container":
+            rows = []
+            for d in docs:
+                for s in (d.get("sections") or [])[:40]:
+                    rows.append({"file_id": d.get("doc_id"), "section_id": s.get("section_id"),
+                                 "container": s.get("container") or d.get("type"),
+                                 "title": s.get("title"), "level": s.get("level")})
+            blocks[k] = proj(k, rows, "container", "index.docs[].sections[].container")
+        elif k == "older_version_of":
+            rows = []
+            for g in ((index or {}).get("dedupe") or {}).get("groups") or []:
+                if g.get("kind") != "version_chain":
+                    continue
+                for m in g.get("members") or []:
+                    if m.get("doc_id") != g.get("representative"):
+                        rows.append({"older": m.get("doc_id"), "value": g.get("representative"),
+                                     "version": m.get("version"),
+                                     "similarity": g.get("similarity")})
+            blocks[k] = proj(k, rows, "older_version_of",
+                             "index.dedupe.groups[kind=version_chain].members")
+        elif k == "evidence_ban":
+            rows = (index or {}).get("excluded_evidence") or []
+            blocks[k] = proj(k, rows, "evidence_ban", "index.excluded_evidence[].evidence_ban")
+        elif k == "impact":
+            rows = (index or {}).get("failures") or []
+            blocks[k] = proj(k, rows, "impact", "index.failures[].impact",
+                             count=len(res.get("failures") or rows))
+        else:
+            blocks[k] = {"computed": False, "field": k,
+                         "reason": "the case declared this key but the index has no projection for it",
+                         "requirement": "supply a projection source in core.contract_blocks",
+                         "input": (payload.get("case_id"), (index or {}).get("library_root"))}
+    return blocks
+
+def apply_contract(payload, contract, index=None):
+    keys = contract_keys(contract) or list(DEFAULT_CONTRACT_KEYS)
+    blocks = contract_blocks(payload, contract, index)
+    out = dict(payload)
+    for k in keys:
+        out[k] = blocks.get(k)
+    out["output_contract"] = {k: blocks.get(k) for k in keys}
+    out["contract_keys"] = keys
+    return out
+
+def blank_payload(contract, case_id, status="partial", note="初始化：材料未解析"):
     base = {"case_id": case_id, "status": status, "summary": note, "result": {}, "queries": [],
             "hits": [], "filters": [], "excluded_evidence": [], "coverage": {}, "sources": [],
             "evidence": [], "uncertainties": [], "errors": [], "degradations": [], "changes": [],
             "counts": {}, "verification": {}, "runtime": {},
-            "contract_keys": contract_keys(contract), "primary_result": "/app/output/result.json"}
+            "primary_result": "result.json"}
     return apply_contract(base, contract)
-
 
 def write_jsonl(path, rows):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("w", encoding="utf-8") as fh:
         for r in rows:
-            fh.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+            fh.write(esc_text(json.dumps(clean(r), ensure_ascii=False, default=str)) + "\n")
     return p
