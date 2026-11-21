@@ -24,7 +24,7 @@ python3 scripts/main.py all \
 python3 scripts/main.py selfcheck --output /tmp/sr-out
 ```
 
-`examples/` 里有 `case.json` 与两页两栏样例 `sample.pdf`（表格、公式、题注、参考文献、页眉页脚
+`examples/` 里有 `case.json`（契约样例；材料由平台隐藏案例提供）
 齐全），可以直接看到版式重建的结果。
 
 ## 命令
@@ -52,7 +52,7 @@ GITHUB_URL.txt                  仓库地址
 environment/resources.yaml      资源入口声明
 templates/reading-notes-template.md  人读笔记模板（对齐交付物字段）
 examples/case.json              样例契约
-examples/sample.pdf             两页两栏样例材料
+examples/sample.md             两页两栏样例材料
 scripts/main.py                 CLI：契约、索引、编排、自检、对照
 scripts/pdf_engine.py           纯标准库 PDF 文本层 + 版式与阅读顺序
 scripts/report_engine.py        结构抽取、覆盖矩阵、证据、草稿候选
