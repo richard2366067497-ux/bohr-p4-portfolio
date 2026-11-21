@@ -21,6 +21,14 @@ are reported as absent, never written as if present. The `output_contract` keys 
 echoed both at the top level of `result.json` and inside its `output_contract`
 object, and `case_id` is passed through unchanged.
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（专家方法论）
 
 **动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
@@ -55,11 +63,7 @@ way. `status` is one of `answered`, `partial`, `insufficient_evidence`,
 ## 1. 单命令（one-shot，评测入口，无 draft 时执行）
 
 Run this single command; with no draft it still writes every artifact and a
-complete `result.json` and exits 0. **无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+complete `result.json` and exits 0.
 
 ## 2. agent-first 增强路径（质量更高，可选）
 
