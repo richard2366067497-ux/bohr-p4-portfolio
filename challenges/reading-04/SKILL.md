@@ -41,6 +41,8 @@ version: 3.0.0
 
 单命令即可产出完整契约与全部关键产物（评测只跑这一条也能过）：
 
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ```
 python3 /skills/weekly-skill/scripts/main.py build \
   --input /input --output /app/output --work /app/work
