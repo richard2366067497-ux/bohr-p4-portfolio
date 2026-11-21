@@ -1,17 +1,6 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""main.py - research-file-locator: five-command main path.
-
-  python3 -B scripts/main.py init       # index the library, write a legal partial result.json
-  python3 -B scripts/main.py show       # print a locator-bearing catalogue for the Agent to quote
-  python3 -B scripts/main.py check      # machine-verify the Agent draft (/app/work/draft.json)
-  python3 -B scripts/main.py build      # turn the draft into result.json + artifacts (always finalizes)
-  python3 -B scripts/main.py selfcheck  # re-verify the emitted result.json
-
-Exit code is always 0. A legal partial result.json is written before any parsing.
-The script never decides what a hit means; that judgement lives in the Agent draft
-(see report.py for the verification layer and rules.py for retrieval/filter/dedupe rules).
-"""
+"""main.py - research-file-locator CLI: all / init / show / check / build / selfcheck / fixtures."""
+#!/usr/bin/env python3
 import argparse
 import sys
 import time
@@ -22,18 +11,17 @@ sys.path.insert(0, str(HERE))
 import core    # noqa: E402
 import rules   # noqa: E402
 import report  # noqa: E402
-from report import (assemble, draft_rows, global_conds, load_draft, match_row,  # noqa: E402
-                    query_conds, verify_payload, verify_row)
+import extract  # noqa: E402
+from report import (assemble, draft_rows, extra_syn, global_conds, load_draft,  # noqa: E402
+                    match_row, query_conds, verify_payload, verify_row)
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 T0 = time.time()
 QSTAT = report.QSTAT
 STATUS_ALIAS = report.STATUS_ALIAS
 
-
 def P(msg=""):
     print(msg)
-
 
 # ---------------------------------------------------------------- environment
 def resolve_dirs(args):
@@ -81,13 +69,121 @@ def write_partial(out, meta, index, queries):
                            "docs_total": len(docs), "queries_expected": len(queries or [])}
     payload["queries"] = [{"query_id": q["query_id"], "question": q["question"], "answer": "",
                            "status": "not_found", "evidence": [],
-                           "search_scope": "尚未检索（init 阶段）"} for q in (queries or [])]
+                           "search_scope": "未检索（init 阶段）"} for q in (queries or [])]
     payload["result"] = {"queries": payload["queries"], "hits": [], "coverage": payload["coverage"]}
     payload["sources"] = [{"type": d.get("type"), "path": d.get("path"), "sha256_16": d.get("sha256_16")}
                           for d in docs[:60]]
     payload["degradations"] = [{"item": "draft", "reason": "agent_draft_not_written",
                                 "impact": "未经 Agent 裁决，仅有索引与空答案"}]
     core.jdump(Path(out) / "result.json", payload)
+
+# ---------------------------------------------------------------- agent work-ahead
+def write_candidates(work, case, index, queries):
+    extra = extra_syn(case)
+    rows = []
+    for q in queries:
+        conds = query_conds(case, q)
+        hits, blocked, satisfiable = rules.search(index, q["question"], conds, extra)
+        n_par = sum(len(d.get("paragraphs") or []) for d in (index.get("docs") or []))
+        best = hits[0] if hits else None
+        para = None
+        if best:
+            doc = core.doc_by_path(index, best.get("path"))
+            for p in (doc or {}).get("paragraphs") or []:
+                if p.get("pid") == best.get("paragraph_id"):
+                    para = p
+                    break
+        rows.append({
+            "query_id": q["query_id"], "question": q["question"], "answer": "",
+            "status": "partially_answered" if para is not None else "not_found",
+            "filters_applied": [rules.filter_text(c) for c in conds],
+            "search_scope": ("脚本候选检索：%d 个文档、%d 段，命中 %d，过滤可满足=%s；"
+                             "取最高分段落作为待核引文"
+                             % (len(index.get("docs") or []), n_par, len(hits), satisfiable)),
+            "evidence": ([{"path": best.get("path"), "section": best.get("section"),
+                           "paragraph_id": best.get("paragraph_id"),
+                           "page_physical": best.get("page_physical"),
+                           "page_printed": best.get("page_printed"),
+                           "quote": para.get("text")}] if para is not None else []),
+            "candidates": [{k: h.get(k) for k in ("doc_id", "path", "section", "paragraph_id",
+                                                  "page_physical", "page_printed", "score")}
+                           for h in hits[:3]],
+            "notes": "脚本预填：引文逐字、locator 待 check 复核；answer 与 status 由 Agent 裁决"})
+    payload = {"case_id": (index or {}).get("case_id"), "queries": rows,
+               "excluded_evidence": list(index.get("excluded_evidence") or []),
+               "filters": [dict(r) for r in rules.filter_ledger(global_conds(case),
+                                                                index.get("docs") or [])],
+               "method_notes": {"index_granularity": "section+paragraph",
+                                "synonym_strategy": "builtin SYN + case synonyms",
+                                "filter_order": "hard filters -> retrieve -> quote verify"},
+               "uncertainties": [{"item": "adjudication",
+                                  "detail": "预填候选来自脚本打分，未做语义裁决"}]}
+    core.jdump(Path(work) / "draft.candidates.json", payload)
+    core.jdump(Path(work) / "draft.template.json", payload)
+    return payload
+
+# ---------------------------------------------------------------- fixtures
+FIXTURES = {
+    "encrypted.pdf": b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+                     b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                     b"3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\ntrailer\n"
+                     b"<< /Root 1 0 R /Encrypt 9 0 R >>\n%%EOF\n",
+    "scan_only.pdf": b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+                     b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                     b"3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n"
+                     b"4 0 obj\n<< /Length 24 >>\nstream\nq 612 0 0 792 0 0 cm Q\nendstream\n"
+                     b"endobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+    "legacy.doc": b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 96,
+    "broken.docx": b"PK\x03\x04" + b"this is not a zip container" * 3,
+    "empty.md": b"",
+    "dup_a/run-notes.md": "# Run notes\nBatch B-17 ELISA readout; see plate sheet.\n".encode(),
+    "dup_b/run-notes.md": "# Run notes\nBatch B-17 ELISA readout; see plate sheet.\n".encode(),
+    "denied/private.md": "# Private\nRestricted protocol; index presence only.\n".encode(),
+}
+FIXTURE_EXPECT = {
+    "encrypted.pdf": "encrypted", "scan_only.pdf": "no_text_layer", "legacy.doc": "unsupported_legacy",
+    "broken.docx": "corrupt", "empty.md": "empty_file", "dup_a/run-notes.md": "ok",
+    "dup_b/run-notes.md": "ok", "denied/private.md": "permission_denied",
+}
+
+def fixtures_run(work):
+    base = Path(work) / "fixtures"
+    for rel, data in FIXTURES.items():
+        p = base / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+    rows, ok_all = [], True
+    for rel, want in FIXTURE_EXPECT.items():
+        p = base / rel
+        decl = {"permission": "denied"} if rel.startswith("denied/") else None
+        try:
+            rec = core.index_doc(p, rel, "FX-" + rel.split("/")[-1], decl, base, base)
+            got = rec.get("status")
+        except Exception as e:  # noqa: BLE001
+            got = "exception:" + type(e).__name__
+        ok = got == want
+        ok_all = ok_all and ok
+        rows.append({"fixture": rel, "bytes": p.stat().st_size, "expected": want, "got": got, "ok": ok})
+    dup = [core.index_doc(base / r, r, "FX-" + r.split("/")[-1], None, base, base)
+           for r in ("dup_a/run-notes.md", "dup_b/run-notes.md")]
+    groups, excluded, conflicts = rules.dedupe(dup)
+    kinds = [g.get("kind") for g in groups]
+    dup_ok = "identical_copy" in kinds and bool(excluded)
+    rep = {"fixtures": rows, "all_expected": ok_all, "duplicate_group_kind": kinds,
+           "duplicate_excluded": len(excluded), "duplicate_ok": dup_ok,
+           "ok": bool(ok_all and dup_ok), "checked_at": core.now()}
+    core.jdump(Path(work) / "fixtures_report.json", rep)
+    return rep
+
+def cmd_fixtures(args):
+    ctx = load_ctx(args)
+    rep = fixtures_run(ctx["work"])
+    core.log_line(ctx["work"], "fixtures", "ok=%s" % rep["ok"])
+    P(f"[fixtures] expected-status={rep['all_expected']} duplicate={rep['duplicate_ok']} "
+      f"({rep['duplicate_excluded']} excluded) ok={rep['ok']}")
+    for r in rep["fixtures"]:
+        P(f"  {'ok ' if r['ok'] else 'BAD'} {r['fixture']}: expected {r['expected']} got {r['got']}")
+    return 0
 
 # ---------------------------------------------------------------- init
 def cmd_init(args):
@@ -103,28 +199,18 @@ def cmd_init(args):
     core.jdump(work / "index.json", index)
     core.jdump(work / "queries.json", {"case_id": meta.get("case_id"), "queries": queries,
                                        "task_md_chars": len(task_md)})
-    tmpl = {"case_id": meta.get("case_id"), "queries": [], "excluded_evidence": [],
-            "filters": [], "method_notes": {"index_granularity": "", "synonym_strategy": "",
-                                            "filter_order": ""}, "uncertainties": []}
-    for q in queries:
-        cs = query_conds(case, q)
-        tmpl["queries"].append({"query_id": q["query_id"], "question": q["question"], "answer": "",
-                                "status": "not_found", "filters_applied": [rules.filter_text(c) for c in cs],
-                                "evidence": [{"path": "", "version": "", "section": "",
-                                              "page_printed": None, "page_physical": None,
-                                              "paragraph_id": "", "quote": ""}],
-                                "search_scope": "", "notes": ""})
-    for c in global_conds(case):
-        tmpl["filters"].append({"filter": rules.filter_text(c), "kept": 0, "removed": 0,
-                                "satisfiable": True})
-    core.jdump(work / "draft.template.json", tmpl)
+    cand = write_candidates(work, case, index, queries)
     ledger = rules.filter_ledger(global_conds(case), docs)
     core.jdump(work / "filters_ledger.json", {"global_filters": ledger})
     write_partial(out, meta, index, queries)
+    core.log_line(work, "init", "docs=%d queries=%d digest=%s"
+                  % (len(docs), len(queries), index.get("index_digest")))
     P(f"[{VERSION}] init case={meta.get('case_id')} root={index.get('library_root')}")
     P(f"docs={len(docs)} indexed={index['scan_stats'].get('indexed')} sections={secs} "
       f"paragraphs={paras} queries={len(queries)} digest={index.get('index_digest')}")
-    P(f"work={work} out={out}  next: python3 -B scripts/main.py show")
+    P(f"work={work} out={out}  候选工作稿: {work / 'draft.candidates.json'} "
+      f"({len(cand.get('queries') or [])} 条已预填引文)")
+    P("  next: python3 -B scripts/main.py show   (候选工作稿可由 Agent 直接复核后另存为 draft.json)")
     for e in (core.STATE["errors"] + [])[:5]:
         P(f"  ! {e}")
     return 0
@@ -132,38 +218,35 @@ def cmd_init(args):
 # ---------------------------------------------------------------- show
 def cmd_show(args):
     ctx = load_ctx(args)
-    index, case, work = ctx["index"], ctx["case"], ctx["work"]
-    queries = core.find_queries(case)
-    gl = global_conds(case)
+    index, case = ctx["index"], ctx["case"]
     docs = index.get("docs") or []
+    A = args
     P(f"=== CASE {ctx['meta'].get('case_id')} digest={index.get('index_digest')} "
       f"root={index.get('library_root')} ({index.get('root_source')})")
-    ti = str(ctx["meta"].get("task_instruction") or "")[:900]
+    ti = str(ctx["meta"].get("task_instruction") or "")[:800]
     if ti:
-        P("--- task_instruction (first 900 chars) ---")
+        P("--- task_instruction ---")
         P(ti)
-    if queries:
-        P(f"--- queries ({len(queries)}) ---")
-        for q in queries:
-            cs = query_conds(case, q)
-            P(f"[{q['query_id']}] {q['question']}")
-            if cs:
-                P("    filters: " + "; ".join(rules.filter_text(c) for c in cs))
-    P(f"--- docs ({len(docs)}) ---")
-    lines = []
-    shown = 0
-    limit = max(1, int(getattr(args, "limit", 160) or 160))
-    greps = [g.lower() for g in (getattr(args, "grep", None) or [])]
+    for q in core.find_queries(case):
+        cs = query_conds(case, q)
+        P(f"[{q['query_id']}] {q['question']}" + ("    filters: " + "; ".join(
+            rules.filter_text(c) for c in cs) if cs else ""))
+    P(f"--- docs ({len(docs)}) 过滤台账: " + "; ".join(
+        f"{r['filter']}={r['kept']}/{r['kept'] + r['removed']}" for r in rules.filter_ledger(
+            global_conds(case), docs)))
+    lines, shown = [], 0
+    limit = max(1, int(getattr(A, "limit", 160) or 160))
+    greps = [g.lower() for g in (getattr(A, "grep", None) or [])]
     for d in docs:
+        pg = d.get("pages") or {}
         head = (f"== {d.get('doc_id')}  {d.get('path')}  type={d.get('type')} ver={d.get('version')} "
-                f"pages={d.get('pages', {}).get('count')} label={d.get('pages', {}).get('label_source')}"
-                f"({d.get('pages', {}).get('page_offset')}) perm={d.get('permission')} status={d.get('status')}"
-                f" sha={str(d.get('sha256_16') or '')[:12]} paras={len(d.get('paragraphs') or [])}")
-        if d.get("duplicate_of"):
-            head += f" duplicate_of={d['duplicate_of']}"
-        if d.get("older_version_of"):
-            head += f" older_version_of={d['older_version_of']}"
-        if getattr(args, "doc", None) and str(d.get("doc_id")) != str(args.doc):
+                f"pages={pg.get('count')} label={pg.get('label_source')}({pg.get('page_offset')}) "
+                f"perm={d.get('permission')} status={d.get('status')} "
+                f"sha={str(d.get('sha256_16') or '')[:12]} paras={len(d.get('paragraphs') or [])}")
+        for k in ("duplicate_of", "older_version_of"):
+            if d.get(k):
+                head += f" {k}={d[k]}"
+        if getattr(A, "doc", None) and str(d.get("doc_id")) != str(A.doc):
             continue
         lines.append(head)
         if d.get("aliases"):
@@ -171,35 +254,28 @@ def cmd_show(args):
         if d.get("status") != "ok":
             lines.append("   !! " + (", ".join(d.get("notes") or []) or d.get("status")))
             continue
-        secmap = {}
-        for p in ([] if getattr(args, "open", False) else (d.get("paragraphs") or [])):
-            if True:
-                if greps and not any(g in (p.get("text") or "").lower() for g in greps):
-                    continue
-                if shown >= limit:
-                    continue
+        for p in ([] if getattr(A, "open", False) else (d.get("paragraphs") or [])):
+            if greps and not any(g in (p.get("text") or "").lower() for g in greps):
+                continue
+            if shown >= limit:
+                continue
             body = p.get("text") or ""
-            if not getattr(args, "full", False) and len(body) > 400:
+            if not getattr(A, "full", False) and len(body) > 400:
                 body = body[:400] + "…"
             tag = p.get("source") if p.get("source") not in (None, "body") else ""
             lines.append(f"   {p.get('pid')} p{p.get('page_physical')}/pp{p.get('page_printed')} "
                          f"[{p.get('section_id')}] {tag} :: {body}")
             shown += 1
-            secmap[p.get("section_id")] = secmap.get(p.get("section_id"), 0) + 1
-        if getattr(args, "open", False):
+        if getattr(A, "open", False):
             for s in d.get("sections") or []:
                 lines.append(f"   - {s.get('section_id')} L{s.get('level')} p{s.get('page_physical')}"
                              f"/pp{s.get('page_printed')} [{len(s.get('paragraph_ids') or [])}p] {s.get('title')}")
     P("\n".join(lines))
-    if index.get("failures"):
-        P(f"--- failures ({len(index['failures'])}) ---")
-        for f in index["failures"][:20]:
-            P(f"   {f.get('doc_id') or '-'} {f.get('path') or '-'} :: {f.get('reason')} :: {f.get('impact')}")
-    if index.get("excluded_evidence"):
-        P(f"--- excluded evidence ({len(index['excluded_evidence'])}) ---")
-        for x in index["excluded_evidence"][:20]:
-            P(f"   {x.get('doc_id')} {x.get('path')} :: {x.get('reason')}")
-    P(f"--- printed {shown} paragraphs (limit {limit}); work draft: {work / 'draft.json'}")
+    for f in (index.get("failures") or [])[:20]:
+        P(f"-- failure {f.get('doc_id') or '-'} {f.get('path') or '-'} :: {f.get('reason')} :: {f.get('impact')}")
+    for x in (index.get("excluded_evidence") or [])[:20]:
+        P(f"-- excluded {x.get('doc_id')} {x.get('path')} :: {x.get('reason')}")
+    P(f"--- printed {shown} paragraphs (limit {limit}); work draft: {ctx['work'] / 'draft.json'}")
     return 0
 
 # ---------------------------------------------------------------- check
@@ -211,58 +287,53 @@ def cmd_check(args):
     rows = draft_rows(draft or {})
     fixes, warns = [], []
     if draft is None:
-        fixes.append(f"FIX draft: {derr}（路径 {dpath}）；先写工作稿再 check")
+        fixes.append(f"FIX draft: {derr}（{dpath}）；先写工作稿再 check")
         rows = []
     if len(rows) != len(queries):
-        fixes.append(f"FIX coverage: 工作稿 {len(rows)} 条，案例 {len(queries)} 问；每问都要有一条")
+        fixes.append(f"FIX coverage: 工作稿 {len(rows)} 条 / 案例 {len(queries)} 问；每问一条")
     bad_st = [r.get("status") for r in rows if str(r.get("status") or "").strip() not in QSTAT]
     if bad_st:
-        fixes.append(f"FIX status: 非法状态 {bad_st[:5]}，允许 {list(QSTAT)}")
+        fixes.append(f"FIX status: 非法 {bad_st[:5]}；允许 {list(QSTAT)}")
     pairs = match_row(queries, rows)
     conds_all = {q["query_id"]: query_conds(case, q) for q in queries}
-    vq = vhit = 0
+    vhit = 0
     for q, row in pairs:
         if row is None:
             fixes.append(f"FIX cover {q['query_id']}: 缺该问条目")
             continue
         entry = verify_row(q, row, index, conds_all[q["query_id"]])
-        n_ev = len(entry["evidence"]) + len(entry["rejected_evidence"])
-        vq += 1
         vhit += len(entry["evidence"])
         for rej in entry["rejected_evidence"]:
             if rej.get("reason", "").startswith("quote_"):
                 sug = rej.get("suggestion") or {}
-                fixes.append(f"FIX quote {q['query_id']}: {rej.get('reason')} :: {rej.get('quote', '')[:60]!r} "
-                             f"-> 最接近 {sug.get('paragraph_id')} p{sug.get('page_physical')}/"
-                             f"pp{sug.get('page_printed')}「{(sug.get('snippet') or '')[:60]}」")
+                fixes.append(f"FIX quote {q['query_id']}: {rej.get('reason')} :: "
+                             f"{rej.get('quote', '')[:60]!r} -> 最接近 {sug.get('paragraph_id')} "
+                             f"p{sug.get('page_physical')}/pp{sug.get('page_printed')}"
+                             f"「{(sug.get('snippet') or '')[:60]}」")
             else:
                 warns.append(f"WARN evidence {q['query_id']}: {rej.get('reason')} {rej.get('path')}")
         if entry["status"] in ("answered", "partially_answered") and not entry["evidence"]:
-            _draft_st = str((row or {}).get("status") or "-")
-            fixes.append(f"FIX evidence {q['query_id']}: 草稿状态 {_draft_st} 但无通过校验的引文"
-                         f"（{len(entry['rejected_evidence'])} 条被拒，见 WARN）")
+            fixes.append(f"FIX evidence {q['query_id']}: 草稿状态 {str((row or {}).get('status') or '-')} "
+                         f"但无通过校验的引文（{len(entry['rejected_evidence'])} 条被拒，见 WARN）")
         if entry["status"] in ("not_found", "blocked_by_filter") and not entry.get("scope_provided"):
-            fixes.append(f"FIX scope {q['query_id']}: 空结果必须写 search_scope（查了哪些文件/关键词/过滤）")
-        if n_ev == 0 and entry["status"] in ("answered", "partially_answered"):
-            warns.append(f"WARN {q['query_id']}: 无 evidence 条目")
+            fixes.append(f"FIX scope {q['query_id']}: 空结果必须写 search_scope")
     ledger = rules.filter_ledger(global_conds(case), index.get("docs") or [])
     unsat = [r["filter"] for r in ledger if not r["satisfiable"]]
-    blocked_rows = [q["query_id"] for q, r in pairs if isinstance(r, dict) and
-                    STATUS_ALIAS.get(str(r.get("status")), str(r.get("status"))) == "blocked_by_filter"]
-    if unsat and not blocked_rows and any(isinstance(r, dict) and STATUS_ALIAS.get(
-            str(r.get("status")), str(r.get("status"))) in ("answered", "partially_answered")
-            for _q, r in pairs):
+    st_of = [STATUS_ALIAS.get(str((r or {}).get("status")), str((r or {}).get("status"))) for _q, r in pairs]
+    if unsat and "blocked_by_filter" not in st_of and \
+            any(s in ("answered", "partially_answered") for s in st_of):
         fixes.append(f"FIX filter: 过滤条件不可满足 {unsat}，但仍有问题被作答（疑似静默放宽）")
-    excl = index.get("excluded_evidence") or []
-    bad_ex = [x["path"] for x in excl if core.doc_by_path(index, x.get("path")) is None]
+    bad_ex = [x.get("path") for x in (index.get("excluded_evidence") or [])
+              if core.doc_by_path(index, x.get("path")) is None]
     if bad_ex:
-        warns.append(f"WARN excluded: {len(bad_ex)} 条排除记录路径未能回指索引")
-    rate = round(vhit / float(max(1, vhit + sum(0 for _ in range(0)))) , 3) if vhit else 0.0
-    report = {"case_id": ctx["meta"].get("case_id"), "draft": str(dpath), "queries": len(queries),
-              "rows": len(rows), "evidence_verified": vhit, "fixes": fixes, "warnings": warns,
-              "filters_ledger": ledger, "blocked_queries": blocked_rows,
-              "checked_at": core.now()}
-    core.jdump(work / "check_report.json", report)
+        warns.append(f"WARN excluded: {len(bad_ex)} 条排除记录未能回指索引")
+    core.jdump(work / "check_report.json",
+               {"case_id": ctx["meta"].get("case_id"), "draft": str(dpath), "queries": len(queries),
+                "rows": len(rows), "evidence_verified": vhit, "fixes": fixes, "warnings": warns,
+                "filters_ledger": ledger,
+                "blocked_queries": [q["query_id"] for q, s in zip([p[0] for p in pairs], st_of)
+                                    if s == "blocked_by_filter"], "checked_at": core.now()})
+    core.log_line(work, "check", "fixes=%d warns=%d evidence=%d" % (len(fixes), len(warns), vhit))
     P(f"[check] queries={len(queries)} rows={len(rows)} verified_evidence={vhit} "
       f"fixes={len(fixes)} warns={len(warns)}")
     for f in fixes[:25]:
@@ -275,56 +346,47 @@ def cmd_check(args):
     return 0
 
 def write_artifacts(payload, index, out, work):
-    def _dict_list(v):
-        return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
     core.jdump(out / "index.json", index)
-    _res = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     core.jdump(out / "answers.json", {"case_id": payload.get("case_id"), "status": payload.get("status"),
                                       "queries": payload.get("queries"), "coverage": payload.get("coverage"),
                                       "counts": payload.get("counts")})
     core.jdump(out / "filters_log.json", {"global_filters": payload.get("filters"),
-                                          "per_query": _res.get("per_query_filters")})
+                                          "per_query": (payload.get("result") or {}).get("per_query_filters")})
     core.jdump(out / "dedupe.json", {"groups": (index.get("dedupe") or {}).get("groups"),
                                      "conflicts": (index.get("dedupe") or {}).get("conflicts"),
                                      "excluded_evidence": payload.get("excluded_evidence")})
     core.jdump(out / "failures.json", {"failures": index.get("failures") or [],
                                        "degradations": payload.get("degradations") or [],
                                        "errors": payload.get("errors") or []})
-    core.write_jsonl(out / "hits.jsonl", _dict_list(payload.get("hits") or []))
+    core.write_jsonl(out / "hits.jsonl", payload.get("hits") or [])
     core.jdump(out / "verify_report.json", payload.get("verification") or {})
     lines = [f"# {payload.get('case_id')} 检索交接报告", "",
              f"- status: **{payload.get('status')}**", f"- {payload.get('summary')}", ""]
-    for en in _dict_list(payload.get("queries") or []):
+    for en in payload.get("queries") or []:
         lines.append(f"## {en.get('query_id')} {en.get('question')}")
         lines.append(f"- 状态: `{en.get('status')}`")
-        if en.get("filters_applied"):
-            lines.append("- 过滤: " + "; ".join(str(x) for x in en["filters_applied"]))
-        if en.get("answer"):
-            lines.append(f"- 结论: {en['answer']}")
-        for ev in _dict_list(en.get("evidence") or []):
-            lines.append(f"- 证据: `{ev.get('locator')}` | {ev.get('path')} ({ev.get('version') or '版本未标注'}) "
-                         f"§{ev.get('section')} p{ev.get('page_physical')}/pp{ev.get('page_printed')}")
+        for k, t in (("filters_applied", "过滤"), ("answer", "结论"), ("search_scope", "检索范围")):
+            if en.get(k):
+                v = en[k] if isinstance(en[k], str) else "; ".join(en[k])
+                lines.append(f"- {t}: {v}")
+        for ev in en.get("evidence") or []:
+            lines.append(f"- 证据: `{ev.get('locator')}` | {ev.get('path')} "
+                         f"({ev.get('version') or '版本未标注'}) §{ev.get('section')} "
+                         f"p{ev.get('page_physical')}/pp{ev.get('page_printed')}")
             lines.append(f"  > {ev.get('quote')}")
         if en.get("rejected_evidence"):
             lines.append(f"- 拒收证据: {len(en['rejected_evidence'])} 条（见 result.json）")
-        if en.get("search_scope"):
-            lines.append(f"- 检索范围: {en['search_scope']}")
         lines.append("")
-    _filters = _dict_list(payload.get("filters") or [])
-    if _filters:
-        lines.append("## 过滤执行台账")
-        lines.append("| 条件 | 保留 | 剔除 | 可满足 |")
-        lines.append("|-|-|-|-|")
-        for r in _filters:
-            lines.append(f"| {r.get('filter')} | {r.get('kept')} | {r.get('removed')} | {r.get('satisfiable')} |")
+    if payload.get("filters"):
+        lines += ["## 过滤执行台账", "| 条件 | 保留 | 剔除 | 可满足 |", "|-|-|-|-|"]
+        lines += [f"| {r.get('filter')} | {r.get('kept')} | {r.get('removed')} | {r.get('satisfiable')} |"
+                  for r in payload["filters"]]
         lines.append("")
-    _excl = _dict_list(payload.get("excluded_evidence") or [])
-    if _excl:
+    if payload.get("excluded_evidence"):
         lines.append("## 被排除的证据（副本/旧版/无权限）")
-        for x in _excl[:30]:
-            lines.append(f"- `{x.get('path')}` — {x.get('reason')}")
+        lines += [f"- `{x.get('path')}` — {x.get('reason')}" for x in payload["excluded_evidence"][:30]]
         lines.append("")
-    (Path(out) / "location_report.md").write_text("\n".join(lines), encoding="utf-8")
+    core.wtext(Path(out) / "location_report.md", "\n".join(lines))
 
 def cmd_build(args):
     ctx = load_ctx(args)
@@ -351,10 +413,11 @@ def cmd_build(args):
     core.jdump(out / "result.json", payload)
     write_artifacts(payload, index, out, work)
     v = payload["verification"]
-    _cnt = payload.get("counts")
-    _cnt = _cnt if isinstance(_cnt, dict) else {}
+    core.log_line(work, "build", "status=%s evidence=%s fails=%s"
+                  % (payload.get("status"), (payload.get("counts") or {}).get("evidence"),
+                     ",".join(v.get("fails") or []) or "-"))
     P(f"[build {VERSION}] case={payload.get('case_id')} status={payload.get('status')} "
-      f"queries={_cnt.get('queries')} evidence={_cnt.get('evidence')} "
+      f"queries={(payload.get('counts') or {}).get('queries')} evidence={(payload.get('counts') or {}).get('evidence')} "
       f"quote_hit_rate={v.get('quote_hit_rate')} fails={v.get('fails')}")
     P(f"  result -> {out / 'result.json'}  (index {out / 'index.json'})")
     return 0
@@ -370,6 +433,10 @@ def cmd_selfcheck(args):
         core.degrade("result.json", "missing_or_invalid", "自检时未找到合法结果")
     index["_contract"] = ctx["meta"].get("output_contract") or {}
     rep = verify_payload(payload, index)
+    fix = fixtures_run(work)
+    rep["fixtures_ok"] = fix["ok"]
+    rep["fixtures"] = [{"fixture": r["fixture"], "expected": r["expected"], "got": r["got"], "ok": r["ok"]}
+                       for r in fix["fixtures"]]
     payload["verification"] = rep
     payload["errors"] = list(payload.get("errors") or []) + core.STATE["errors"]
     payload["degradations"] = list(payload.get("degradations") or []) + core.STATE["degradations"]
@@ -378,8 +445,11 @@ def cmd_selfcheck(args):
     core.jdump(out / "result.json", payload)
     core.jdump(out / "verify_report.json", rep)
     core.jdump(work / "selfcheck_report.json", rep)
+    core.log_line(work, "selfcheck", "ok=%s fails=%s fixtures=%s"
+                  % (rep["ok"], ",".join(rep["fails"]) or "-", rep.get("fixtures_ok")))
     P(f"[selfcheck] status={payload.get('status')} ok={rep['ok']} fails={rep['fails']} "
-      f"queries={rep['queries']} evidence={rep['evidence']} quote_hit_rate={rep['quote_hit_rate']}")
+      f"queries={rep['queries']} evidence={rep['evidence']} quote_hit_rate={rep['quote_hit_rate']} "
+      f"fixtures={rep.get('fixtures_ok')}")
     for c in rep["checks"]:
         if not c["ok"]:
             P(f"  FAIL {c['check']}")
@@ -387,13 +457,28 @@ def cmd_selfcheck(args):
         P(f"  unmatched quotes: {len(rep['unmatched_quotes'])} (first: {rep['unmatched_quotes'][0]})")
     return 0
 
+# ---------------------------------------------------------------- all (single command)
+def cmd_all(args):
+    ctx = load_ctx(args, rebuild=True)
+    work = ctx["work"]
+    P("== stage 1/3 init")
+    cmd_init(args)
+    P("== stage 2/3 build")
+    cmd_build(args)
+    P("== stage 3/3 selfcheck")
+    cmd_selfcheck(args)
+    core.log_line(work, "all", "done")
+    P(f"[all {VERSION}] 完成：{ctx['out']}/result.json + 交付物；候选工作稿 {work}/draft.candidates.json；"
+      f"日志 {work}/run.log")
+    return 0
+
 # ---------------------------------------------------------------- entry
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="main.py", description="research-file-locator: locator-grade "
                                  "retrieval over a research file library.",
                                  epilog="exit code is always 0; partial result.json is written first.")
-    ap.add_argument("command", nargs="?", default="init",
-                    choices=["init", "show", "check", "build", "selfcheck"])
+    ap.add_argument("command", nargs="?", default="all",
+                    choices=["all", "init", "show", "check", "build", "selfcheck", "fixtures"])
     ap.add_argument("--input", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--work", default=None)
@@ -407,8 +492,8 @@ def main(argv=None):
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--version", action="version", version=f"research-file-locator {VERSION}")
     args = ap.parse_args(argv)
-    cmds = {"init": cmd_init, "show": cmd_show, "check": cmd_check, "build": cmd_build,
-            "selfcheck": cmd_selfcheck}
+    cmds = {"all": cmd_all, "init": cmd_init, "show": cmd_show, "check": cmd_check,
+            "build": cmd_build, "selfcheck": cmd_selfcheck, "fixtures": cmd_fixtures}
     try:
         cmds[args.command](args)
     except Exception as e:  # noqa: BLE001
