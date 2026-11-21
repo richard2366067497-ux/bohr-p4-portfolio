@@ -1,498 +1,504 @@
-"""reading-card-desk / main.py - CLI: init / show / check / build / selfcheck."""
-import argparse, json, sys, time, traceback
+#!/usr/bin/env python3
+"""main.py -- annotation-ledger driver: init / show (+ CLI dispatch, always exit 0).
+
+init   case.json + task.md + materials -> work/index.json + legal partial result.json first
+show   documents / pages / annotations with locators (the only source of verbatim quotes)
+check / build / selfcheck are delegated to checks.py and build.py.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+import time
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
-import extract as E          # noqa: E402
-import library as L          # noqa: E402
-import render as R           # noqa: E402
-import gates as G            # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import extract as X
 
-VERSION = E.VERSION
-DEF_IN, DEF_OUT, DEF_WORK = '/input', '/app/output', '/app/work'
+GEN = "annotation-ledger v1.0.0"
+LOW_CONF = 0.5
+DEFAULT_CONTRACT = ["annotations", "notes", "links", "queries", "index", "files", "coverage", "summary", "status"]
+ARTIFACTS = ["files.json", "annotations.jsonl", "notes.jsonl", "links.json", "index.json", "queries.json",
+             "provenance.json", "skipped.json", "ledger.md", "result.json"]
 
 
-def _p(x, d):
-    return Path(x or d)
-
-
-def sd(work):
-    return Path(work) / 'desk'
-
-
-def idx_path(work):
-    return sd(work) / 'index.json'
-
-
-def log(msg):
-    try:
-        print(msg)
-    except Exception:
-        pass
-
-
-def _dump(p, o):
-    return E.J(p, o)
-
-
-def bootstrap(args, status='partial', extra_degradations=None):
-    """legal result.json before anything else (contract keys present, values null)."""
-    try:
-        case = {}
-        cj = _p(args.input, DEF_IN) / 'case.json'
-        if cj.exists():
+# ------------------------------------------------------------------ io / paths
+def paths(a):
+    here = Path(__file__).resolve().parent.parent
+    if getattr(a, "input", None):
+        inp = Path(a.input)
+    else:
+        inp = next((Path(c) for c in (os.environ.get("SKILL_INPUT"), "/input", str(here / "input"), "input")
+                    if c and Path(c).exists()), Path("/input"))
+    wk = Path(getattr(a, "work", None) or os.environ.get("SKILL_WORK") or "/app/work")
+    outp = Path(getattr(a, "output", None) or os.environ.get("SKILL_OUTPUT") or "/app/output")
+    for name, p in (("work", wk), ("output", outp)):
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            t = p / ".probe"
+            t.write_text("x", encoding="utf-8")
+            t.unlink()
+        except Exception:
+            fb = here / name
             try:
-                case = json.loads(cj.read_text(encoding='utf-8', errors='replace'))
+                fb.mkdir(parents=True, exist_ok=True)
             except Exception:
-                case = {}
-        case = case if isinstance(case, dict) else {}
-        cid = str(case.get('case_id') or 'UNKNOWN-CASE')
-        contract = case.get('output_contract') or case.get('outputContract') or {}
-        contract = contract if isinstance(contract, dict) else {}
-        vals = {k: None for k in ('cards', 'anchors', 'library', 'versions', 'retrieval', 'coverage',
-                                  'provenance', 'graph', 'topics', 'skipped', 'recovery',
-                                  'operations', 'changes', 'uncertainties', 'errors',
-                                  'degradations', 'sources', 'method_notes', 'result', 'artifacts')}
-        vals['case_id'] = cid
-        vals['status'] = status
-        res = R.build_result(cid, contract, vals, {
-            'status': status, 'degradations': (extra_degradations or []) + [
-                {'kind': 'bootstrap_partial', 'detail': '骨架结果：init 已落盘，等待解析与工作稿'}],
-            'runtime': {'script': 'reading-card-desk', 'version': VERSION, 'stage': 'bootstrap'}})
-        _dump(Path(args.output or DEF_OUT) / 'result.json', res)
-        return res
-    except Exception:
-        return None
+                pass
+            if name == "work":
+                wk = fb
+            else:
+                outp = fb
+    return inp, outp, wk
 
 
-def ensure_index(args, force=False):
-    """parse input -> index.json (cached). Returns (index, err)."""
-    wp, op = _p(args.work, DEF_WORK), _p(args.output, DEF_OUT)
-    ip = idx_path(wp)
-    if ip.exists() and not force:
+def walk(o, depth=0):
+    if depth > 6:
+        return
+    if isinstance(o, dict):
+        for k, v in o.items():
+            yield str(k), v
+            yield from walk(v, depth + 1)
+    elif isinstance(o, list):
+        for v in o[:80]:
+            yield from walk(v, depth + 1)
+
+
+def find_case(inp, errs):
+    cands = []
+    if inp.exists():
+        cands = sorted(inp.rglob("case.json"))
+        if not cands:
+            js = [p for p in sorted(inp.rglob("*.json")) if not p.name.lower().startswith(("annot", "highlight"))]
+            cands = [p for p in js if "case" in p.name.lower() or "workorder" in p.name.lower()] or js
+    for p in cands:
         try:
-            return json.loads(ip.read_text(encoding='utf-8')), None
-        except Exception:
-            pass
-    op.mkdir(parents=True, exist_ok=True)
-    try:
-        ctx = L.discover(_p(args.input, DEF_IN))
-        lib = L.build_library(ctx)
-        idx = L.index_view(lib)
-        idx['params'] = {'input': str(_p(args.input, DEF_IN)), 'output': str(op),
-                         'work': str(wp), 'script_version': VERSION}
-        idx['errors'] = ctx.get('errors', []) + [
-            {'kind': 'discovery', 'detail': d} for d in ctx.get('errors', [])]
-        _dump(ip, idx)
-        return idx, None
-    except Exception as e:
-        tb = traceback.format_exc()
-        return {'case_id': 'UNKNOWN-CASE', 'documents': [], 'anchors': [], 'skipped': [],
-                'groups': [], 'aliases': [], 'questions': [], 'topics': [], 'stats': {},
-                'contract': {}, 'recovery': [], 'log': [], 'errors': [
-                    {'kind': 'index_failed', 'detail': tb[-600:]}]}, e
-
-
-def load_draft(work, explicit=None):
-    cands = [Path(explicit)] if explicit else []
-    cands += [Path(work) / 'draft.json', Path(work) / 'plan.json',
-              Path(work) / 'desk' / 'draft.json', Path(work) / 'cards.json']
-    for c in cands:
-        try:
-            if c and c.exists():
-                d = json.loads(c.read_text(encoding='utf-8', errors='replace'))
-                if isinstance(d, dict):
-                    return d, str(c), None
-                return None, str(c), 'draft_not_object'
+            d = X.jread(p)
+            if isinstance(d, dict):
+                return d, p
         except Exception as e:
-            return None, str(c), 'draft_invalid_json: %s' % str(e)[:120]
-    return None, None, 'draft_missing'
+            errs.append({"code": "case_json_invalid", "detail": "%s: %s" % (p.name, e)})
+    if not inp.exists():
+        errs.append({"code": "input_missing", "detail": "input dir not found: %s" % inp})
+    return {}, None
 
 
-
-
-
-
-def cmd_init(args):
-    wp, op = _p(args.work, DEF_WORK), _p(args.output, DEF_OUT)
-    sd(wp).mkdir(parents=True, exist_ok=True)
-    op.mkdir(parents=True, exist_ok=True)
-    bootstrap(args)
-    idx, e = ensure_index(args, force=True)
-    if e:
-        idx.setdefault('errors', []).append({'kind': 'index_failed', 'detail': str(e)[:200]})
-    draft_raw, dpath, derr = load_draft(wp, args.draft)
-    draft = R.norm_draft(draft_raw, idx)
-    chk = G.check_draft(idx, draft, bool(draft_raw), derr)
-    _dump(sd(wp) / 'check_report.json', chk)
-    res = R.build_result(idx.get('case_id') or 'UNKNOWN-CASE', idx.get('contract') or {},
-                         _payload(idx, chk, draft, None, [
-                             {'kind': 'cards_pending_agent_draft',
-                              'detail': '卡片需由评审 Agent 阅读材料后写入 draft.json 再 build'}]),
-                         {'status': chk['status'], 'runtime': {
-                             'script': 'reading-card-desk', 'version': VERSION,
-                             'python': sys.version.split()[0], 'stage': 'init'}})
-    _dump(op / 'result.json', res)
-    log('init: case=%s docs=%d anchors=%d skipped=%d -> %s' % (
-        idx.get('case_id'), idx.get('stats', {}).get('docs_found', 0),
-        len(idx.get('anchors', [])), len(idx.get('skipped', [])), idx_path(wp)))
-    if draft_raw:
-        log('init: 已发现工作稿 %s（%d 卡）' % (dpath, len(draft_raw.get('cards') or [])))
-    else:
-        log('init: 未发现工作稿（%s）→ 下一步：show 读材料，写 %s' % (derr, wp / 'draft.json'))
-    return 0
-
-
-
-
-def _sources(idx):
+def q_of(case):
+    raw = []
+    for k, v in walk(case):
+        if k.lower() in ("queries", "search_questions", "questions", "retrieval_queries", "search_queries") \
+                and isinstance(v, list) and v and not raw:
+            raw = v
     out = []
-    for d in idx.get('documents', []):
-        out.append({'source_id': d.get('doc_id'), 'path': d.get('file'), 'kind': d.get('kind'),
-                    'bytes': d.get('bytes'), 'sha256': d.get('sha256')})
-    for e in idx.get('exports', []):
-        out.append({'source_id': e.get('file'), 'path': e.get('file'), 'kind': 'annotation_export',
-                    'bytes': None, 'sha256': None})
-    return out
+    for i, it in enumerate(raw):
+        if isinstance(it, str):
+            out.append({"qid": "Q%d" % (i + 1), "question": X.norm(it)})
+        elif isinstance(it, dict):
+            g = lambda *ks: next((it[k] for k in ks if it.get(k) not in (None, "")), "")
+            out.append({"qid": str(g("qid", "id", "q_id") or "Q%d" % (i + 1)),
+                        "question": X.norm(g("question", "text", "query", "q")),
+                        "kind": str(g("kind", "type") or "text"), "expect": g("expect", "target", "doc")})
+    return [q for q in out if q["question"]]
 
 
+def envelope(case, cid, errs):
+    ct = case.get("output_contract")
+    res = {k: X.empty_like(ct.get(k) if isinstance(ct, dict) else None) for k in X.contract_keys(ct)}
+    res.update({"case_id": cid, "status": "partial", "sources": [], "uncertainty": [], "pending_human": [],
+                "errors": errs, "degradations": [], "changes": [],
+                "runtime": {"skill": GEN, "stage": "partial", "ts": time.strftime("%FT%T")}})
+    return res
 
 
-def _payload(idx, chk, draft, rendered=None, degradations=None):
-    rendered = rendered or {}
-    cov = G.coverage(idx, chk)
-    return {
-        'case_id': idx.get('case_id'), 'status': chk['status'],
-        'cards': draft.get('cards', []), 'anchors': idx.get('anchors', []),
-        'library': _library_payload(idx),
-        'versions': {'groups': idx.get('groups', []), 'aliases': idx.get('aliases', []),
-                     'recovery': idx.get('recovery', [])},
-        'retrieval': {'results': rendered.get('retrieval', []),
-                      'questions_in_case': idx.get('questions', []),
-                      'design': 'agent mapping 1.0 > lexical>=0.18 with claim bonus; hits carry matched_terms'},
-        'coverage': cov, 'provenance': rendered.get('provenance') or {
-            'script_version': VERSION, 'stage': 'init', 'inputs_hashed':
-            sum(1 for d in idx.get('documents', []) if d.get('sha256'))},
-        'graph': rendered.get('graph') or {'nodes': [], 'edges': []},
-        'topics': idx.get('topics', []), 'skipped': idx.get('skipped', []),
-        'recovery': idx.get('recovery', []),
-        'operations': [{'step': 'init', 'detail': 'index'},
-                       {'step': 'check', 'detail': chk['gates']}],
-        'changes': [], 'uncertainties': G.uncertainties(idx, chk),
-        'errors': chk['errors'] + idx.get('errors', []),
-        'degradations': degradations or [], 'sources': _sources(idx),
-        'method_notes': {'extractor': 'stdlib PDF content stream + /Annots quad->text; DOCX comments; HTML mark',
-                         'anchor_rule': 'quote re-located on page; page/offset from the hit, not pdf_page±1',
-                         'card_rule': 'agent judgment; grounded needs verified anchor+boundary+strength',
-                         'version_rule': 'sha256 > containment>=0.85 > version rank',
-                         'retrieval_rule': 'explicit mapping, else lexical>=0.18 with matched_terms'},
-        'result': {'cards_grounded': [c for c in draft.get('cards', []) if c.get('status') == 'grounded'],
-                   'cards_partial': [c for c in draft.get('cards', []) if c.get('status') == 'partial'],
-                   'cards_unsupported': [c for c in draft.get('cards', []) if c.get('status') == 'unsupported'],
-                   'coverage': cov, 'gates': chk['gates'], 'library_stats': idx.get('stats', {})},
-        'artifacts': (rendered.get('artifacts') or []) + ['result.json']}
-
-def cmd_show(args):
-    wp = _p(args.work, DEF_WORK)
-    idx, e = ensure_index(args, force=args.reindex)
-    if e:
-        log('show: index 构建失败（%s），仅打印空清单' % str(e)[:120])
-    sec = args.section or ('anchor' if args.anchor else 'overview')
-    lim = int(args.limit or 40)
-    if args.anchor:
-        a = next((x for x in idx.get('anchors', []) if x['anchor_id'] == args.anchor), None)
-        if not a:
-            log('show: 未找到锚点 %s' % args.anchor)
-            return 0
-        sec = 'anchor'
-    if sec == 'overview':
-        st = idx.get('stats', {})
-        log('case_id: %s' % idx.get('case_id'))
-        log('task: %s' % (idx.get('task') or '')[:300].replace('\n', ' '))
-        log('contract keys: %s' % ', '.join((idx.get('contract') or {}).keys()))
-        log('docs=%s processed=%s pages=%s anchors=%s verified=%s low_conf=%s skipped=%s' % (
-            st.get('docs_found'), st.get('docs_processed'), st.get('pages'), st.get('anchors'),
-            st.get('anchors_verified'), st.get('anchors_low_conf'), len(idx.get('skipped', []))))
-        gs = {' | '.join('%s(%s)' % (m['file'], m['version']) for m in g['members']): g['relation']
-              for g in idx.get('groups', []) if len(g['members']) > 1}
-        for k, v in list(gs.items())[:10]:
-            log('version group [%s]: %s' % (v, k))
-        log('questions: %s' % (', '.join(q['question'][:70] for q in idx.get('questions', [])) or '（无）'))
-        log('next: show --section anchors | show --anchor <id> | 写 %s 后 check/build' % (wp / 'draft.json'))
-    elif sec == 'docs':
-        for d in idx.get('documents', [])[:lim]:
-            log('- %s [%s] %s p%s c%s layer=%s ver=%s canon=%s sha=%s' % (
-                d.get('file'), d.get('kind'), (d.get('title') or '')[:60], d.get('pages_n'),
-                d.get('chars'), d.get('text_layer'), d.get('version_label'),
-                'Y' if d.get('is_canonical') else 'n', (d.get('sha256') or '')[:12]))
-            if d.get('admin_notes'):
-                log('    version notes: %s' % '; '.join(d['admin_notes'])[:200])
-    elif sec in ('anchors', 'cards-candidates'):
-        for a in idx.get('anchors', [])[:lim]:
-            log('%s %s p%s(%s) %s conf=%.2f %s' % (
-                a['anchor_id'], a.get('type'), a.get('page_physical'), a.get('page_printed'),
-                a.get('locator'), a.get('anchor_confidence') or 0, a.get('file')))
-            log('    quote: %s' % (a.get('quoted_text') or '（无原文）')[:220])
-            if a.get('note'):
-                log('    note : %s' % a['note'][:160])
-            log('    color: %s (%s / %s) ver=%s' % (a.get('color'), a.get('color_meaning'),
-                                                   a.get('color_meaning_source'), a.get('source_version')))
-    elif sec == 'anchor':
-        a = next((x for x in idx.get('anchors', []) if x['anchor_id'] == (args.anchor or '')), None)
-        if not a:
-            log('show: 未找到锚点')
-            return 0
-        doc = next((d for d in idx.get('documents', []) if d['doc_id'] == a.get('doc_id')), {})
-        log('%s  %s  %s  ver=%s  method=%s conf=%.2f verified=%s' % (
-            a['anchor_id'], a.get('file'), a.get('locator'), a.get('source_version'),
-            a.get('anchor_method'), a.get('anchor_confidence') or 0, a.get('quote_verified')))
-        log('quote: %s' % (a.get('quoted_text') or '（无）'))
-        log('color: %s = %s (%s)  type=%s' % (a.get('color'), a.get('color_meaning'),
-                                              a.get('color_meaning_source'), a.get('type')))
-        if a.get('note'):
-            log('annotation note: %s' % a['note'])
-        pg = next((p for p in (doc.get('pages') or []) if p.get('p') == a.get('page_physical')), None)
-        if pg:
-            log('--- page %s full text (normalized offsets in brackets) ---' % pg.get('p'))
-            c = a.get('char_start') or 0
-            t = pg.get('text') or ''
-            n = max(1, len(pg.get('norm') or ''))
-            pos = int(c / n * len(t))
-            log(t[max(0, pos - 700):pos + 700])
-    elif sec == 'questions':
-        for q in idx.get('questions', []):
-            log('- %s: %s' % (q.get('id'), q.get('question')))
-        for t in idx.get('topics', []):
-            log('  topic: %s' % t)
-    elif sec == 'gaps':
-        for s in idx.get('skipped', [])[:lim]:
-            log('- %s [%s] %s' % (s.get('file'), s.get('reason'), (s.get('detail') or '')[:160]))
-    else:
-        log('show: 未知 section %s' % sec)
-    return 0
+# ------------------------------------------------------------------ index
+def discover(inp, case):
+    roots = []
+    for k, v in walk(case):
+        if k.lower() in ("library_root", "annotations_root", "materials_root", "documents_root", "root", "library") \
+                and isinstance(v, str):
+            c = Path(v) if Path(v).is_absolute() else inp / v
+            if c.exists():
+                roots.append(c)
+    for nm in ("library", "materials", "documents", "annotations", "artifacts", "files", "input_files", "papers"):
+        if (inp / nm).exists():
+            roots.append(inp / nm)
+    roots.append(inp)
+    seen, mats, meta = set(), [], []
+    for r in roots:
+        for p in sorted(r.rglob("*")):
+            if not p.is_file() or str(p) in seen:
+                continue
+            seen.add(str(p))
+            nm = p.name.lower()
+            overlay = nm.startswith(("annot", "highlight")) and p.suffix.lower() == ".json"
+            if nm == "task.md" or nm.endswith("contract.json") or overlay \
+                    or (nm.startswith("case") and p.suffix.lower() == ".json") \
+                    or (p.suffix.lower() == ".json" and not overlay):
+                meta.append(p)
+            else:
+                mats.append(p)
+    return mats, meta
 
 
-def cmd_check(args):
-    wp = _p(args.work, DEF_WORK)
-    idx, e = ensure_index(args, force=args.reindex)
-    draft_raw, dpath, derr = load_draft(wp, args.draft)
-    draft = R.norm_draft(draft_raw, idx)
-    chk = G.check_draft(idx, draft, bool(draft_raw), derr)
-    chk['draft_path'] = dpath
-    _dump(sd(wp) / 'check_report.json', chk)
-    G.print_check(chk)
-    if not draft_raw:
-        log('check: 无工作稿 → build 只出 anchor-only 降级交付(partial)。先写 %s' % (wp / 'draft.json'))
-    return 0
+def anchor(ann, pages):
+    """Verify/repair one anchor; returns the annotation (page may shift, never silently dropped)."""
+    pmap = {pg["page"]: (pg.get("text") or "") for pg in pages or []}
+    q = ann.get("quoted_text") or ""
+    cand = q or ann.get("candidate_quote") or ""
+    base = float(ann.get("anchor_confidence") or 0.35)
+    meth = {"pdf_annots": "line_text_match", "annotations_json": "overlay_text_match",
+            "docx_comments": "comment_range", "html_mark": "clip_text"}.get(ann.get("source"), "text_match")
+    if q and X.fq(pmap.get(ann["page"], ""), q)["found"]:
+        ann["anchor_method"] = meth
+        ann["anchor_confidence"] = round(min(0.95, base + 0.2), 2)
+        ann["anchor_confirmed"] = True
+        return ann
+    note_like = ann.get("type") in ("margin_note", "handwritten", "region_mark") and ann.get("rect")
+    if note_like:
+        # a margin note / ink stroke anchors by position: its meaning is the note body,
+        # there is no covered sentence to quote, so it must not be marked low-confidence for that.
+        has_text = bool((pmap.get(ann["page"]) or "").strip())
+        ann["anchor_method"] = "rect_only_note"
+        ann["anchor_confirmed"] = True
+        ann["anchor_confidence"] = round(0.55 if has_text else 0.4, 2)
+        return ann
+    for step in (1, -1, 2, -2):
+        tgt = ann["page"] + step
+        if cand and tgt in pmap and X.fq(pmap[tgt], cand)["found"]:
+            ann["page_shift"] = {"from": ann["page"], "to": tgt, "step": step}
+            ann["page"] = tgt
+            if not q:
+                ann["quoted_text"] = cand
+            ann["anchor_method"] = "page_shift"
+            ann["anchor_confidence"] = round(min(0.7, base + 0.05), 2)
+            ann["anchor_confirmed"] = True
+            return ann
+    ann["anchor_confirmed"] = False
+    ann["anchor_method"] = "rect_unverified" if ann.get("rect") else "no_anchor"
+    ann["anchor_confidence"] = round(min(base, 0.45), 2)
+    return ann
 
 
-def cmd_build(args):
-    wp, op = _p(args.work, DEF_WORK), _p(args.output, DEF_OUT)
-    op.mkdir(parents=True, exist_ok=True)
-    bootstrap(args, 'partial', [{'kind': 'build_started', 'detail': '正在组装四层产物'}])
-    idx, e = ensure_index(args, force=args.reindex)
-    draft_raw, dpath, derr = load_draft(wp, args.draft)
-    draft = R.norm_draft(draft_raw, idx)
-    chk = G.check_draft(idx, draft, bool(draft_raw), derr)
-    deg = []
-    if not draft_raw:
-        draft = _fallback_draft(idx)
-        chk = G.check_draft(idx, draft, False, derr)
-        deg.append({'kind': 'draft_missing',
-                    'detail': '未找到工作稿（%s）：卡片为 anchor-only 占位（claim=null, '
-                              'status=unsupported），检索视图只给未命中原因' % derr})
-    elif not draft['cards']:
-        deg.append({'kind': 'draft_empty_cards', 'detail': '工作稿存在但没有有效卡片'})
-    if chk['errors']:
-        deg.append({'kind': 'check_errors', 'detail': '%d 项未通过，逐条见 result.errors'
-                                                  % len(chk['errors'])})
-    cov = G.coverage(idx, chk)
-    rendered = R.write_all(op, wp, idx, draft, chk, {
-        'params': {'input': str(_p(args.input, DEF_IN)), 'threshold_retrieval': 0.18,
-                   'containment_version': 0.85, 'page_cap': E.PAGE_CAP},
-        'coverage': cov,
-        'determinism': {'checked': False, 'note': 'selfcheck 可验证锚点 ID 与逐字复核稳定性'}})
-    status = 'partial' if (deg or chk['status'] != 'ok' or not idx.get('documents')) else 'ok'
-    vals = _payload(idx, chk, draft, rendered, deg)
-    vals['status'] = status
-    env = {'status': status, 'degradations': deg, 'sources': vals['sources'],
-           'errors': vals['errors'], 'uncertainties': vals['uncertainties'],
-           'runtime': {'script': 'reading-card-desk', 'version': VERSION,
-                       'python': sys.version.split()[0], 'stage': 'build',
-                       'budget': {'model_requests': 64, 'seconds': 900, 'tokens_per_response': 16384}}}
-    res = R.build_result(idx.get('case_id') or 'UNKNOWN-CASE', idx.get('contract') or {}, vals, env)
-    for k in res.get('_contract_unmapped') or []:
-        res.setdefault('degradations', []).append({
-            'kind': 'contract_field_unmapped:%s' % k,
-            'detail': '该契约键无法语义映射，按约定保留键名并给 null'})
-    if res.get('degradations') and res.get('status') == 'ok':
-        res['status'] = 'partial'
-    _dump(op / 'result.json', res)
-    log('build: status=%s cards=%d (grounded=%d) anchors=%d artifacts=%d -> %s' % (
-        res.get('status'), len(draft['cards']),
-        sum(1 for c in draft['cards'] if c.get('status') == 'grounded'),
-        len(idx.get('anchors', [])), len(rendered['artifacts']), op / 'result.json'))
-    for a in rendered['artifacts']:
-        log('  + %s' % a)
-    if not draft_raw:
-        log('build: 这是未读材料的降级交付(draft_missing)。按 SKILL.md：先 show 读原文、写工作稿、再 build。')
-    return 0
-
-
-def _fallback_draft(idx):
-    """anchor-only placeholders: honest, no invented judgment."""
-    cards, seen = [], {}
-    for a in idx.get('anchors', []):
-        if not a.get('quoted_text') or a.get('quote_verified') not in ('exact', 'unverified_after_check'):
-            continue
-        doc = a.get('doc_id')
-        if seen.get(doc, 0) >= 3:
-            continue
-        seen[doc] = seen.get(doc, 0) + 1
-        cards.append({'card_id': 's%02d' % (len(cards) + 1), 'kind': 'to_verify', 'claim': None,
-                      'anchor_ids': [a['anchor_id']], 'source_version': a.get('source_version'),
-                      'strength': 'weak', 'boundary': None, 'reuse_hint': None,
-                      'status': 'unsupported', 'created_from': 'fallback_anchor_only',
-                      'evidence_note': None, 'counter_evidence': None, 'tags': [], 'topic': None,
-                      'missing': ['claim', 'boundary', 'judgment']})
-        if len(cards) >= 12:
-            break
-    return {'case_id': idx.get('case_id'), 'cards': cards, 'topics': [], 'edges': [],
-            'questions': [], 'aliases': [], 'skipped': [], 'notes': 'fallback', 'anchor_index': {}}
-
-
-def _library_payload(idx):
-    return {'stats': idx.get('stats', {}),
-            'documents': [{k: v for k, v in R._doc_view(d).items()} for d in idx.get('documents', [])],
-            'groups': idx.get('groups', []), 'aliases': idx.get('aliases', []),
-            'annotation_exports': idx.get('exports', []),
-            'skipped_count': len(idx.get('skipped', []))}
-
-
-def cmd_selfcheck(args):
-    wp, op = _p(args.work, DEF_WORK), _p(args.output, DEF_OUT)
-    idx, e = ensure_index(args, force=False)
-    fresh, e2 = ensure_index(args, force=True)
-    ids_now = [a['anchor_id'] for a in idx.get('anchors', [])]
-    ids_new = [a['anchor_id'] for a in fresh.get('anchors', [])]
-    stable = ids_now == ids_new
-    draft_raw, dpath, derr = load_draft(wp, args.draft)
-    draft = R.norm_draft(draft_raw, idx)
-    chk = G.check_draft(idx, draft, bool(draft_raw), derr)
-    docs = {d['doc_id']: d for d in idx.get('documents', [])}
-    recheck, bad = 0, []
-    for a in idx.get('anchors', []):
-        q = E.norm(a.get('quoted_text') or '')
-        if not q:
-            continue
-        recheck += 1
-        pg = next((p for p in (docs.get(a.get('doc_id')) or {}).get('pages', [])
-                   if p.get('p') == a.get('page_physical')), None)
-        if not pg or q not in (pg.get('norm') or ''):
-            bad.append(a['anchor_id'])
-    out = op / 'result.json'
-    contract_keys, unmapped, present = [], [], []
+def build_index(inp, errs, degr):
+    case, cp = find_case(inp, errs)
+    cid = str(case.get("case_id") or case.get("id") or (cp.parent.name if cp else "unknown"))
+    mats, meta = discover(inp, case) if inp.exists() else ([], [])
+    docs, skipped = {}, []
+    for i, p in enumerate(mats):
+        d = X.extract_doc(p)
+        if d.get("kind") in ("zip", "xlsx", "pptx", "unreadable", "image"):
+            skipped.append({"file": p.name, "code": "unsupported_or_image", "detail": "kind=%s" % d.get("kind"),
+                            "action": "记录并降级"})
+        d.update(filename=p.name, path=str(p), size=p.stat().st_size, sha256=X.sha256_file(str(p)),
+                 version=X.version_token(p.name))
+        docs["D%d" % (i + 1)] = d
+    overlays, oerr = [], []
     try:
-        cur = json.loads(out.read_text(encoding='utf-8'))
-        contract_keys = cur.get('_contract_keys') or []
-        unmapped = cur.get('_contract_unmapped') or []
-        present = [k for k in contract_keys if k in cur]
-    except Exception:
-        cur = {}
-    sc = {'schema': 'reading-card-desk/selfcheck@1', 'generated': E.now(),
-          'script_version': VERSION,
-          'anchor_ids_stable': stable, 'anchors_compared': len(ids_now),
-          'quotes_rechecked': recheck, 'quote_failures': bad,
-          'contract_keys': len(contract_keys), 'contract_present': len(present),
-          'contract_unmapped': unmapped,
-          'result_status': cur.get('status'), 'result_exists': bool(cur),
-          'gate_status': {k: v.get('status') for k, v in chk['gates'].items()},
-          'overall': 'fail' if (bad or not stable or (contract_keys and len(present) < len(contract_keys)))
-                     else 'pass'}
-    op.mkdir(parents=True, exist_ok=True)
-    (op / 'provenance').mkdir(parents=True, exist_ok=True)
-    _dump(op / 'provenance' / 'self_check.json', sc)
-    if cur:
-        try:
-            cur.setdefault('provenance', {})
-            if isinstance(cur['provenance'], dict):
-                cur['provenance']['determinism'] = {'checked': True, 'anchor_ids_stable': stable,
-                                                    'anchors_compared': len(ids_now)}
-            cur['self_check'] = {'overall': sc['overall'], 'quote_failures': len(bad),
-                                 'anchor_ids_stable': stable,
-                                 'contract_present': '%d/%d' % (len(present), len(contract_keys))}
-            _dump(out, cur)
-        except Exception:
-            pass
-    log('selfcheck: overall=%s anchor_ids_stable=%s quotes=%d failures=%d contract=%d/%d unmapped=%s'
-        % (sc['overall'], stable, recheck, len(bad), len(present), len(contract_keys),
-           unmapped or 'none'))
-    if bad:
-        log('  ! 复核失败锚点: %s' % ', '.join(bad[:8]))
-    if not stable:
-        log('  ! 锚点 ID 在两次索引间不稳定：检查文件顺序/哈希，勿提交该运行')
+        overlays, oerr = X.load_overlays([p for p in inp.rglob("*.json")]) if inp.exists() else ([], [])
+        errs += oerr
+    except Exception as e:
+        degr.append("overlay load failed: %s" % e)
+    by_name = {}
+    for did, d in docs.items():
+        by_name[d["filename"].lower()] = did
+        by_name[X.alias_key(d["filename"])] = did
+    for ov in overlays:
+        f = (ov.get("file") or "").lower()
+        did = by_name.get(Path(f).name) or by_name.get(X.alias_key(f or "x"))
+        if not did:
+            skipped.append({"file": ov.get("file") or "?", "code": "annotation_target_missing",
+                            "detail": "overlay 批注指向库中不存在的文件", "action": "记录并跳过"})
+            continue
+        docs[did].setdefault("annots", []).append(ov)
+    anns = []
+    for did in sorted(docs):
+        d = docs[did]
+        rows = [a for a in (d.pop("annots") or []) if isinstance(a, dict)]
+        rows.sort(key=lambda a: (int(a.get("page") or 1), -(a.get("rect") or [0, 0, 0, 9e9])[1]))
+        for k, a in enumerate(rows):
+            a["doc_id"] = did
+            a["ann_id"] = str(a.get("ann_id") or "A%04d" % (len(anns) + 1))
+            a["page"] = int(a.get("page") or 1)
+            a["type"] = X.type_alias(a.get("type") or a.get("raw_subtype") or "unknown")
+            a["type"] = a["type"] if a["type"] in X.TYPES else "unknown"
+            a["locator"] = a.get("locator") or "p%d#a%d" % (a["page"], k + 1)
+            a["source_version"] = a.get("source_version") or d.get("version") or ""
+            a["comment"] = X.norm(a.get("comment") or "")
+            given = X.norm(a.get("quoted_text") or "")
+            note_like = a["type"] in ("margin_note", "handwritten", "region_mark")
+            body = "" if note_like else X.norm(a.get("line_text") or a.get("rect_text") or "")
+            a["quoted_text"] = given or body
+            a["candidate_quote"] = X.norm(a.get("rect_text") or a.get("line_text") or "")
+            a["anchor_scope"] = "exact" if given else ("line" if body else "none")
+            a["color"] = a.get("color") or None
+            a.setdefault("anchor_confidence", {"pdf_annots": 0.7, "annotations_json": 0.8,
+                                               "docx_comments": 0.85, "html_mark": 0.8}.get(a.get("source"), 0.6))
+            a = anchor(a, d.get("pages"))
+            a["low_confidence"] = bool(a["anchor_confidence"] < LOW_CONF or not a["anchor_confirmed"])
+            anns.append(a)
+    dup, alias = X.group_docs(docs)      # sha256 duplicates + alias groups + version chains
+    duped = {k: v["duplicate_of"] for k, v in docs.items() if v.get("duplicate_of")}
+    duplicate_anns = []
+    if duped:
+        keep, moved = [], []
+        for a in anns:
+            if a["doc_id"] in duped:
+                moved.append(dict(a, duplicate_of=duped[a["doc_id"]]))
+            else:
+                keep.append(a)
+        if moved:
+            skipped.append({"file": ",".join(sorted({docs[d]["filename"] for d in duped})),
+                            "code": "duplicate_copy_annotations",
+                            "detail": "%d 条批注来自字节相同的重复文件，已归并到 canonical=%s，不重复计数"
+                                      % (len(moved), ", ".join(sorted(set(duped.values())))),
+                            "action": "保留在 index.duplicate_annotations 供审计，不进入账本主表"})
+        duplicate_anns = moved
+        anns = keep
+    vnotes = []
+    for k, v in walk(case):
+        if k.lower() in ("version_notes", "administrative_notes", "admin_notes", "versions", "change_notes") and v:
+            items = v if isinstance(v, list) else [v]
+            for it in items:
+                vnotes.append({"source": "case.json:%s" % k,
+                               "note": X.norm(it if isinstance(it, str) else json.dumps(it, ensure_ascii=False))[:400]})
+    for did, d in docs.items():
+        if d.get("kind") in ("text", "html") and re.search(r"(?i)version|版本|修订|supersed", d.get("text") or ""):
+            vnotes += X.version_notes_from_text(d["filename"], d.get("text"))
+    for did, d in docs.items():
+        if not d.get("has_text_layer"):
+            skipped.append({"file": d["filename"], "doc_id": did, "code": "no_text_layer",
+                            "detail": "页面无可抽取文本层（扫描/矢量图），引文无法逐字校验",
+                            "action": "保留几何与批注坐标，标低置信度，需 OCR 或人工核对"})
+        for n in d.get("notes") or []:
+            if "failed" in n or "unsupported" in n:
+                skipped.append({"file": d["filename"], "doc_id": did, "code": "extract_degraded", "detail": n,
+                                "action": "记录并降级"})
+        if d.get("has_text_layer") and (d.get("quality") or 1) < 0.5:
+            skipped.append({"file": d["filename"], "doc_id": did, "code": "text_quality_low",
+                            "detail": "alnum ratio %.2f: CID font or garbled encoding" % d["quality"],
+                            "action": "低置信度抽取，引文需人工核对"})
+    idx = {"case_id": cid, "case_path": str(cp or ""), "generated": time.strftime("%FT%T"),
+           "task_instruction": X.norm(case.get("task_instruction") or case.get("instruction") or case.get("task") or "")[:4000],
+           "contract_keys": X.contract_keys(case.get("output_contract")), "contract": case.get("output_contract"),
+           "queries": q_of(case),
+           "docs": {k: {kk: v.get(kk) for kk in ("filename", "kind", "engine", "n_pages", "has_text_layer", "quality",
+                                                 "sha256", "size", "version", "duplicate_of", "alias_group",
+                                                 "version_chain", "path", "notes", "src")} for k, v in docs.items()},
+           "pages": {k: [{kk: pg.get(kk) for kk in ("page", "locator", "text", "layout")} for pg in v.get("pages") or []]
+                     for k, v in docs.items()},
+           "texts": {k: (v.get("text") or "")[:X.TRUNC] for k, v in docs.items()},
+           "annotations": anns, "duplicate_annotations": duplicate_anns, "duplicates": dup, "aliases": alias, "version_notes": vnotes,
+           "skipped": skipped, "overlay_errors": oerr}
+    return idx, case, cid
+
+
+def load_index(wk, errs=None):
+    p = wk / "index.json"
+    if not p.exists():
+        return {}
+    try:
+        return X.jread(p)
+    except Exception as e:
+        if errs is not None:
+            errs.append({"code": "index_unreadable", "detail": repr(e)})
+        return {}
+
+
+# ------------------------------------------------------------------ commands
+def cmd_init(a):
+    t0 = time.time()
+    inp, outp, wk = paths(a)
+    errs, degr = [], []
+    case, cid = {}, "unknown"
+    try:
+        case, cp = find_case(inp, [])
+        cid = str(case.get("case_id") or case.get("id") or (cp.parent.name if cp else "unknown"))
+    except Exception as e:
+        errs.append({"code": "case_probe_failed", "detail": repr(e)})
+    X.jw(outp / "result.json", envelope(case, cid, errs))          # legal partial first
+    idx = {}
+    try:
+        idx, case, cid = build_index(inp, errs, degr)
+    except Exception as e:
+        import traceback
+        errs.append({"code": "index_failed", "detail": "%s: %s" % (type(e).__name__, e),
+                     "trace": traceback.format_exc()[-600:]})
+    try:
+        X.jw(wk / "index.json", idx)
+    except Exception as e:
+        errs.append({"code": "index_write_failed", "detail": repr(e)})
+    docs, anns = idx.get("docs") or {}, idx.get("annotations") or []
+    low = [x["ann_id"] for x in anns if x.get("low_confidence")]
+    tcnt = {}
+    for x in anns:
+        tcnt[x["type"]] = tcnt.get(x["type"], 0) + 1
+    degr += ["%s: %s" % (s.get("file"), s.get("code")) for s in (idx.get("skipped") or [])]
+    res = envelope(case, cid, errs)
+    res.update(
+        sources=[{"doc_id": k, "file": v.get("filename"), "kind": v.get("kind"),
+                  "sha256": (v.get("sha256") or "")[:16], "pages": v.get("n_pages"),
+                  "has_text_layer": v.get("has_text_layer")} for k, v in docs.items()],
+        degradations=degr[:40],
+        uncertainty=["锚点为几何推断（rect × 文本块），最终以 quoted_text 逐字命中为准"] if anns else [],
+        pending_human=["读材料并写 %s（schema 见 SKILL.md 第 6 节），然后 check → build" % (wk / "draft.json")],
+        coverage={"docs_expected": len(docs), "docs_processed": len([v for v in docs.values() if v.get("has_text_layer")]),
+                  "annotations_extracted": len(anns), "annotations_low_confidence": len(low),
+                  "notes_created": 0, "queries_total": len(idx.get("queries") or [])},
+        runtime={"skill": GEN, "stage": "init", "seconds": round(time.time() - t0, 2),
+                 "docs": len(docs), "annotations": len(anns)},
+        status="input_error" if not docs else "partial")
+    X.jw(outp / "result.json", res)
+    print("== library ==")
+    for k, v in docs.items():
+        flag = []
+        if not v.get("has_text_layer"):
+            flag.append("NO_TEXT_LAYER")
+        if v.get("duplicate_of"):
+            flag.append("dup_of=%s" % v["duplicate_of"])
+        if v.get("alias_group"):
+            flag.append("alias=%s(v=%s)" % (v["alias_group"], v.get("version") or "?"))
+        if (v.get("quality") or 1) < 0.5:
+            flag.append("low_text_quality")
+        print("%s | %s | %s | %s p | sha:%s | %s" % (k, v.get("filename"), v.get("kind"), v.get("n_pages"),
+                                                    (v.get("sha256") or "")[:10], ",".join(flag) or "-"))
+    print("== annotations == %d | %s | low_conf: %s" % (
+        len(anns), ", ".join("%s=%d" % kv for kv in sorted(tcnt.items())) or "none", ", ".join(low[:8]) or "none"))
+    for d in idx.get("duplicates") or []:
+        print("   duplicate: %s (%s)" % (",".join(d["docs"]), d["kind"]))
+    for g in idx.get("aliases") or []:
+        print("   alias %s: %s -> canonical %s" % (g["group"], ",".join(g["docs"]), g["canonical"]))
+    for n in (idx.get("version_notes") or [])[:6]:
+        print("   version_note[%s]: %s" % (n.get("source") or n.get("locator"), n["note"][:150]))
+    print("== queries == %d | %s" % (len(idx.get("queries") or []),
+                                     "; ".join(q["question"][:70] for q in (idx.get("queries") or [])[:5]) or "none"))
+    if idx.get("contract_keys"):
+        print("== output_contract == %d keys: %s" % (len(idx["contract_keys"]), ", ".join(idx["contract_keys"])))
+    print("== next == 1) show  2) show --ann  3) 写 %s  4) check  5) build" % (wk / "draft.json"))
     return 0
 
 
-def build_parser():
-    ap = argparse.ArgumentParser(prog='reading-card-desk',
-                                 description='knowledge-card desk for reading annotation libraries')
-    ap.add_argument('cmd', nargs='?', default='', choices=['', 'init', 'show', 'check', 'build',
-                                                           'selfcheck', 'run'])
-    ap.add_argument('--input', default=DEF_IN)
-    ap.add_argument('--output', default=DEF_OUT)
-    ap.add_argument('--work', default=DEF_WORK)
-    ap.add_argument('--draft', default=None, help='draft json path (default: <work>/draft.json)')
-    ap.add_argument('--section', default=None,
-                    help='show section: overview|docs|anchors|questions|gaps|anchor')
-    ap.add_argument('--anchor', default=None, help='show one anchor with its page text')
-    ap.add_argument('--limit', type=int, default=40)
-    ap.add_argument('--reindex', action='store_true', help='ignore cached index.json')
-    ap.add_argument('--quiet', action='store_true')
-    return ap
+def cmd_show(a):
+    _, _, wk = paths(a)
+    idx = load_index(wk)
+    if not idx:
+        print("(no index yet: run `python3 -B scripts/main.py init` first)")
+        return 0
+    docs, anns = idx.get("docs") or {}, idx.get("annotations") or []
+    chars = int(a.chars or 1200)
+    if a.ann:
+        rows = [x for x in anns if not a.doc or x["doc_id"] == a.doc]
+        if a.page:
+            rows = [x for x in rows if int(x.get("page") or 0) == int(a.page)]
+        for x in rows:
+            print("[%s] %s %s p%s type=%s color=%s conf=%.2f method=%s src=%s" % (
+                x["ann_id"], x["doc_id"], x.get("locator"), x.get("page"), x.get("type"), x.get("color") or "-",
+                float(x.get("anchor_confidence") or 0), x.get("anchor_method"), x.get("source")))
+            if x.get("rect"):
+                print("    rect=%s overlap=%s" % (x["rect"], x.get("rect_overlap")))
+            print("    anchor_confirmed=%s quote: %s" % (x.get("anchor_confirmed"),
+                                                         (x.get("quoted_text") or "(none)")[:320]))
+            if not x.get("anchor_confirmed") and x.get("candidate_quote"):
+                print("    candidate(需人工核对后再引用): %s" % x["candidate_quote"][:320])
+            if x.get("comment"):
+                print("    comment: %s" % x["comment"][:240])
+            if x.get("author") or x.get("created"):
+                print("    author=%s created=%s" % (x.get("author") or "-", x.get("created") or "-"))
+        print("-- %d annotation(s); copy quoted_text character-for-character into draft.json" % len(rows))
+        return 0
+    if a.doc:
+        if a.doc not in docs:
+            print("unknown doc_id %r; available: %s" % (a.doc, ", ".join(docs)))
+            return 0
+        d = docs[a.doc]
+        print("== %s | %s | %s | %s pages | sha256=%s | version=%s | alias=%s | dup_of=%s" % (
+            a.doc, d.get("filename"), d.get("kind"), d.get("n_pages"), (d.get("sha256") or "")[:16],
+            d.get("version") or "-", d.get("alias_group") or "-", d.get("duplicate_of") or "-"))
+        for pg in (idx.get("pages") or {}).get(a.doc) or []:
+            if a.page and int(pg.get("page") or 0) != int(a.page):
+                continue
+            print("\n--- p%s [%s] ---" % (pg.get("page"), pg.get("layout")))
+            print((pg.get("text") or "(no text layer)")[:chars])
+        for x in anns:
+            if x["doc_id"] == a.doc:
+                print("  ann %s p%s %s :: %s" % (x["ann_id"], x.get("page"), x.get("type"),
+                                                 (x.get("quoted_text") or x.get("candidate_quote") or "")[:90]))
+        return 0
+    print("== documents ==")
+    for k, v in docs.items():
+        print("%s | %s | %s | %s p | text=%s | sha:%s | ver=%s | alias=%s | dup=%s" % (
+            k, v.get("filename"), v.get("kind"), v.get("n_pages"), v.get("has_text_layer"),
+            (v.get("sha256") or "")[:10], v.get("version") or "-", v.get("alias_group") or "-",
+            v.get("duplicate_of") or "-"))
+    print("\n== annotations (%d) ==" % len(anns))
+    for x in anns:
+        print("%s | %s | p%s | %s | %s | %s" % (x["ann_id"], x["doc_id"], x.get("page"), x.get("type"),
+                                                x.get("color") or "-",
+                                                (x.get("quoted_text") or x.get("candidate_quote") or "")[:80]))
+    print("\n== version notes ==")
+    for n in idx.get("version_notes") or []:
+        print("- [%s] %s" % (n.get("source") or n.get("locator"), n["note"][:200]))
+    print("\n== queries ==")
+    for q in idx.get("queries") or []:
+        print("- %s: %s" % (q["qid"], q["question"]))
+    print("\n== skipped ==")
+    for s in idx.get("skipped") or []:
+        print("- %s | %s | %s" % (s.get("file"), s.get("code"), s.get("detail")))
+    print("\n-- `show --doc D1` text | `show --ann --doc D1` anchors | `show --page 3` filter")
+    return 0
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
-    t0 = time.time()
+    ap = argparse.ArgumentParser(prog="main.py", description="annotation-ledger (%s)" % GEN)
+    sub = ap.add_subparsers(dest="cmd")
+    for n, h in (("init", "index the library, write partial result.json"),
+                 ("show", "print documents / pages / annotations with locators"),
+                 ("check", "validate work/draft.json (checks.py)"),
+                 ("build", "render products + result.json (build.py)"),
+                 ("selfcheck", "re-verify the products")):
+        q = sub.add_parser(n, help=h)
+        for f in ("--input", "--output", "--work"):
+            q.add_argument(f)
+        if n in ("check", "build"):
+            q.add_argument("--draft")
+        if n == "show":
+            q.add_argument("--ann", action="store_true")
+            for f in ("--doc", "--page", "--chars"):
+                q.add_argument(f)
+    a = ap.parse_args(argv)
+    if not a.cmd:
+        ap.print_help()
+        return 0
     try:
-        if args.cmd in ('init',):
-            rc = cmd_init(args)
-        elif args.cmd == 'show':
-            rc = cmd_show(args)
-        elif args.cmd == 'check':
-            rc = cmd_check(args)
-        elif args.cmd == 'build':
-            rc = cmd_build(args)
-        elif args.cmd == 'selfcheck':
-            rc = cmd_selfcheck(args)
-        elif args.cmd == 'run':
-            cmd_init(args)
-            rc = cmd_build(args)
+        if a.cmd in ("check", "selfcheck"):
+            import checks
+            (checks.run if a.cmd == "check" else checks.selfcheck)(a)
+        elif a.cmd == "build":
+            import build
+            build.run(a)
         else:
-            log('usage: main.py {init|show|check|build|selfcheck} [--input /input] '
-                '[--output /app/output] [--work /app/work]')
-            log('main path: init -> show -> (write draft.json) -> check -> build -> selfcheck')
-            log('脚本不会代替你阅读理解：必须先读材料、写工作稿，再 build。')
-            rc = 0
-        return rc or 0
-    except Exception:
-        tb = traceback.format_exc()
+            {"init": cmd_init, "show": cmd_show}[a.cmd](a)
+    except Exception as e:
+        import traceback
         try:
-            bootstrap(args, 'partial', [{'kind': 'uncaught_exception', 'detail': tb[-800:]}])
+            inp, outp, _ = paths(a)
+            case = find_case(inp, [])[0] if inp.exists() else {}
+            r = envelope(case, str(case.get("case_id") or "unknown"),
+                         [{"code": "unhandled_exception", "detail": "%s: %s" % (type(e).__name__, e),
+                           "trace": traceback.format_exc()[-700:]}])
+            r["status"] = "partial"
+            r["pending_human"] = ["脚本在 %s 阶段异常，result.json 为合法降级结果" % a.cmd]
+            X.jw(outp / "result.json", r)
         except Exception:
             pass
-        log('main: 捕获异常（退出码仍为 0）：%s' % tb.splitlines()[-1][:300])
-        return 0
+        print("ERROR %s: %s" % (type(e).__name__, e), file=sys.stderr)
 
-
-if __name__ == '__main__':
     try:
-        rc = main(sys.argv[1:])
-    except SystemExit:
-        rc = 0
+        import finalize
+        finalize.run(paths(a)[1])
     except Exception:
-        rc = 0
-    sys.exit(0)
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
