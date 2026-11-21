@@ -42,10 +42,26 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 
 被采纳的覆盖会记入 `result.json` 的 `change_records` / `change_log` 与 `uncertainties`，可逐条回溯。
 
+## 增益对照（`--baseline`）
+
+`--baseline` 生成**无 Skill 的确定性基线**（原样拼接材料、不切分/不匹配/不分级、不写 `result.json`）：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py --baseline --input /input --output /tmp/base --work /tmp/work
+```
+
+与正常模式在同一输入上的指标（`result.json.metrics` ↔ `baseline_metrics.json`）逐项可比，
+见 `GAIN_EVIDENCE.md`（可复现的确定性基线对照，非官方评测数据）。
+
 ## 产物（写入 `--output`）
 
 `evidence_driven_draft.md`、`claims.json`、`evidence_table.json`、`evidence_strength.md`、
 `reference_check.md`、`uncertainty_notes.md`、`human_review.json`、`verification.json`、`result.json`。
+
+## 示例输出
+
+`examples/output/result.json` 由本包**确定性生成**（`python3 scripts/main.py --input examples --output examples/output --work <tmp>`），
+可直接打开检查；完整 10 件产物集由同一命令在运行时生成。
 
 ## 契约回填
 
@@ -61,6 +77,7 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 
 ## 维护与版本
 
+- 版本 1.3.0（v10.1）：新增 `--baseline` 确定性基线对照（`SKILL.md`「增益验证与对照方法」、`result.json.metrics.contract_keys_covered`、`examples/output/`）。
 - 版本 1.2.0（v10）：随包 `references/expert_playbook.md` 专家参考手册（判分要点、六步法、量化口径、专家检查表），SKILL 规定执行前必读并按检查表产出。
 - 版本 1.1.0（v9）：新增 Agent `evidence_overrides` 路径与随包生态（examples / resources / 增益证据）。
 - 改动主流程后请跑 `scripts/eval_sim.py`（rich/boundary × single/agent）与样例复跑，见 `SELFTEST.md`。
