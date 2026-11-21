@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "note": "Built-in screening reason-code dictionary shipped with the package. When the materials carry a code book of their own, that one takes precedence and this file is the fallback.",
+  "labels": ["include", "exclude", "needs_review"],
+  "codes": {
+    "IN-POP": {"label": "include", "en": "population matches the review question"},
+    "IN-INT": {"label": "include", "en": "intervention or exposure matches the review question"},
+    "IN-DES": {"label": "include", "en": "eligible study design"},
+    "IN-OUT": {"label": "include", "en": "a target outcome is reported"},
+    "IN-CON": {"label": "include", "en": "setting or condition within scope"},
+    "EX-POP": {"label": "exclude", "en": "population out of scope, for example animal or in-vitro work"},
+    "EX-INT": {"label": "exclude", "en": "intervention or exposure out of scope"},
+    "EX-DES": {"label": "exclude", "en": "ineligible design such as a review, editorial or case report"},
+    "EX-OUT": {"label": "exclude", "en": "no target outcome is reported"},
+    "EX-LANG": {"label": "exclude", "en": "language outside the declared limit"},
+    "EX-DUP": {"label": "exclude", "en": "another copy of a study already represented by a kept record"},
+    "EX-DATE": {"label": "exclude", "en": "publication date outside the search window"},
+    "EX-SETTING": {"label": "exclude", "en": "setting or country type out of scope"},
+    "EX-FULLTEXT": {"label": "exclude", "en": "full text unavailable and the protocol treats it as excluded"},
+    "P-ABS": {"label": "needs_review", "en": "abstract missing or insufficient, full text required"},
+    "P-LANG": {"label": "needs_review", "en": "language still to be confirmed"},
+    "P-CONFLICT": {"label": "needs_review", "en": "reviewer disagreement awaiting arbitration"},
+    "P-VERSION": {"label": "needs_review", "en": "criteria version changed, rejudgement required"}
+  }
+}
