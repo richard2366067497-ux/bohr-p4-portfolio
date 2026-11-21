@@ -8,53 +8,29 @@
 
 ```json
 {
-  "audience": {
-    "label": "对科学有兴趣的普通读者",        // 一句话受众标签（必填）
-    "profile": "受过高等教育、无本领域训练",   // 画像：职业/知识背景/阅读场景
-    "knowledge": "知道 DNA，不懂碱基与脱靶",   // 知识假设：决定解释深度
-    "goal": "判断成果能否用于治疗",            // 阅读目的：决定信息排序
-    "depth": "每个术语首现给一句白话",         // 解释深度
-    "term_policy": "缩写首现即展开，不出现仪器名",
-    "strength_policy": "体外结果一律标注在细胞模型中"
-  },
-  "genre": {
-    "label": "科普文章",
-    "conventions": ["问题切入", "机制白话", "局限单列"],
-    "length_target": 800,                      // 字数上限（整数）；无上限填 0
-    "length_unit": "字"
-  },
+  "audience": {"label": "对科学有兴趣的普通读者", "profile": "受过高等教育、无本领域训练",
+               "knowledge": "知道 DNA，不懂碱基与脱靶", "goal": "判断成果能否用于治疗",
+               "depth": "每个术语首现给一句白话", "term_policy": "缩写首现即展开，不出现仪器名",
+               "strength_policy": "体外结果一律标注在细胞模型中"},
+  "genre": {"label": "科普文章", "conventions": ["问题切入", "机制白话", "局限单列"],
+            "length_target": 800, "length_unit": "字"},
   "headline": "一句话结论（含对象与效果，不夸大）",
   "deck": "可选导语/副标题，一句",
-  "sections": [
-    {"id": "S1", "title": "小标题", "text": "成稿正文段落……",
-     "cites": ["M1:P3"], "strength": "established"}
-  ],
-  "retained": [
-    {"id": "R1", "kind": "number", "value": "87.5%", "locator": "M1:P3",
-     "quote": "编辑效率由 62.1% 提升至 87.5%（n=48，p<0.01）",
-     "where": "S3", "treatment": "kept", "note": "保留起点值，未取整"}
-  ],
-  "trace": [
-    {"section_id": "S1", "source_locator": "M1:P3",
-     "source_quote": "遗传性血液病多由单碱基突变引起，现有治疗方案依从性差。",
-     "decision": "compress", "note": "转写为可理解类比，事实不变"}
-  ],
-  "changes": [
-    {"action": "compress", "locator": "M1:P6",
-     "original_quote": "细胞在 37 °C、5% CO2 条件下培养……",
-     "revised_quote": "（未进入正文）", "reason": "复现信息，非判断依据"}
-  ],
-  "dropped": [
-    {"item": "测序平台与深度", "locator": "M1:P6", "why": "方法细节，删去不影响结论适用范围"}
-  ],
-  "glossary": [
-    {"term": "BE-3", "expansion": "碱基编辑系统（可定点改写单个碱基）",
-     "usage": "BE-3", "variants": ["BE3"], "locator": "M1:P3"}
-  ],
+  "sections": [{"id": "S1", "title": "小标题", "text": "成稿正文段落……",
+                "cites": ["M1:P3"], "strength": "established"}],
+  "retained": [{"id": "R1", "kind": "number", "value": "87.5%", "locator": "M1:P3",
+                "quote": "编辑效率由 62.1% 提升至 87.5%（n=48，p<0.01）",
+                "where": "S3", "treatment": "kept", "note": "保留起点值，未取整"}],
+  "trace":   [{"section_id": "S1", "source_locator": "M1:P3", "source_quote": "逐字原文",
+               "decision": "compress", "note": "转写为可理解类比，事实不变"}],
+  "changes": [{"action": "compress", "locator": "M1:P6", "original_quote": "逐字原文",
+               "revised_quote": "（未进入正文）", "reason": "复现信息，非判断依据"}],
+  "dropped": [{"item": "测序平台与深度", "locator": "M1:P6", "why": "方法细节，删去不影响结论适用范围"}],
+  "glossary": [{"term": "BE-3", "expansion": "碱基编辑系统（可定点改写单个碱基）",
+                "usage": "BE-3", "variants": ["BE3"], "locator": "M1:P3"}],
   "numbers_allow": [{"value": "90%", "reason": "源文 87.5%，按上限取整（待作者确认）"}],
-  "open_questions": [
-    {"issue": "题面未指定读者年龄层", "why": "影响解释深度", "action": "作者确认后调整", "owner": "author"}
-  ],
+  "open_questions": [{"issue": "题面未指定读者年龄层", "why": "影响解释深度",
+                      "action": "作者确认后调整", "owner": "author"}],
   "uncertainty": ["体外结果向体内外推尚未验证"]
 }
 ```
@@ -134,7 +110,7 @@
 
 ## 4. 一条完整示例（示例，非正式案例结果）
 
-源文 `M1:P4`：「在 48 名供者来源的细胞样本中，编辑效率由 62.1% 提升至 87.5%（n=48，p<0.01），脱靶位点数由 14 个降至 3 个（图 2）。」
+源文 `M1:P4`：「编辑效率由 62.1% 提升至 87.5%（n=48，p<0.01），脱靶位点数由 14 个降至 3 个（图 2）。」
 
 ```json
 {"id": "R2", "kind": "number", "value": "87.5%", "locator": "M1:P4",
@@ -142,20 +118,12 @@
  "where": "S3", "treatment": "kept", "note": "起点值与终点值同时保留，未取整"}
 ```
 
-对应正文写成：「在 48 名供者来源的细胞样本中，编辑效率由 62.1% 提升至 87.5%（n=48，p<0.01），脱靶位点数由 14 个降至 3 个（图 2）。」
-
-**反面写法**（`check` 会报 `number_not_in_source` 或 `retained_not_in_body`）：
-
-- 「效率提升到接近九成」→ 数值消失、单位消失、不可核验；
-- 「效率提升了约 25 个百分点」→ 源文没有这个换算，属新增结论；
-- 「脱靶问题已基本解决」→ 强度升级（3 个 ≠ 0 个）。
-
----
+**反面写法**（`check` 报 `number_not_in_source` / `retained_not_in_body`）：「效率提升到接近九成」
+（数值与单位消失）；「效率提升了约 25 个百分点」（源文无此换算，属新增结论）；「脱靶问题已基本
+解决」（强度升级，3 个 ≠ 0 个）。
 
 ## 5. 写作口径
 
-- `text` 里不写元话语，直接给内容；
-- 一段一义，首句承载结论，便于审稿人核对；
-- 数字、单位、样本量、比较基准按原文写法照搬；
-- 源文没有的商业前景、成本、时间表一律进 `open_questions`，不进正文；
-- 若某段确实只能压缩到一句话，把被压掉的内容放进 `changes`（`action=compress`）并写理由。
+`text` 不写元话语、一段一义、首句承载结论；数字/单位/样本量/比较基准按原文照搬；源文没有的
+商业前景/成本/时间表一律进 `open_questions`；压缩只能到一句话时，被压内容进 `changes`
+（`action=compress`）并写理由。
