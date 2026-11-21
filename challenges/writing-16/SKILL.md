@@ -91,9 +91,9 @@ meta 分析（交回作者/统计人员）；代替同行评审、伦理审查�
 | 项 | 约定 |
 |---|---|
 | 输入 | `/input/case.json`（`case_id`、`output_contract`、`task_instruction`）、`/input/task.md`、`/input/` 下任意材料（PDF/DOCX/XLSX/CSV/MD/TXT/JSON/TEX/图片） |
-| 工作目录 | `/app/work`：`index.json`（locator 唯一权威）、`draft.json`（工作稿）、`check.json`（最近校验） |
+| 工作目录 | `/app/work`：`index.json`（locator 唯一权威）、`draft.json`（工作稿）、`check.json` |
 | 产物 | `/app/output/`：`deliverable.md`、`retained_facts.json`、`diff_map.md`、`glossary.csv`、`result.json` |
-| 依赖 | 仅 Python 3 标准库；离线；不依赖 CWD（`Path(__file__)` 定位，可用 `--input/--work/--output` 或 `SKILL_INPUT/SKILL_WORK/SKILL_OUTPUT` 覆盖） |
+| 依赖 | 仅 Python 3 标准库；离线；不依赖 CWD（`--input/--work/--output` 或 `SKILL_INPUT/SKILL_WORK/SKILL_OUTPUT` 可覆盖） |
 | 退出码 | **恒为 0**；异常写入 `result.json.errors`，已产出文件保留 |
 | 预算 | 64 次模型请求 / 900 秒 / 单次回复 16384 tokens；约 700 秒立即 `build` 收口 |
 | 语言 | 成稿语言跟随材料与 `task_instruction`（通常中文）；脚本与语言无关 |
@@ -301,5 +301,4 @@ PASS 14 / FAIL 0
 
 维护约定：新材料格式无需改代码（`kit.extract` 按扩展名 + 魔数分派，不支持的类型只降级不报错）；
 新增体裁在 `audience-genre-matrix.md` 加一行矩阵 + 一段骨架，并在 `init` 体裁词表加同义词；
-新增校验口径只改 `audit.check_draft`，`main.py` 复用其结论；改脚本后必须跑 `--help`（退出码 0）、
-空输入、坏 JSON 各一次，确认仍写出合法 partial `result.json`。
+新增校验口径只改 `audit.check_draft`；改脚本后必须跑 `--help`（退出码 0）、空输入、坏 JSON 各一次。
