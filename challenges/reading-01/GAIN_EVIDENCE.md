@@ -7,7 +7,7 @@ python3 /skills/weekly-skill/scripts/main.py compare --input /input --output /ap
 ```
 
 which writes `work/compare_report.json` for the run you just made. The numbers below are from
-`examples/sample.pdf` (2 pages, two-column article with a table, a formula, a caption and references).
+`examples/sample.md` (text transcription of a 2-page, two-column article with a table, a formula, a caption and references).
 
 **Protocol.** The baseline is what a copy-the-text reader can do: select the text of the PDF, paste it,
 report it as "the document". It has no page object, no column decision, no locator and no evidence row.
