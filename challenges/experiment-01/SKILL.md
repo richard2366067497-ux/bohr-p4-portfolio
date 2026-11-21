@@ -6,6 +6,22 @@ version: 2.6.0
 
 # plan-forge-experiment
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **流程**：按其 **§2 六步法（S1–S6）** 推进——假设与变量 → 变量操作定义 → 对照矩阵 → 步骤与排程
+  → 参数规格 → 风险登记；前一步未冻结不进入下一步，并遵守其门控规则。
+- **量化口径**：按其 **§3** 逐条复算——样本量 `n = 2×((z_{α/2}+z_β)/d)²`、时间用关键路径法
+  （并行取 max，含 15% 缓冲）、预算 `单价×用量×(1+损耗)` + 机时 + 人工，写进 `arithmetic_ledger.json`
+  并逐行自检。
+- **判读标准**：按其 **§3.4 风险等级**（H>30% / M 5–30% / L<5%）与参数允许偏差（如恒温 ±1 °C、
+  马弗炉 ±3 °C、时间 ±5%）给定判据、止损点与替代路径。
+- **陷阱与单位**：按其 **§4 领域陷阱与单位**逐条排雷（SEM/TEM、XRD 晶相、ppm、rpm 与 RCF、sccm 与
+  mL/min），所有数值标注来源类型（设备手册 > 文献 DOI > 预实验），不编造 DOI。
+- **门控**：交付前逐项通过其 **§5 自查表（C01–C17）**，并用其 **§7 专家注意点**逐条排雷。
+
 ## 0. result.json contract
 
 `result.json` carries every key of the case's `output_contract`, both at the top level and
@@ -108,3 +124,23 @@ Standard library only, offline, no third-party dependency. No significance testi
 history rows the model is reported as a hint alongside its sample count. Missing budget or
 domain is preserved as an open rule with a reason, never guessed. Nothing is fetched or
 installed.
+
+## 9. 交付前自检清单
+
+- [ ] 六个要素齐全，每个元素带 `source_id` + `locator` + 逐字引文，缺失项以 abstain 记录、绝不编造
+- [ ] 三个版本候选均落在声明的有限参数域内且在 step 网格上
+- [ ] 六条校验规则逐条执行，违反项已按规则修订并记录 `from → to` 与理由
+- [ ] 算术台账逐行可复算（行和 = 单次成本，单次 × 重复 = 总成本，不超预算）
+- [ ] 结论中每个数字可回指具体材料行；`case_id` 原样透传；契约键逐键非空
+- [ ] **专家检查表逐项通过**：交付前逐项通过 `references/expert_playbook.md` §5 的 C01–C17
+  自查表，并用 §7 专家注意点逐条排雷；任一项未通过则修正后重出，不得静默提升 status
+- [ ] 无静默修改：所有数据变更均有记录与理由；纯标准库、离线、无时钟读取
+
+## 随包文件（v10 新增）
+
+```
+references/expert_playbook.md  专家参考手册（六步法/量化口径/风险等级/陷阱与单位/自查表 C01–C17/完整案例）
+environment/resources.yaml     运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                      最小可复跑样例（case.json + params.json），评审可直接复跑
+GAIN_EVIDENCE.md               无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
