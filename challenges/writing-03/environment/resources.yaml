@@ -1,0 +1,49 @@
+# environment/resources.yaml
+# Runtime contract for latex-free-format-adapter (writing-03). Offline, standard library only.
+name: latex-free-format-adapter
+version: 6.1.0
+entry_point: scripts/main.py
+python: ">=3.9"
+
+paths:
+  input: /input          # case.json + task.md + manuscript / template / requirements
+  output: /app/output    # result.json + deliverable.md/docx + format_spec + fidelity report
+  work: /app/work        # draft.json (optional), inventory.json
+
+commands:
+  single: "python3 /skills/weekly-skill/scripts/main.py run --input /input --output /app/output --work /app/work"
+  probe: "python3 scripts/main.py probe --input /input --output /app/output --work /app/work"
+  build: "python3 scripts/main.py build --input /input --output /app/output --work /app/work"
+  check: "python3 scripts/main.py check --input /input --output /app/output --work /app/work"
+  selfcheck: "python3 scripts/main.py selfcheck --input /input --output /app/output --work /app/work"
+
+outputs:
+  - deliverable.md
+  - deliverable.docx
+  - format_spec.md
+  - style_map.json
+  - fidelity_report.json
+  - pending_human.json
+  - result.json
+
+bundled_files:
+  - SKILL.md
+  - README.md
+  - SELFTEST.md
+  - GAIN_EVIDENCE.md
+  - GITHUB_URL.txt
+  - environment/resources.yaml
+  - examples/case.json
+  - examples/manuscript.md
+  - references/format-spec.md
+  - references/expert_playbook.md
+  - scripts/main.py
+  - scripts/core.py
+  - scripts/adapter.py
+
+dependencies: []          # pure standard library; no third-party packages
+network: none
+limits:
+  files: 14
+  bytes: 150000
+  single_file_bytes: 30000
