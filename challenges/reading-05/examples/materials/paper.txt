@@ -1,0 +1,30 @@
+Effect of Rice Genotype qDTY12.1 on Grain Yield under Drought (example material)
+
+Abstract
+
+Drought is a major constraint on rainfed rice production. This example material is a
+short synthetic note used only to demonstrate the reading-client closed loop.
+
+Introduction
+
+Conventional breeding has produced lines that carry the drought-yield quantitative
+trait locus qDTY12.1. Yield advantages are usually reported as percentages relative
+to a susceptible recurrent parent.
+
+Methods
+
+Trials were conducted in two seasons with three replications per genotype. Grain
+yield was recorded per plot and converted to t/ha at 14% moisture.
+
+Results
+
+Rice lines carrying qDTY12.1 showed 28% higher grain yield under drought, reaching
+4.6 t/ha against 3.6 t/ha for the recurrent parent.
+
+Under irrigated control conditions the yield advantage narrowed to 4%, indicating the
+benefit is drought specific.
+
+Conclusion
+
+The locus qDTY12.1 is associated with a consistent yield advantage in rainfed
+lowland environments, but the effect size depends on the water regime.
