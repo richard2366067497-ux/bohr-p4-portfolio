@@ -9,6 +9,14 @@ version: 2.0.0
 脚本做确定性重活：解析、切分、建图、统计、渲染、契约回填、占位符净化。
 Agent 做判断：哪些句子算主张、哪条边成立、严重度怎么定、建议怎么写。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 ## 0. result.json 契约样例（output_contract 逐键回填，顶层 + 嵌套）
 
 `result.json` 把**用例声明的每一个 `output_contract` 键**原样写进 `output_contract` 对象，并在顶层写同名键。
@@ -56,9 +64,7 @@ Agent 做判断：哪些句子算主张、哪条边成立、严重度怎么定�
 
 ## 1. 单命令入口（single-command entry，一条命令跑完全流程）
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 这一条命令完成：发现 case/材料 → 抽取文本（md/txt/json/csv/tex，PDF 有 `pdftotext` 则用、否则内置流解析）
 → 切分为带 locator 的文本单元 → 建节点 → 建五类边 → 派生 finding（含严重度与建议）
