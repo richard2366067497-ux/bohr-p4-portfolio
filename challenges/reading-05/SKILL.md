@@ -43,6 +43,8 @@ version: 3.0.0
 
 单命令即可跑完整条闭环并产出全部产物（评测只跑这一条也能过）：
 
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ```
 python3 -B /skills/weekly-skill/scripts/main.py \
   --input /input --output /app/output --work /app/work
