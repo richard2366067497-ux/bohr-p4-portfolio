@@ -19,6 +19,14 @@ each one with the locator it came from and the sentence that supports it. A stat
 matched verbatim in the material is reported in `uncertainty.json` rather than used, and a claim that
 the rules forbid (a `novel` verdict resting on "nobody researched this") is refused, not written.
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 **Four deliverables ↔ five gates.** The task's four deliverables are not four parallel documents;
 they are four sides of one judgement, and this Skill compresses them into five gates:
 
@@ -91,11 +99,8 @@ gate) and reports them instead of publishing them.
 Run this single command; with no draft it still writes every artifact and a complete `result.json`,
 and exits 0:
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 ## 3. agent-first 增强路径（可选，质量更高）
 
