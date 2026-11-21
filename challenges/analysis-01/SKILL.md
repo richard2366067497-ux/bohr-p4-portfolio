@@ -6,17 +6,7 @@ version: 1.1.0
 
 # 字段契约驱动的科研数据清洗（field-contract-cleaner）
 
-## 0. 单命令入口（single command / 一次性跑完全管道）
-
-**单命令入口**——不写任何工作稿也能一次产出全部交付物与完整契约回填：
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
-
-`all` 依次做 `init`（建索引 + 先写合法 partial `result.json`）与 `build`（执行契约 → 清洗表 / 账本 / 报告 / 对账 / `result.json`），恒 exit 0；工作稿缺失时自动走 §8 兜底链，产出「完整但降级」，绝不产出空目录。等价的单命令别名是 `build`（同一实现，只是不重写 `work/index.json`）。
-
-## 0.1 本包声明的契约（output_contract）
+## 0. 本包声明的契约（output_contract）与单命令入口
 
 `result.json` 必须回填下面每个键（键名不改、不并、不删）；案例自带 `case.json → output_contract` 时以案例为准，本声明只在案例未声明契约时生效（见 §9 回填规则）。
 
@@ -26,6 +16,14 @@ python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/ou
   "invalid_rules": "string", "workorder_ref": "string", "none": "string",
   "planned_action": "string"}}
 ```
+
+**单命令入口**（single command / 一次性跑完全管道）——不写任何工作稿也能一次产出全部交付物与完整契约回填：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+`all` 依次做 `init`（建索引 + 先写合法 partial `result.json`）与 `build`（执行契约 → 清洗表 / 账本 / 报告 / 对账 / `result.json`），恒 exit 0；工作稿缺失时自动走 §8 兜底链，产出「完整但降级」，绝不产出空目录。等价的单命令别名是 `build`（同一实现，只是不重写 `work/index.json`）。
 
 ## 1. 用途与适用条件
 
@@ -102,7 +100,7 @@ python3 scripts/main.py selfcheck  # 复检：契约键回填、产物齐全、�
 
 最少可用形状：只写 `field_contract`（每字段 `field` + `planned_action` 必需），`check` 会点名缺什么。
 
-`field_contract` 每条可用的键（也是本包 output_contract 的键，见 §0.1）：
+`field_contract` 每条可用的键（也是本包 output_contract 的键，见 §0）：
 
 | 键 | 含义 | 类型 |
 |---|---|---|
@@ -166,7 +164,7 @@ python3 scripts/main.py selfcheck  # 复检：契约键回填、产物齐全、�
 | 情形 | status | degradations / 处置 |
 |---|---|---|
 | `/input` 空或无表格 | `partial` | `no_table_found`；清洗表写降级说明行，账本写 0 影响聚合行，契约仍从字典投影 |
-| `case.json` 坏或缺 | `input_error` | `case_json_missing/invalid`；`case_id=UNKNOWN-CASE`，契约退回本包 §0.1 声明 |
+| `case.json` 坏或缺 | `input_error` | `case_json_missing/invalid`；`case_id=UNKNOWN-CASE`，契约退回本包 §0 声明 |
 | 无字典 | `partial` | `dictionary_missing`；契约从表头 + 值分布合成，全部标 `synthesized` |
 | 无工单 | `partial` | `workorder_missing`；只做标记类动作，不做去重/换算 |
 | 无工作稿 | `partial` | `draft_missing`；走 §8 兜底链 |
@@ -226,7 +224,7 @@ python3 scripts/main.py selfcheck --input ./demo --output ./out --work ./work
 
 SELFTEST.md 记录 7 个边界用例的可复现结论（每个都要求 exit 0、契约键全回填、无占位符）：
 
-1. **坏 JSON**：`case.json` 非法 → `errors` 记录、`case_id=UNKNOWN-CASE`、契约退回 §0.1 声明、产物照样齐。
+1. **坏 JSON**：`case.json` 非法 → `errors` 记录、`case_id=UNKNOWN-CASE`、契约退回 §0 声明、产物照样齐。
 2. **空材料**：只有 0 字节 md → `no_table_found`，清洗表写降级说明行，账本写 0 影响聚合行。
 3. **仅表头**：`empty_table`，账本 0 行，报告写明，行数守恒仍成立（0=0+0+0）。
 4. **无字典**：契约从表头 + 值分布合成，全部标 `synthesized`，`dictionary_missing`。
@@ -252,7 +250,7 @@ README.md                30 秒上手、入口命令、产物清单、与基线�
 SELFTEST.md              自查清单 + §16 七个边界用例的可复现结论
 GAIN_EVIDENCE.md         §14/§15 的对照证据（逐项可由交付文件核验）
 GITHUB_URL.txt           作品集地址（两行）
-environment/resources.yaml  运行环境（Python 版本、标准库、无网络、seed、超时预算）
+environment/resources.yaml  运行环境声明（解释器版本、标准库、无网络、seed、超时预算）
 examples/sample_data.csv 最小夹具（演示 flags/账本/对账的可用输入）
 references/rules.json    可编辑词表：缺失/无效/LOD 码、编码顺序、mojibake 标记、单位注册表、动作枚举、红线、不变式
 scripts/main.py          CLI 与编排（all/init/show/check/build/selfcheck），兜底 finalize，恒 exit 0
