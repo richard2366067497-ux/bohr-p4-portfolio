@@ -1,6 +1,6 @@
 ---
 name: figure-data-extractor
-version: 1.0.0
+version: 3.0.0
 description: >-
   Read a scientific figure and its tables into structured, unit-carrying data that
   stays traceable: recover axis type (linear/log), tick origin and interval, units and
@@ -19,6 +19,21 @@ A chart must be read into numbers you can check, not into a paragraph. This skil
 figure's own geometry (axis type, ticks, units, legend), calibrates pixels to data coordinates,
 digitizes each series by colour, copies table cells verbatim, and anchors every value and claim to
 a locator. Anything the figure does not report stays `undetermined`; nothing is invented.
+
+---
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按手册的求解框架（含每步冻结产物与门控）推进；前一步未冻结不进入下一步。
+- **口径**：按手册的字段、单位与公式口径逐项核验；原值、原单位与换算值分开保存，不跨来源补值。
+- **陷阱**：按手册的领域陷阱清单逐条排雷（错误做法 → 正确做法）。
+- **门控**：交付前逐项通过手册 **§9 防扣分自查表**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties`，绝不静默提升为成功。
+
+---
 
 ## 0. result.json contract
 
@@ -122,3 +137,23 @@ table and claim items exist; `compare` writes a base-vs-skill contrast to `/app/
   grounded; a visual quote (`quote_type=visual`) anchors to a `bbox_px`, never to text.
 - Empty / binary / placeholder-only file → recorded with its parse status, never quoted.
 - No network, no third-party package, no invented numbers.
+
+## 交付前自查
+
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键非空、无类型占位符、无 `null`。
+- [ ] 每条 claim / 结论都带 `locator`（页码/图号/子图/坐标轴/数据点）与逐字引用。
+- [ ] 区分“图中直接可读 / 合理推断 / 无法确定”，缺失项如实记 `partial`，不构造数据。
+- [ ] 空输入 / 全是坏文件两条路径各跑过一次，均 exit 0 且有缺口报告。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §9 的防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties`，绝不静默提升为成功。
+
+## 文件清单与维护
+
+- `SKILL.md` — 本文件：入口、契约、口径、降级、自查
+- `scripts/main.py` — 单命令入口与流程编排、契约组装
+- `references/expert_playbook.md` — 专家参考手册（执行前必读）
+- `environment/resources.yaml` — 资源入口声明
+- `templates/` — 结果契约与笔记模板
+- `examples/` — 最小可跑样例
+- `README.md` / `SELFTEST.md` / `GAIN_EVIDENCE.md` / `GITHUB_URL.txt`
+- 依赖：Python 3.9+ 标准库；无第三方、无网络、无外部模型。
