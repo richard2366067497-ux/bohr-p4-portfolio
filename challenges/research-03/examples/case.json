@@ -1,0 +1,32 @@
+{
+  "case_id": "example-systematic-review",
+  "language": "en",
+  "materials_root": "materials",
+  "task_instruction": "Screen the supplied bibliographic snapshot for the review question on additive engineering for perovskite solar cell stability: build the criteria, screen title/abstract, assess full-text eligibility, appraise included studies and emit the PRISMA flow, screening ledger, appraisal and a report.",
+  "criteria": {
+    "population": "perovskite solar cells (PSC)",
+    "keywords": ["perovskite", "stability", "additive", "degradation"],
+    "inclusion": ["primary study on perovskite solar cell stability with an additive", "reports an identifiable stability outcome"],
+    "exclusion": ["not about perovskite solar cells", "no stability outcome", "duplicate record"],
+    "note": "criteria fixed for this example; swap the keywords when reusing on another topic"
+  },
+  "output_contract": {
+    "design_fit": "string",
+    "risk_of_bias": "string",
+    "sample_or_data_adequacy": "string",
+    "reporting_completeness": "string",
+    "directness": "string",
+    "identified": "string",
+    "screened_title_abstract": "string",
+    "excluded_title_abstract": "string",
+    "exclude": "string",
+    "full_text_assessed": "string",
+    "excluded_full_text": "string",
+    "included": "string",
+    "include": "string",
+    "excluded": "string",
+    "unresolved": "string",
+    "not_screened": "string",
+    "excluded_by_reason": "string"
+  }
+}
