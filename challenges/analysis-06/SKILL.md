@@ -7,7 +7,28 @@ tags: [database-query, sqlite, field-dictionary, join-ledger, result-reconciliat
 
 # db-query-workbook（科研数据库查询工作簿）
 
-本包是 `analysis-06` 的 v6 形态：**单命令即可跑完整条查询流水线**，无需先初始化再写工作稿；
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **流程**：按其 **§2 六步流水线（S0–S6）与门控**推进——确认快照与版本 → 读数据字典并与
+  `PRAGMA table_info` 交叉比对（覆盖率 ≥ 95%，未覆盖字段标 `unmapped`）→ 质量探查 → 定义并执行
+  清洗规则 → 编 SQL 逐条真实执行 → 图表与结论 → 组装 `result.json` 与复现命令；每步冻结产物后才进入下一步。
+- **量化口径**：按其 **§3 逐条复算**——缺失率 `COUNT(IS NULL 或 ='')/COUNT(*)`（精确值）、重复行
+  `GROUP BY … HAVING COUNT(*)>1`、异常值 IQR 法 `Q1-1.5×IQR / Q3+1.5×IQR`（3σ 法须先过正态性）、
+  跨表 JOIN 校验（预期最小 `max(左,右)`、膨胀比 `实际/min(左,右)`、**膨胀比 > 5 必须人工审查**）、
+  聚合交叉验证 `SUM(分组聚合) = SUM(明细)`、编码字段解码未映射值必须为 0；写进
+  `reconciliation.json` / `join_ledger.json` / `data_quality.json`。
+- **陷阱与单位**：按其 **§4 领域知识与单位陷阱**逐条排雷（K1 行数≠完整、K2 龄期必须分组、
+  K3 编码当连续、K4 cement≠concrete、K5 单位 cm vs mm、K6 INTEGER 可能含 NULL）；字段语义以任务
+  提供的数据字典为第一来源，字典缺失时引原始论文/发布页，**不做无来源假设**。
+- **硬规则**：编码型字段永不参与数值聚合；每个 JOIN 结果使用前先做行数/膨胀复核；所有引用的 SQL
+  都真实执行过（绝不交付"像 SQL 的文本"）。
+- **门控**：交付前逐项通过其 **§5 交付物清单与防扣分自查表（DC-01…DC-17）**，并用其 **§8 专家注意点**
+  与 **§7 快速决策树**逐条排雷。
+
+本包是 `analysis-06` 的 **v10 形态**：**单命令即可跑完整条查询流水线**，无需先初始化再写工作稿；
 Agent 仍可补充查询意图，但评估器只跑第一条命令也能拿到全部产物与完整契约回填。
 
 ## 0. result.json 契约样例（output_contract 逐键回填）
@@ -69,6 +90,9 @@ python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/ou
 
 `query_report.md` 与 `results/` 是主交付；其余文件是可复核的中间证据。
 
+随包样例 `examples/` 实测（2 表 / 9 字段 / **16 条真实执行的语句** / 16 份结果 CSV /
+对账 **7/7** / 连接膨胀比 **2.5**）产出 **26** 件文件，见 `GAIN_EVIDENCE.md`。
+
 ## 3. 子命令与参数（可选，供人工/Agent 分步复核）
 
 | 子命令 | 作用 | 写盘 |
@@ -109,3 +133,25 @@ python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/ou
 只做可复核的查询与对账；不猜连接参数、不接外部库、不判断科研结论正确与否。纯标准库
 （sqlite3, csv, json, re, hashlib, pathlib）、无网络、无时钟读取：重复运行同一快照，交付物字节稳定。
 运行中断时保留已写的部分 `result.json`，异常写入 `errors[]`，退出码仍为 0。
+
+## 7. 交付前自检清单
+
+- [ ] 库表发现完整：表名、列名、行数与本快照一致；快照 SHA-256 与 SQLite 版本已记录
+- [ ] 字段字典逐字段给出 kind（num/code/text）与 unit；**编码字段按标签解释，绝不做数值求和**
+- [ ] 质量探查量化：逐列缺失率、重复行数与异常值方法（IQR 或通过正态性检验的 3σ）均已记录
+- [ ] 所有引用的 SQL 都真实执行过并逐字写进 `queries.sql`；失败语句保留原始报错文本
+- [ ] 每个 JOIN 后都有 `COUNT(*)` 校验与膨胀比，膨胀比 > 5 已人工审查（`join_ledger.json`）
+- [ ] 每个结果集导出 CSV，行数可回算；对账检查写进 `reconciliation.json`（`n_pass/n_checks`）
+- [ ] 契约键逐键非空（路径类键指向真实存在的交付物），`case_id` 原样透传，`status` 诚实
+- [ ] **专家检查表逐项通过**：交付前逐项通过 `references/expert_playbook.md` §5 的 DC-01…DC-17
+  自查表，并用 §7 快速决策树与 §8 专家注意点逐条排雷；任一项未通过则修正后重出，不得静默提升 status
+- [ ] 无静默修改：所有数据变更均有记录与理由；纯标准库、离线、无时钟读取、字节稳定
+
+## 随包文件（v10 新增）
+
+```
+references/expert_playbook.md  专家参考手册（S0–S6 六步流水线/量化口径 §3/领域陷阱与单位 §4/自查表 DC-01…DC-17/完整案例）
+environment/resources.yaml     运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                      最小可复跑样例（case.json + samples.csv + batches.csv + dictionary.md）
+GAIN_EVIDENCE.md               无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
