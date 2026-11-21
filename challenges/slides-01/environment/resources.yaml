@@ -1,0 +1,36 @@
+# environment/resources.yaml — slides-author (slides-01 · v9)
+# 运行环境与资源声明；路径一律走 --input/--output/--work，脚本不从这里取路径。
+runtime:
+  language: python
+  version: ">=3.8"
+  tested_on: "CPython 3.12"
+  package_manager: none
+  dependencies: []          # 纯标准库：argparse, json, re, hashlib, zipfile, html, io, time, datetime, pathlib
+  network: false
+  clock: false              # 文本产物字节稳定；不依赖系统时间做内容决策
+  seed: fixed               # OOXML/PDF 用固定 build id 填充，避免随机性
+resources:
+  cpu: 1
+  memory_mb: 256
+  timeout_s: 900
+  model_requests: 64
+  max_tokens_per_request: 16384
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill: /skills/weekly-skill
+entry:
+  single_command: "python3 -B /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work"
+  agent_path: ["init", "show", "check", "build", "selfcheck"]
+inputs:
+  material_exts: [md, markdown, txt, tex, csv, json, yaml, yml, html]
+  image_exts: [png, jpg, jpeg, gif, bmp, svg]
+  template: "target-template.pptx（可选；存在则复用其主题/母版）"
+  workorder: "slide-workorder.json（可选；回显 模式/页数/受众/时长/语言/必需小节/备注/输出格式）"
+output_files: [result.json, presentation.pptx, presentation.pdf, deck.md, deck.html,
+               preview.svg, outline.md, slide_plan.json, content_map.json, page_gold.json,
+               compliance_checks.json, version_log.json, report.md]
+editable_without_code_change:
+  - references/slides-spec.md          # 机制与判定口径
+  - templates/slide-plan-template.json # 页级大纲模板 + 证据映射字段（可复用）
