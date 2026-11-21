@@ -524,9 +524,15 @@ def cmd_selfcheck(out):
     res = rj(os.path.join(out, "result.json"), {})
     echo = res.get("output_contract") if isinstance(res, dict) else None
     ok_echo = isinstance(echo, dict) and all(E.s(v) for v in echo.values())
-    print("selfcheck: files %s, contract echo %s, status %s"
+    playbook = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "references", "expert_playbook.md")
+    ok_playbook = os.path.isfile(playbook) and os.path.getsize(playbook) > 0
+    print("selfcheck: files %s, contract echo %s, expert-checklist %s, status %s"
           % ("ok" if not miss else "missing " + ", ".join(miss),
-             "ok" if ok_echo else "incomplete", res.get("status", "")))
+             "ok" if ok_echo else "incomplete",
+             "ok (references/expert_playbook.md present; 15-item checklist to pass)"
+             if ok_playbook else "MISSING references/expert_playbook.md",
+             res.get("status", "")))
     return 0
 
 
