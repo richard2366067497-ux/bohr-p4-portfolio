@@ -88,3 +88,14 @@ python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
 - 随包生态齐备：examples/（case.json + params.json，可复跑）、environment/resources.yaml、README.md、
   GAIN_EVIDENCE.md（含确定性基线对照）、SELFTEST.md。
 - scripts/eval_sim.py rich/boundary × single/agent 四项全 **PASS**（契约键逐键回填，placeholder_sweep 干净）。
+
+## v10 交付状态（专家手册嵌入）
+
+- **新增 `references/expert_playbook.md`**（专家参考手册，embed 自 MatMaster 专家手册，去元话术，
+  保留七步法/可行域检查表/成本口径/搜索决策树/风险矩阵/完整案例/9 项自查表）；`SKILL.md` 明确
+  "执行前先读 references/expert_playbook.md，按其框架/检查表/成本口径产出交付物"，并在 outputs 与
+  §自检中加入"专家检查表逐项通过"。
+- **单命令入口未受影响**：`python3 scripts/main.py all --input /input --output /app/output --work /app/work`
+  在无 draft 下仍产出全部 10 件产物 + 契约逐键回填，exit 0。
+- **`scripts/eval_sim.py` rich/boundary × single/agent 四项全 PASS**；`selfcheck` 额外报告
+  `expert-checklist ok`（references/expert_playbook.md 存在，9 项自查表逐项通过）。
