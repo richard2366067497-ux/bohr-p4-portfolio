@@ -21,6 +21,18 @@ version: 2.0.0
 
 ---
 
+## 0. 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：任务本质与判分要点、错误做法→正确做法、求解框架（读取建档→证据卡→问题与目标→
+技术路线→计划核算→风险与成果→写作验证）、量化口径与公式（七要素覆盖率 / 论断溯源率 / 目标
+对齐率 / 样本量 / RSD / 百分点与相对提升 / 人员负载与预算）、领域知识清单、交付物清单与专家
+检查表、完整虚构案例、交付前门控。执行顺序固定为：先读手册 → 再按手册求解框架逐阶段落盘冻结
+产物 → 交付前逐项勾选手册 §5 专家检查表。手册与 `SKILL.md` 冲突时，契约键名与入口命令以
+`SKILL.md` 为准，方法与判分口径以手册为准。
+
+---
+
 ## 1. 入口命令（第一条）
 
 单命令即可跑完全流程并产出全部关键产物（评测只跑这一条也能通过）：
@@ -200,6 +212,7 @@ python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/
 
 ## 9. 交付前自查
 
+- [ ] **`references/expert_playbook.md` §5 专家检查表逐项通过**（未通过项先修复再交付）。
 - [ ] `result.json` 可解析，`case_id` 在，`output_contract` 逐键回填且无占位符。
 - [ ] `mindmap.svg` 节点数与 `mindmap.json` 一致，每个 `g#node-*` 带 `data-quote` / `data-locator`。
 - [ ] 每个节点至少一条 evidence，命中率 100%；数字台账全部 grounded。
@@ -216,6 +229,7 @@ SKILL.md                    本文件：入口、agent-first、规则、契约�
 scripts/main.py             入口：init / show / check / build / run，产物编排与 result.json
 scripts/verify.py           确定性内核：发现、单元抽取、工作稿归一化、证据核验、结构校验、契约回填
 scripts/render.py           渲染与资产层：布局、SVG/PNG、来源映射、金标准、对照、版本、自检
+references/expert_playbook.md  专家方法论：判分要点、公式、检查表、虚构案例
 README.md                   安装、最小示例、限制与维护
 SELFTEST.md                 自测记录：空/坏输入与 rich/boundary × single/agent 结果
 GITHUB_URL.txt              仓库位置
