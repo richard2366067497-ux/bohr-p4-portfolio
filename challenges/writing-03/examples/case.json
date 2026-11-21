@@ -1,0 +1,6 @@
+{
+  "case_id": "writing-03-demo",
+  "language": "zh",
+  "materials_root": ".",
+  "note": "Minimal runnable example. Copy case.json + manuscript.md into /input, then run the single command in SKILL.md. Without a template or requirements file the engine falls back to the default profile and marks specs inferred; output is illustrative, not an official case result."
+}
