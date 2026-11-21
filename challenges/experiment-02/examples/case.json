@@ -1,0 +1,18 @@
+{
+  "case_id": "example-experiment-02",
+  "language": "en",
+  "task_instruction": "Review the candidate plan versions for feasibility against the resource contract and the stated bounds.",
+  "output_contract": {
+    "case": "string",
+    "case_id": "string",
+    "plan": "string",
+    "equipment": "string",
+    "material": "string",
+    "booking": "string",
+    "budget": "string",
+    "domains": "string",
+    "approval": "string",
+    "source": "string",
+    "task": "string"
+  }
+}
