@@ -22,6 +22,14 @@ license: MIT
 
 ---
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/cite_engine.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（专家方法论）
 
 **动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
@@ -63,11 +71,7 @@ license: MIT
 
 ## 1. 单命令入口（第一条命令）
 
-一次性跑完整流程并写出全部交付物与 `result.json`（评测只跑这一条也能过）。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
-
-```bash
-python3 /skills/weekly-skill/scripts/cite_engine.py all --input /input --output /app/output --work /app/work
-```
+一次性跑完整流程并写出全部交付物与 `result.json`（评测只跑这一条也能过）。
 
 - 这是**单命令等价入口**：无 `draft` 也能产出完整交付物；空输入 / 坏输入同样 **exit 0** 并写出合法
   `result.json`（降级但不编造）。
@@ -180,10 +184,6 @@ pages, doi, url, isbn, eprint, raw, source_format, issues[]`；未知字段一�
 
 `/input` 含 `manuscript.md`（正文含 `[2]` 与 `\cite{chen2019cool}`）与 `lib.bib`（3 条，其中
 2 条同 DOI）：
-
-```bash
-python3 /skills/weekly-skill/scripts/cite_engine.py all --input /input --output /app/output --work /app/work
-```
 
 示意输出：`status=partial`（含一条示例前缀 DOI），解析 3 → 规范 2（合并 1 组，判据 “identical DOI”），
 `claim_support.csv` 2 行（`matched`），`references.gbt.md`/`references.apa.md` 各 2 条，`changes.csv`
