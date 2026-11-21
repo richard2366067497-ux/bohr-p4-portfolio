@@ -16,6 +16,14 @@ description: 冻结已知相关参考集，逐条比对检索快照，算出可�
 - 撤稿 / 重复 / 无全文 / 标识冲突的记录单独标注，理由写进台账，不静默计入；
 - 补检针对漏检类别设计，新增命中真实来自补检且不与初始命中重复；边际收益为 0 则停止。
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -58,10 +66,6 @@ description: 冻结已知相关参考集，逐条比对检索快照，算出可�
 ```
 
 ## 单命令（one-shot，评测入口）
-
-```bash
-python3 scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 - 一条命令走完：扫描材料 → 冻结参考集（核对标识符、去重、标注不可用）→ 逐条命中判定
   （标识符精确 / 标题+作者+年份近似 / 边界待裁决）→ 覆盖率与遗漏率 → 漏检分类与归因 →
