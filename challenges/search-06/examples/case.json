@@ -1,0 +1,15 @@
+{
+  "case_id": "latest-lit-tracking-example",
+  "research_question": "Track new perovskite solar-cell records, including updates, retractions and corrections, inside the configured window.",
+  "window_start": "2023-01-01T00:00:00Z",
+  "window_end": "2024-12-31T00:00:00Z",
+  "sources": ["crossref", "europepmc"],
+  "output_contract": {
+    "case_id": "the case identifier, echoed verbatim",
+    "status": "completed | partial | insufficient_evidence | input_error",
+    "end": "window end as UTC ISO8601",
+    "decisions": "per-record include/exclude decision with source + locator + reason",
+    "decision_missing": "records whose decision or metadata could not be determined",
+    "out_of_window": "records outside [start, end)"
+  }
+}
