@@ -22,12 +22,12 @@ version: 10.0.0
 - **领域红线**：按其 **§4** 检查口径、归一化、表征边界、稳定性与文献条件可比性。
 - **门控**：交付前逐项通过其 **§5 专家检查表**，并按其 **§7** 做交付前门控。
 
-## 单命令入口（single command，一次跑完）
+## 单命令入口 / 评测入口（single command，一次跑完；无 draft 时执行）
 
-这一条命令就是完整流程：读取材料 → 抽取带单位的读数 → 写结果段 → 写讨论段（含证据对照与因果边界）→ 写局限 → 输出结构化结果。**不依赖任何草稿或前置步骤**；缺材料时仍退出码 0 并写出带局限说明的合法结果。
+这一条命令就是完整流程：读取材料 → 抽取带单位的读数 → 写结果段 → 写讨论段（含证据对照与因果边界）→ 写局限 → 输出结构化结果。**不依赖任何草稿或前置步骤**；缺材料时仍退出码 0 并写出带局限说明的合法结果。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ```bash
-python3 scripts/main.py --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
 ```
 
 可选参数：`--case /input/case.json`、`--lang zh|en`（默认按材料自动判断）、`--version`。
