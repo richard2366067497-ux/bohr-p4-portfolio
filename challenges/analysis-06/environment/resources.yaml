@@ -1,0 +1,74 @@
+# environment/resources.yaml — analysis-06 / db-query-workbook (v10)
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟。
+skill: db-query-workbook
+version: 6.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py show --input /input --output /app/output --work /app/work
+    - "Agent: 读 show 的清单与字典，按需在 /app/work/draft.json 写查询意图（可选）"
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py      # CLI：all / init / show / check / build / selfcheck（单命令 all = 全流程，恒 exit 0）
+  - scripts/engine.py    # 发现/装载快照、字段字典、派生查询计划、真实 SQL 执行、CSV 导出、行数与连接膨胀对账、报告渲染
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  material_roles_by_extension:
+    ".db"/".sqlite"/".sqlite3": "授权快照（以只读方式 file:...?mode=ro 打开）"
+    ".csv"/".tsv": "可装载的表材料（无库时装入 work/snapshot.db 再执行同一批 SQL）"
+    ".json"/".jsonl": "结构化材料（case.json 契约；含对象数组的 JSON 亦可作为表材料装载）"
+    ".md"/".txt"/".yaml": "数据字典与说明材料（字段语义第一来源）"
+  discovery: "walk 输入目录；优先只读打开授权 SQLite 快照，否则把表材料装进 work/snapshot.db；无库无表则空态诚实交付并记 uncertainty"
+
+required_outputs:
+  - result.json
+  - query_report.md
+  - queries.sql
+  - results/query_results.csv
+  - results/Q_*.csv
+  - reconciliation.json
+  - join_ledger.json
+  - field_dictionary.json
+  - query_workbook.json
+  - data_quality.json
+  - code/reproduce.md
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 120
+  max_output_files: 64          # 每个结果集一份 CSV，随查询数增长
+  max_output_bytes: 8388608
+
+contract:
+  keys: [case_id, status, deliverable, queries, results, reconciliation, field_dictionary, join_ledger, data_quality, change_log]
+  keys_from: "case.json:output_contract -> SKILL.md json 样例 -> 默认产物键"
+  echo: "每个契约键既写在顶层，也写进 result.json.output_contract；路径类键指向真实存在且非空的交付物，其余写成结构信封 {kind,items,count,note}"
+  placeholders: forbidden
+  verbatim: "queries.sql 与结果 CSV 逐字原样，不做占位符改写，保证 SQL 可复跑、数据不被改写"
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
