@@ -1,0 +1,70 @@
+# environment/resources.yaml - search-04 / citation-trace (v10)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: citation-trace
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 -B /skills/weekly-skill/scripts/main.py
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 -B /skills/weekly-skill/scripts/main.py init  --input /input --output /app/output --work /app/work
+    - "Agent: run show, read the materials with their M01#pN locators, optionally write /app/work/draft.json"
+    - python3 -B /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py selfcheck --output /app/output --work /app/work
+  selftest: >-
+    python3 -B /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all (default) / init / show / check / build / selfcheck
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  case_json: "case.json provides case_id, seed and output_contract (keys echoed verbatim)"
+  task_md: "task.md provides the tracing instruction when case.json does not"
+  materials: "any UTF-8 text material under the input root; paragraphs get M01#pN locators"
+  records: "reference-like lines are indexed as nodes with rid + M01#rN locators; citation markers [n] / (Author, year) become edges; no live citation index is queried"
+
+required_outputs:
+  - result.json
+  - citation_network.json
+  - edges.jsonl
+  - traced_paths.json
+  - gaps.json
+  - report.md
+
+reusable_templates:
+  - references/expert_playbook.md
+  - references/citation-contract.md
+  - examples/expected_output.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 300
+  max_output_files: 16
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, status, seed, network, edges, citations, paths, gaps, summary, report, show, build]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> challenges/<key>.json -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  placeholders: forbidden
+
+dependencies: []            # standard library only
+exit_code_policy: always 0 (usage error 2)
