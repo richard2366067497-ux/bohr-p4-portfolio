@@ -15,9 +15,16 @@ import audit_core as A
 import audit_build as B
 
 
+def quotable(*vals):
+    """A mechanical row may not quote schema/placeholder keywords verbatim into a delivered artifact."""
+    return not any(B.SHELL_TOKENS.search(str(v or "")) for v in vals)
+
+
 def fallback(idx, corpus):
     cks, fnds = [], []
     for c in (idx.get("claim_candidates") or [])[:60]:
+        if not quotable(c["text"]):
+            continue
         cks.append({"check_id": c["cand_id"], "claim_id": c["cand_id"], "claim_text": c["text"],
                     "claim_quote": c["text"], "claim_strength": c["claim_strength"],
                     "cited_source": {"label": ", ".join(c["markers"]) or None,
@@ -35,7 +42,7 @@ def fallback(idx, corpus):
                     "status": "pending_review"})
     refs_n = len(idx.get("references") or [])
     for c in idx.get("citations") or []:
-        if c["pairing"] == "paired":
+        if c["pairing"] == "paired" or not quotable(c["sentence"]):
             continue
         fnds.append({"finding_id": "F-%02d" % (len(fnds) + 1), "facet": "citation",
                      "location": {"section": c["section"], "locator": c["locator"],
@@ -51,6 +58,8 @@ def fallback(idx, corpus):
                      "revision": "补齐文献表条目，或将正文标记改为文献表中实际存在的编号/作者-年份",
                      "claim_ref": None, "status": "pending_review"})
     for n in idx.get("numeric_candidates") or []:
+        if not quotable(n["left"]["sentence"], n["right"]["sentence"]):
+            continue
         fnds.append({"finding_id": "F-%02d" % (len(fnds) + 1), "facet": "statistics",
                      "location": {"section": n["left"]["sec"], "locator": n["left"]["locator"],
                                   "page": None, "table_or_figure": None},
@@ -85,12 +94,25 @@ def default_for(spec):
     return None
 
 
+def contract_value(k, core):
+    """One value per declared contract key: produced file names, canonical core field, else None."""
+    nk = B.norm_key(k)
+    if k in A.PRODUCED_FILES:
+        return k
+    v = core.get(k)
+    if v is None:
+        c = B.canon_of(k) or nk
+        v = core.get(c)
+        if v is None and c == "deliverable":
+            v = "citation_report.md"
+    return v
+
+
 def fill_contract(core, keys, spec):
     out, filled, empty = {}, [], []
     for k in keys:
-        c = B.canon_of(k)
-        v = core.get(c) if c else None
-        if v is None:
+        v = contract_value(k, core)
+        if v is None or v == "" or v == [] or v == {}:
             out[k] = default_for(spec.get(k))
             empty.append(k)
         else:
@@ -123,6 +145,22 @@ def envelope(idx, version):
                     "finished_at": None, "deterministic": True},
         "contract_fields": {"declared": list(idx.get("contract_keys") or []),
                             "filled_empty": empty, "from": idx.get("contract_from")}})
+    defaults = {"case_id": idx.get("case_id"), "deliverable": "citation_report.md",
+                "evidence_map": [{"kind": "initial_index_only",
+                                  "detail": "init 阶段只建索引，语义判定由工作稿提供"}],
+                "change_log": [{"rule": "init", "detail": "索引建立，未做语义判定"}],
+                "coverage": {f: {"checked": False, "items": 0, "findings": 0} for f in B.FACETS},
+                "status": "partial"}
+    for k in idx.get("contract_keys") or []:
+        if res.get(k) in (None, "", [], {}):
+            v = defaults.get(k)
+            if v is None:
+                v = defaults.get(B.canon_of(k))
+            if v is not None:
+                res[k] = v
+    res["output_contract"] = {k: res.get(k) for k in (idx.get("contract_keys") or [])}
+    res.setdefault("change_records", res.get("changes") or [])
+    res.setdefault("limits", {"full_text_access": False, "external_verification": False})
     return res
 
 
@@ -250,6 +288,53 @@ def evidence_lines(result):
                                "quote": f.get("quote"), "evidence": f.get("evidence"),
                                "revision": f.get("revision")}, ensure_ascii=False))
     return "\n".join(out) + ("\n" if out else "")
+
+
+def index_snapshot(idx):
+    """A self-contained, null-free snapshot of what the run actually read and decided."""
+    return {"schema": idx.get("schema"), "case_id": idx.get("case_id"), "input_dir": idx.get("input_dir"),
+            "contract": {"keys": idx.get("contract_keys"), "from": idx.get("contract_from"),
+                         "spec": idx.get("contract_spec")},
+            "stats": idx.get("stats"),
+            "sources": [{k: s.get(k) for k in ("source_id", "rel", "kind", "format", "parser", "bytes",
+                                               "units", "text_chars", "quality", "sha256_12")}
+                        for s in idx.get("sources") or []],
+            "gaps": [{"code": g.get("code"), "scope": g.get("scope"),
+                      "detail": A.squash(g.get("detail"), 240)} for g in idx.get("gaps") or []],
+            "errors": list(idx.get("errors") or [])}
+
+
+def render_manuscript(result):
+    """The reviewed manuscript, annotated claim by claim - the reader's view of the audit."""
+    L = ["# 被审稿件逐条标注（manuscript annotations）", "",
+         "- 案例：%s" % (result.get("case_id") or "未提供"),
+         "- 状态：%s ｜ 规则 %s ｜ 技能版本 %s" % (result.get("status"), result.get("rules_version"),
+                                              result.get("skill_version")),
+         "", "## 论断核验（逐条）", ""]
+    for c in result.get("citation_checks") or []:
+        L += ["### %s ｜ 判定 %s ｜ 状态 %s" % (c.get("check_id"), c.get("verdict"), c.get("status")),
+              "", "- 位置：`%s`" % ((c.get("locators") or {}).get("claim_loc") or ""),
+              "- 论断：> %s" % _cell(c.get("claim_quote"), 400),
+              "- 依据：%s" % _cell(c.get("rationale"), 400)]
+        src = (c.get("locators") or {}).get("source_loc")
+        if src:
+            L.append("- 来源位置：`%s`" % src)
+        L.append("")
+    if not result.get("citation_checks"):
+        L += ["（无可核验论断：材料不足或未提供工作稿，见报告第 6 节）", ""]
+    L += ["## 问题条目（逐条标注）", ""]
+    for f in result.get("findings") or []:
+        L.append("- **%s**（%s / %s / %s）：`%s` → %s" % (
+            f.get("finding_id"), f.get("facet"), f.get("severity"), f.get("status"),
+            (f.get("location") or {}).get("locator"), _cell(f.get("revision"), 220)))
+    if not result.get("findings"):
+        L.append("（未登记问题条目；未检查项与不确定性见报告第 6 节）")
+    L += ["", "## 复核路径", "",
+          "1. `python3 scripts/main.py show --part units --offset N --limit M` 打开每条 locator，" +
+          "逐字比对该段原文。",
+          "2. 对每条待复核条目按 `human_check_needed` 补外部核验（原文/发表状态/版本）。",
+          "3. 重跑 `python3 scripts/main.py build` 与 `selfcheck`，比较 result.json 是否字节一致。", ""]
+    return "\n".join(L) + "\n"
 
 
 def manifest(idx, result, command, seconds, version):
