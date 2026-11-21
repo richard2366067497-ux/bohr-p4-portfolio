@@ -1,0 +1,60 @@
+{
+  "generated": "2026-11-21T06:19:12Z",
+  "input": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\synth_cases\\graphics-03\\rich",
+  "case_id": "synth-rich-graphics-03",
+  "contract": [
+    "errors",
+    "degradations",
+    "uncertainty",
+    "note",
+    "compliance_checks",
+    "overflow"
+  ],
+  "materials": [
+    {
+      "id": "case.json",
+      "rel": "case.json",
+      "kind": "text",
+      "bytes": 392,
+      "blocks": 1,
+      "note": "",
+      "locators": [
+        "case.json#para1"
+      ]
+    },
+    {
+      "id": "mechanism-drawing-contract.md",
+      "rel": "materials/mechanism-drawing-contract.md",
+      "kind": "text",
+      "bytes": 12321,
+      "blocks": 53,
+      "note": "",
+      "locators": [
+        "mechanism-drawing-contract.md#para1",
+        "mechanism-drawing-contract.md#para2",
+        "mechanism-drawing-contract.md#para3"
+      ]
+    },
+    {
+      "id": "task.md",
+      "rel": "task.md",
+      "kind": "text",
+      "bytes": 12222,
+      "blocks": 32,
+      "note": "",
+      "locators": [
+        "task.md#para1",
+        "task.md#para2",
+        "task.md#para3"
+      ]
+    }
+  ],
+  "blocks": 86,
+  "workorder": {
+    "entities": [],
+    "relations": [],
+    "compartments": [],
+    "legend": []
+  },
+  "errors": []
+}
