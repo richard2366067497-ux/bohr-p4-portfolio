@@ -456,8 +456,9 @@ def main(argv=None):
                  ("build", "render products + result.json (build.py)"),
                  ("selfcheck", "re-verify the products")):
         q = sub.add_parser(n, help=h)
-        for f in ("--input", "--output", "--work"):
-            q.add_argument(f)
+        q.add_argument("--input")
+        q.add_argument("--output")
+        q.add_argument("--work")
         if n in ("check", "build"):
             q.add_argument("--draft")
         if n == "show":
