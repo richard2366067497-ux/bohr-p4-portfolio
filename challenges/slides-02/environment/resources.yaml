@@ -1,0 +1,31 @@
+# environment / resources — slides-author（slides-02）
+skill: slides-author
+key: slides-02
+version: 10.0.0
+entry: scripts/main.py all --input /input --output /app/output --work /app/work
+runtime: python3
+python_min: "3.8"
+dependencies: []          # 纯标准库（zipfile / zlib / struct / json / re / html），无第三方依赖
+network: false            # 全程离线，不访问网络
+deterministic: true       # 无随机分支；同一输入重复运行结果一致
+inputs:
+  - case.json | challenge.json    # case_id 与权威 output_contract
+  - task.md                       # 受众 / 时长 / 页数约束
+  - materials_root/**             # 文本材料：.md .markdown .txt .tex .csv .yaml .html
+outputs:
+  - deck.md
+  - deck.pptx
+  - deck.html
+  - deck.pdf
+  - preview.svg
+  - outline.md
+  - slide_plan.json
+  - content_map.json
+  - compliance_checks.json
+  - report.md
+  - result.json
+limits:
+  - 不联网、不调用第三方库；渲染完全由标准库手写完成
+  - 图片材料不做像素级取数；读不到图时如实标注，不放装饰性替身
+  - 页数预算 24 页，超出记 warn 而非静默截断
+  - 页面文字只来自输入材料；不做翻译、不做外部补全
