@@ -12,6 +12,14 @@ version: 1.0.0
 
 ---
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 1. 五命令主路径（先读这一节）
 
 在 Skill 根目录记为 `$SK` 的前提下，按顺序执行：
