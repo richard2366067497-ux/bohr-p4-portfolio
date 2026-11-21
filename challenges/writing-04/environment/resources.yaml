@@ -1,7 +1,7 @@
-# environment/resources.yaml — writing-04 / citation-ledger-sync (v8)
+# environment/resources.yaml — writing-04 / citation-ledger-sync (v10)
 # 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟、不写全局状态。
 skill: citation-ledger-sync
-version: 4.0.0
+version: 3.1.0
 lang: python
 python: ">=3.9"
 
