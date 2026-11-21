@@ -50,12 +50,12 @@ selfcheck` 对应五个阶段的结构化摘记，全部逐键回填到 `result.
 
 上述 13 个 `output_contract` 键即为本包默认契约；`case.json` 给出 `output_contract` 时以输入的键为准。
 
-## 2. 单命令（single command，评测只跑这一条也能过）
+## 2. 单命令（single command，评测入口，无 draft 时执行，评测只跑这一条也能过）
 
-下面这一条就是完整流程（scan → outline → graph → 渲染 → result.json），退出码恒为 0：
+下面这一条就是完整流程（scan → outline → graph → 渲染 → result.json），退出码恒为 0。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ```bash
-python3 -B scripts/main.py all --input /input --output /app/output --work /app/work
+python3 -B /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
 
 ## 3. 分步五命令（保留兼容）
