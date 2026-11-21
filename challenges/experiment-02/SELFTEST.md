@@ -58,3 +58,17 @@ result.json、feasibility_review.md、checks.json、estimate.json、risks.json�
 confirmations.json、evidence.json、version_diff.md（共 8 个）。
 
 > 以上为本地模拟评测（`scripts/eval_sim.py`）结果，不代表平台正式分数；正式案例以平台 `/input` 为准。
+
+## v10 交付状态（专家手册嵌入）
+
+- **新增 `references/expert_playbook.md`**（专家参考手册，embed 自 MatMaster 专家手册，去元话术，
+  保留方法/公式/检查表/案例）；`SKILL.md` 明确"执行前先读 references/expert_playbook.md，按其
+  框架/检查表/成本口径产出交付物"，并在 outputs 与 §8 自检中加入"专家检查表逐项通过"。
+- **随包生态齐备**：`examples/`（case.json + resources.json，可复跑）、`environment/resources.yaml`、
+  `README.md`、`GAIN_EVIDENCE.md`（含确定性基线对照）、`SELFTEST.md`。
+- **单命令入口未受影响**：`python3 scripts/main.py all --input /input --output /app/output --work /app/work`
+  在无 draft 下仍产出全部 8 件产物 + 契约逐键回填，exit 0。
+- **`scripts/eval_sim.py` rich/boundary × single/agent 四项全 PASS**（契约键逐键回填，placeholder_sweep 干净）。
+- **examples/ 复跑**（离线、纯标准库）：`python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work`
+  → exit 0，8 件产物，`status=partial`，3 版本（v2 参数范围 blocked），ranked v1,v3,v2，winner v1，
+  `evidence_stats={verified:11,total:11,rate:1.0}`；规范化哈希 `sha256=f64e0570868a45b2`。
