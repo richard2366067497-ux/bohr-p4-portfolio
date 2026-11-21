@@ -221,14 +221,14 @@ def write_all(ctx, out, work, contract, draft=None):
     for d in (out, work):
         os.makedirs(d, exist_ok=True)
     st = ctx["structure"]
+    entries = (ctx["primary"] or {}).get("entries") or []
+    objs = R.flat_blocks(entries) if ctx["primary"] else []
     if draft:
-        ctx["applied"], ctx["rejected"] = R.apply_draft(st, draft, ctx["rel"])
+        ctx["applied"], ctx["rejected"] = R.apply_draft(st, draft, ctx["rel"], objs)
         st["unreadable"] = [u for u in st["unreadable"]]
     else:
         ctx["applied"], ctx["rejected"] = [], []
-    ctx["draft_candidates"] = (R.draft_candidates(st, (ctx["primary"] or {}).get("entries") or [],
-                                                  ctx["rel"])["items"] if ctx["primary"] else [])
-    entries = (ctx["primary"] or {}).get("entries") or []
+    ctx["draft_candidates"] = (R.draft_candidates(st, entries, ctx["rel"])["items"] if ctx["primary"] else [])
     wt(os.path.join(out, "parsed.md"),
        R.render_parsed(entries, st, ctx["rel"], (ctx["primary"] or {}).get("meta") or {})
        if ctx["primary"] else no_material_md(ctx))
@@ -346,7 +346,8 @@ def cmd_check(inp, work):
     mats, errors = scan_materials(inp, case)
     ctx = build_ctx(case, mats, errors)
     draft = load_draft(work) or {"items": []}
-    applied, rejected = R.apply_draft(ctx["structure"], draft, ctx["rel"])
+    objs = R.flat_blocks((ctx["primary"] or {}).get("entries") or [])
+    applied, rejected = R.apply_draft(ctx["structure"], draft, ctx["rel"], objs)
     wj(os.path.join(work, "check_report.json"),
        {"case_id": ctx["case_id"], "draft_items": len(draft.get("items") or []),
         "accepted": applied, "rejected": rejected,
