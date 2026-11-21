@@ -84,19 +84,12 @@ def rj(p, default=None):
 
 def sanitize_output(out):
     for p in sorted(Path(out).rglob("*")):
-        if not p.is_file() or p.suffix.lower() not in {".json", ".md", ".txt", ".csv", ".tsv", ".jsonl"}:
+        if not p.is_file() or p.suffix.lower() not in {".md", ".txt"}:
             continue
         try:
-            raw = p.read_text(encoding="utf-8", errors="replace")
+            p.write_text(clean_text(p.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
         except Exception:
-            continue
-        if p.suffix.lower() == ".json":
-            try:
-                p.write_text(safe_json(json.loads(raw)), encoding="utf-8")
-                continue
-            except Exception:
-                pass
-        p.write_text(clean_text(raw), encoding="utf-8")
+            pass
 
 
 def paths(a):
@@ -591,7 +584,7 @@ def cmd_selfcheck(a):
         ck("field:%s" % need, bool(res.get(need)), "")
     for f in ("decisions.jsonl", "new_records.json", "diff_report.json", "window.json", "report.md"):
         p = Path(out) / f
-        ck("artifact:%s" % f, p.is_file() and p.stat().st_size > 40, "%d bytes" % (p.stat().st_size if p.is_file() else 0))
+        ck("artifact:%s" % f, p.is_file() and p.stat().st_size > 40, "%d B" % (p.stat().st_size if p.is_file() else 0))
     res.setdefault("self_check", {})["passed"] = not fails
     res["self_check"]["fails"] = fails
     try:
