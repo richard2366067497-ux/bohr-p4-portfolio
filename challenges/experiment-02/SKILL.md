@@ -6,6 +6,23 @@ version: 2.6.0
 
 # plan-feasibility-review
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **流程**：按其 **§2 求解框架 Step 1–5** 推进——材料解析与结构化提取 → 七类约束逐项审查 →
+  交叉核验与冲突检测 → 结论综合与条件清单 → 输出组装与自核验；前一步未冻结不进入下一步。
+- **量化口径**：按其 **§3** 计算时间（`T_total = Σ(T_setup_i + T_run_i×N_batch_i + T_wait_i + T_QC_i) + T_procurement + T_approval`，
+  `N_batch = ceil(样本量/单批)`）与样本量（功效法 `n = 2((Z_{α/2}+Z_β)/δ)²σ²`）；设备匹配按
+  §3.3（量程 ×1.2 / 精度）判 PASS/CONDITIONAL/FAIL；风险按 §3.4 分级、伦理按其 §3.5 周期表。
+- **成本/时长口径**：时长与成本**逐行**写出（步骤行之和 = 单次时长；成本行之和 = 单次成本），
+  每行标注来源（设备手册/SOP/组织方约束），可独立复算。
+- **证据定位**：按其 **§5 定位符格式**给每条判断加 locator（`[方案 section X.Y, 表N, 行R]` /
+  `[资源清单 equipment.row.field]` / `[组织方约束 constraints.key]`），避免 F6/F7 类失分。
+- **门控**：交付前逐项通过其 **§6 专家检查表（S01–S18）**；`MISSING_INFO` 不得默认为 PASS，
+  所有 `CONFLICT` 必须在结论中被显式处理。
+
 ## 0. result.json contract
 
 `result.json` carries every key of the case's `output_contract`, both at the top level and
@@ -79,6 +96,13 @@ before `build`.
 | `version_diff.md` | one row per version (settings, blocked count, per-run cost, budget share, feasible, locator) and the winner |
 | `result.json` | the contract keys plus resources, domains, constraints, versions, the arithmetic checks, the confirmations, limits, uncertainties, sources, change records and artifacts |
 
+**专家检查表逐项通过**：以上每件交付物在写入前，都要通过 `references/expert_playbook.md` §6
+的专家检查表（S01–S18）逐项核验——每条判断带 locator（S01）、`MISSING_INFO` 不当作 PASS（S02/S16）、
+所有 `CONFLICT` 被显式处理（S03）、时长按步骤拆分且每参数有来源（S04/S05）、样本量有统计依据（S06）、
+设备区分四态（S07）、风险含触发/概率/降级（S08）、伦理含审批类型/材料/周期（S09）、参数给具体区间
+（S10）、对照组给类型/样本量/功效（S11）、未声明信息显式标注（S12）、有条件可行时条件清单完整（S13）、
+单位统一（S17）、方案内部矛盾被标记（S18）。任一项不通过则修正后重出。
+
 ## 5. Seven categories
 
 Every candidate version is reviewed across equipment, material, time, sample, ethics and safety,
@@ -102,3 +126,13 @@ by feasibility, then blocked-category count, then per-run cost.
 Standard library only, offline, no third-party dependency. No significance testing. Missing
 budget, domain, sample plan or approval is preserved as an open item with a reason — never
 guessed. Nothing is fetched or installed.
+
+## 8. 自检（selfcheck）与专家门控
+
+`selfcheck` verifies the artifact set exists and the contract echo is non-empty; the run also
+performs the arithmetic self-checks (step-line sum vs duration, cost-line total vs per-run cost,
+budget ceiling, version count, winner feasibility). On top of that, **专家检查表逐项通过** is a
+required gate: every deliverable must pass `references/expert_playbook.md` §6 (S01–S18) before it
+is considered done, and `selfcheck` reports the expert-checklist status next to the file/contract
+status. A run whose checklist still has an open item is reported `partial` with the item in
+`confirmations` — never silently upgraded to `answered`.
