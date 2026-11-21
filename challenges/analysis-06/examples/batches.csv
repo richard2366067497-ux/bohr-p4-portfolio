@@ -1,0 +1,5 @@
+batch_id,plant,cure_method
+B1,plantA,standard
+B2,plantA,steam
+B3,plantB,standard
+B4,plantB,steam
