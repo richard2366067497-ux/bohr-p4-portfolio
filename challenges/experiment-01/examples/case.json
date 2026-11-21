@@ -1,0 +1,16 @@
+{
+  "case_id": "example-plan-forge-experiment",
+  "language": "en",
+  "materials_root": ".",
+  "task_instruction": "Turn the supplied parameter domains, constraints, resource list and candidate plans into a versioned, costed, validated experiment plan.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "plan_report": "string",
+    "plan_revised": "string",
+    "validation_report": "string",
+    "arithmetic_ledger": "string",
+    "evidence": "string",
+    "uncertainties": "string"
+  }
+}
