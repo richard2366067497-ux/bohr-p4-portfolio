@@ -56,7 +56,7 @@ SKILL.md                              # 名称、契约、单命令、agent 路�
 references/expert_playbook.md         # 专家参考手册：方法、口径、陷阱、虚构案例、防扣分自查表
 scripts/main.py                       # 单文件 CLI：all / init / show / check / build / selfcheck / compare
 environment/resources.yaml            # 资源入口声明：入口命令、路径、输入约定、契约、运行时
-examples/case.json  examples/params.json  examples/fig1.png   # 自带示例：一图一表 + 几何 sidecar
+examples/case.json  examples/params.json  examples/fig1.md   # 自带示例：一图一表 + 几何 sidecar
 templates/result_contract.json        # 可复用契约骨架
 templates/reading_notes_template.md   # 可复用读数记录模板
 README.md  SELFTEST.md  GAIN_EVIDENCE.md  GITHUB_URL.txt
@@ -73,7 +73,7 @@ README.md  SELFTEST.md  GAIN_EVIDENCE.md  GITHUB_URL.txt
 
 ## 8. 基准用例与评分口径（benchmark + scoring，可复用）
 
-- `examples/`（`case.json` + `params.json` + `fig1.png`）：一图两系列 + 一表，是**示例**，不是正式案例结果。
+- `examples/`（`case.json` + `params.json` + `fig1.md`）：一图两系列 + 一表，是**示例**，不是正式案例结果。
 - 评分维度映射（对应官方五维）：
   - 实际效果：`readings.md` + `figure_structure.json` + `digitized_series.csv` + `tables.json` 覆盖
     坐标轴/刻度/单位/图例/系列/数据点/误差线/显著性/比例尺/子图编号；`evidence_map.json` 给每值一个 locator 与逐字引文。
