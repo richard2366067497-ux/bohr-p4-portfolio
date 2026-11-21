@@ -1,6 +1,6 @@
 # GAIN_EVIDENCE — field-contract-cleaner（analysis-01 · v9）
 
-对照口径见 SKILL.md §14。每一项都给出**可由交付文件自行核验**的证据与复现方式；拿不到证据的项一律写「未通过」。
+对照口径见 SKILL.md 的「运行契约」与「自查」两节。每一项都给出**可由交付文件自行核验**的证据与复现方式；拿不到证据的项一律写「未通过」。
 
 ## 对照组
 
@@ -26,7 +26,7 @@
   `status=partial`；契约 32 条（`source=synthesized:dictionary_only`）；`no_table_found` 如实降级；
   `output_contract` 11/11 键回填；placeholder 扫描 0 命中。
 - boundary（`case.json.output_contract=null`、材料 0/坏）：
-  `status=insufficient_evidence`；契约退回包声明（SKILL.md §0）后仍 11/11 回填；产物齐、exit 0。
+  `status=insufficient_evidence`；契约退回包声明（SKILL.md「Output contract」节）后仍 11/11 回填；产物齐、exit 0。
 
 > 说明：这两个合成 case 都不含数据表，清洗表因此是**降级骨架**（说明行 + 0 影响聚合行），不是伪造行数据。真实带表 case 走同一路径，`__flags`/账本/对账按行产生。
 
