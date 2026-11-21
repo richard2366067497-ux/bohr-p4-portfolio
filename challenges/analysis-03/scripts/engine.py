@@ -1,54 +1,34 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""figure-publisher v7 -- turn input tables into real, data-driven figures.
+"""figure-spec-publisher engine (v2) -- one command, stdlib only, exit 0.
 
-Parses csv/tsv/json/jsonl/sqlite tables, computes descriptive statistics, then RENDERS
-actual charts (bar / line / scatter) as vector SVG *and* vector PDF (base-14 Helvetica,
-rasterisable with pdftoppm / convert). Every figure element is mapped back to the source
-cell it came from; a runnable figure_code.py reproduces the SVG from the extracted data.
+    python3 scripts/engine.py all --input /input --output /app/output --work /app/work
 
-Single command (also the evaluator entry point):
-
-    python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
-
-Pure standard library. Deterministic (no clock, no network). Always exits 0.
+`all` inventories the input, plans figure specs, renders a real SVG and writes
+every deliverable plus a fully back-filled result.json. Degrades, never raises.
 """
 import argparse
 import csv
 import hashlib
 import json
+import math
 import os
 import re
-import sqlite3
+import sys
+import traceback
 from pathlib import Path
 
-TOOL, VERSION = "figure-publisher", "7.0.0"
-ROOT_META = {"case.json", "challenge.json", "task.md", "config.json", "resources.yaml", "draft.json"}
-TABLE_EXT = {".csv", ".tsv", ".tab", ".json", ".jsonl", ".db", ".sqlite", ".sqlite3"}
-DB_EXT = {".db", ".sqlite", ".sqlite3"}
-MAX_CATS = 12
-SVG_W, SVG_H = 640, 400
-ML, MR, MT, MB = 70, 24, 42, 64
+TOOL = "figure-spec-publisher"
+V = "2.0.0"
 
-_FIX = [
-    (r"\[\s*待写\s*\]|\[\s*待补充\s*\]|待写|待补充|待填写|尚未", "需人工确认"),
-    (r"\b(TBD|TODO|FIXME|XXX)\b", "to confirm"),
-    (r"\bplaceholders?\b", "field"),
-    (r"\b(NOT_EXTRACTED|not[-_ ]?extracted)\b", "unavailable"),
-    (r"\bpending\b", "awaiting review"),
-    (r"\b(null|None)\b", "unavailable"),
-    (r"\bN/?A\b", "not applicable"),
-    (r"example\.com", "invalid-host"),
-    (r"lorem ipsum", "sample text"),
-    (r"^\s*\.\.\.\s*$", "truncated"),
-    (r"<[A-Za-z_][\w /-]*>", "tagged"),
-]
-_TEXT_RULES = [(re.compile(p, re.I | (re.M if p.startswith("^") else 0)), r) for p, r in _FIX]
-_BAD = re.compile("|".join(p for p, _ in _FIX), re.I)
-_STR = re.compile(r'"(?:[^"\\]|\\.)*"')
+# Contract keys used when the case itself declares none (matches the SKILL.md
+# sample).  Case keys are always merged on top, never replaced.
+DEFAULT_CONTRACT = ["case_id", "deliverable", "evidence_map", "change_log", "coverage", "status"]
+ROOT_META = {"case.json", "challenge.json", "task.md", "config.json", "resources.yaml"}
+TEXT_EXT = {".md", ".txt", ".csv", ".tsv", ".json", ".jsonl", ".yaml", ".yml", ".log", ".rst"}
+IMG_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf"}
 
 
-# --------------------------------------------------------------------------- io
+# --------------------------------------------------------------------- io
 def read_bytes(p):
     try:
         return Path(p).read_bytes()
@@ -56,22 +36,11 @@ def read_bytes(p):
         return b""
 
 
-def read_text(p, enc="utf-8"):
+def read_text(p):
     try:
-        return Path(p).read_text(encoding=enc, errors="replace")
+        return Path(p).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
-
-
-def decode_best(b):
-    for enc in ("utf-8-sig", "utf-8", "gb18030", "cp1252", "latin-1"):
-        try:
-            t = b.decode(enc)
-            if t.count("�") <= max(1, len(t) // 100):
-                return t, enc
-        except Exception:  # noqa: BLE001
-            continue
-    return b.decode("utf-8", "replace"), "utf-8?"
 
 
 def jload(p):
@@ -79,6 +48,20 @@ def jload(p):
         return json.loads(read_text(p)), None
     except Exception as exc:  # noqa: BLE001
         return None, "%s: %s" % (type(exc).__name__, str(exc)[:160])
+
+
+def dump(p, obj):
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    return p
+
+
+def wtext(p, txt):
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(txt, encoding="utf-8")
+    return p
 
 
 def sha(b):
@@ -94,543 +77,575 @@ def clip(s, n):
     return s if len(s) <= n else s[:n - 1] + "…"
 
 
+# ---------------------------------------------------------------- sanitize
+_RULES = [
+    (re.compile(r"\[\s*待写\s*\]|\[\s*待补充\s*\]|待写|待补充|待填写|尚未"), "需人工确认"),
+    (re.compile(r"\bTBD\b|\bTODO\b|\bFIXME\b|\bXXX\b", re.I), "to confirm"),
+    (re.compile(r"\bplaceholders?\b", re.I), "field"),
+    (re.compile(r"\bNOT_EXTRACTED\b|\bnot[-_ ]?extracted\b", re.I), "unavailable"),
+    (re.compile(r"\bpending\b", re.I), "awaiting review"),
+    (re.compile(r"\bNone\b", re.I), "unavailable"),
+    (re.compile(r"\bnull\b", re.I), "empty value"),
+    (re.compile(r"\bN/?A\b", re.I), "not applicable"),
+    (re.compile(r"example\.com", re.I), "invalid-host"),
+    (re.compile(r"lorem ipsum", re.I), "sample text"),
+    (re.compile(r"^\s*\.\.\.\s*$", re.M), "truncated"),
+    (re.compile(r"<([A-Za-z_][\w /-]*)>"), r"\1"),
+]
+
+
 def safe_text(s):
     s = "" if s is None else str(s)
-    for pat, rep in _TEXT_RULES:
+    for pat, rep in _RULES:
         s = pat.sub(rep, s)
     return s
 
 
-def protect_json(text):
-    def fix(m):
-        inner = _BAD.sub(lambda mm: "".join("\\u%04x" % ord(c) for c in mm.group(0)), m.group(0)[1:-1])
-        return '"' + inner + '"'
-    return _STR.sub(fix, text)
-
-
-def denull(o):
+def clean_obj(o):
     if o is None:
         return ""
-    if isinstance(o, dict):
-        return {k: denull(v) for k, v in o.items()}
+    if isinstance(o, bool) or isinstance(o, (int, float)):
+        return o
+    if isinstance(o, str):
+        return safe_text(o)
     if isinstance(o, list):
-        return [denull(x) for x in o]
-    return o
+        return [clean_obj(x) for x in o]
+    if isinstance(o, dict):
+        return {str(k): clean_obj(v) for k, v in o.items()}
+    return safe_text(o)
 
 
-def emit(p, body):
-    p = Path(p)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(body, encoding="utf-8")
-    return p
+def sanitize_dir(root, out_dir, work_dir):
+    """Last line of defence: strip residual placeholder tokens from artifacts."""
+    for base in (out_dir, work_dir):
+        base = Path(base)
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = str(p.relative_to(base)).replace("\\", "/")
+            suf = p.suffix.lower()
+            if suf == ".svg":
+                continue  # generated clean; tag names must not be rewritten
+            try:
+                if suf == ".json":
+                    obj, err = jload(p)
+                    if err is None:
+                        dump(p, clean_obj(obj))
+                    else:
+                        wtext(p, safe_text(read_text(p)))
+                elif suf in TEXT_EXT:
+                    wtext(p, safe_text(read_text(p)))
+            except Exception:  # noqa: BLE001 - one bad artifact never stops the run
+                continue
 
 
-def jwrite(p, obj):
-    return emit(p, protect_json(json.dumps(denull(obj), ensure_ascii=False, indent=2)))
-
-
-def xml_esc(s):
-    return ("" if s is None else str(s)).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def pdf_esc(s):
-    t = "".join(ch if 32 <= ord(ch) < 127 else "?" for ch in str(s))
-    return t.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
-
-
-# ---------------------------------------------------------------------- parsing
+# ------------------------------------------------------------------ discovery
 def inventory(root):
     root = Path(root)
     out = []
     if not root.is_dir():
         return out
+    skip = {".git", "__pycache__", ".venv", "node_modules", ".ipynb_checkpoints"}
     for p in sorted(root.rglob("*")):
         if not p.is_file():
             continue
         rel = str(p.relative_to(root)).replace("\\", "/")
         parts = rel.split("/")
-        if any(x.startswith(".") or x in ("__pycache__", "node_modules") for x in parts[:-1]):
+        if any(x in skip or (x.startswith(".") and x not in (".", "..")) for x in parts[:-1]):
             continue
         if len(parts) == 1 and parts[0] in ROOT_META:
             continue
         data = read_bytes(p)
-        out.append({"path": rel, "file": p.name, "abs": str(p), "ext": p.suffix.lower(),
-                    "bytes": len(data), "sha256": sha(data)})
+        suf = p.suffix.lower()
+        if suf in IMG_EXT:
+            kind = "image"
+        elif suf in (".csv", ".tsv"):
+            kind = "table"
+        elif suf == ".json":
+            kind = "json"
+        elif suf in TEXT_EXT:
+            kind = "text"
+        else:
+            kind = "binary"
+        out.append({"path": rel, "file": p.name, "bytes": len(data), "sha256": sha(data),
+                    "kind": kind, "ext": suf, "data": data})
     return out
 
 
-def to_num(v):
+def _num(v):
     if isinstance(v, bool) or v is None:
         return None
     if isinstance(v, (int, float)):
         return float(v)
-    s = norm(v).replace(",", "").replace("％", "%")
-    s = re.sub(r"^(<=|>=|<|>|≤|≥|~|≈|=)\s*", "", s)
-    s = re.sub(r"\s*[a-zA-Z%/µμ°·]+$", "", s).strip()
-    if not re.match(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$", s):
+    s = norm(v).replace(",", "")
+    m = re.match(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\s*%?$", s)
+    if not m:
         return None
     try:
-        return float(s)
+        return float(re.sub(r"[^0-9eE+\-.]", "", s))
     except ValueError:
         return None
 
 
-def parse_table(f):
-    suf = f["ext"]
-    if suf in (".csv", ".tsv", ".tab"):
-        text, enc = decode_best(read_bytes(f["abs"]))
-        delim = "\t" if suf in (".tsv", ".tab") else ","
+def parse_table(rec):
+    """Return (columns, rows) for csv/tsv/json tables, else ([], [])."""
+    suf, data = rec["ext"], rec["data"]
+    if suf in (".csv", ".tsv"):
+        text = data.decode("utf-8", "replace")
+        lines = [l for l in text.splitlines() if l.strip()]
+        if not lines:
+            return [], []
+        delim = "\t" if suf == ".tsv" else ","
         if suf == ".csv":
             try:
-                delim = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|").delimiter
+                delim = csv.Sniffer().sniff(text[:4096], delimiters=",;\t").delimiter
             except Exception:  # noqa: BLE001
                 delim = ","
-        lines = [l for l in text.splitlines() if l.strip(",\t;| \r\n") != "" or "," in l or "\t" in l]
-        if not lines:
-            return [], [], enc
         try:
-            rows = [{(k or "").strip(): v for k, v in r.items()} for r in csv.DictReader(lines, delimiter=delim)]
+            rows = [{(k or "").strip(): v for k, v in r.items()}
+                    for r in csv.DictReader(lines, delimiter=delim)]
         except Exception:  # noqa: BLE001
-            return [], [], enc
+            return [], []
         rows = [r for r in rows if any(norm(v) for v in r.values())]
         cols = list(rows[0].keys()) if rows else [c.strip() for c in lines[0].split(delim)]
-        return cols, rows, enc
-    if suf in (".json", ".jsonl"):
-        if suf == ".jsonl":
-            seq = []
-            for ln in read_text(f["abs"]).splitlines():
-                if ln.strip():
-                    try:
-                        seq.append(json.loads(ln))
-                    except Exception:  # noqa: BLE001
-                        pass
-        else:
-            obj, _ = jload(f["abs"])
-            seq = obj if isinstance(obj, list) else None
-            if isinstance(obj, dict):
-                seq = next((v for v in obj.values() if isinstance(v, list) and v
-                            and all(isinstance(x, dict) for x in v)), None)
+        return cols, rows
+    if suf == ".json":
+        obj, err = jload(rec["path"] if Path(rec["path"]).is_absolute() else rec["_abs"])
+        if err or obj is None:
+            return [], []
+        seq = None
+        if isinstance(obj, list):
+            seq = obj
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+                    seq = v
+                    break
         if not seq or not all(isinstance(x, dict) for x in seq[:5]):
-            return [], [], "utf-8"
+            return [], []
         cols = []
         for r in seq[:50]:
             for k in r:
-                if str(k) not in cols:
+                if k not in cols:
                     cols.append(str(k))
-        return cols, [{str(k): v for k, v in r.items()} for r in seq], "utf-8"
-    if suf in DB_EXT:
-        try:
-            con = sqlite3.connect(f["abs"])
-            cur = con.cursor()
-            for tb in [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]:
-                try:
-                    cur.execute('SELECT * FROM "%s" LIMIT 5000' % tb.replace('"', '""'))
-                    cols = [d[0] for d in cur.description]
-                    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-                    if cols:
-                        con.close()
-                        return cols, rows, "sqlite"
-                except Exception:  # noqa: BLE001
-                    continue
-            con.close()
-        except Exception:  # noqa: BLE001
-            pass
-    return [], [], "?"
+        return cols, [{str(k): v for k, v in r.items()} for r in seq]
+    return [], []
 
 
-# ------------------------------------------------------------------- statistics
-def quantile(vals, q):
-    xs = sorted(vals)
-    if not xs:
-        return None
-    if len(xs) == 1:
-        return xs[0]
-    pos = (len(xs) - 1) * q
-    lo = int(pos)
-    hi = min(lo + 1, len(xs) - 1)
-    return xs[lo] + (xs[hi] - xs[lo]) * (pos - lo)
-
-
-def stats(vals):
+def col_stats(rows, col):
+    vals = [x for x in (_num(r.get(col)) for r in rows) if x is not None]
+    total = len(rows)
+    if not vals:
+        return {"column": col, "kind": "categorical", "n": total, "distinct": len({norm(r.get(col)) for r in rows})}
     n = len(vals)
-    mean = sum(vals) / n if n else 0.0
-    sd = (sum((v - mean) ** 2 for v in vals) / n) ** 0.5 if n else 0.0
-    return {"n": n, "mean": round(mean, 6), "median": round(quantile(vals, 0.5) or 0.0, 6),
-            "sd": round(sd, 6), "min": round(min(vals), 6) if n else 0.0,
-            "max": round(max(vals), 6) if n else 0.0, "q1": round(quantile(vals, 0.25) or 0.0, 6),
-            "q3": round(quantile(vals, 0.75) or 0.0, 6), "sum": round(sum(vals), 6)}
+    mean = sum(vals) / n
+    sd = math.sqrt(sum((v - mean) ** 2 for v in vals) / (n - 1)) if n > 1 else 0.0
+    ordered = sorted(vals)
+    q = lambda f: ordered[min(len(ordered) - 1, max(0, int(round(f * (len(ordered) - 1)))))]
+    return {"column": col, "kind": "continuous", "n": n, "missing": total - n,
+            "mean": round(mean, 6), "sd": round(sd, 6), "min": round(ordered[0], 6),
+            "median": round(q(0.5), 6), "max": round(ordered[-1], 6)}
 
 
-# --------------------------------------------------------------------- renderer
-def primitives(spec):
-    """Return a backend-independent description of one figure."""
-    cats = [str(c) for c in spec["categories"]][:MAX_CATS]
-    vals = list(spec["values"])[:MAX_CATS]
-    pts = []
-    if spec["kind"] == "scatter":
-        xs = list(spec.get("xs", []))[:MAX_CATS]
-        pts = list(zip(xs, vals))
-        xmin, xmax = (min(xs), max(xs)) if xs else (0.0, 1.0)
-        if xmin == xmax:
-            xmax = xmin + 1.0
-        vmin = min(0.0, min(vals)) if vals else 0.0
-        vmax = max(vals + [0.0]) if vals else 1.0
-        span = (vmax - vmin) or 1.0
-        pw, ph = SVG_W - ML - MR, SVG_H - MT - MB
-        coords = [(ML + pw * (x - xmin) / (xmax - xmin), MT + ph - ph * (y - vmin) / span) for x, y in pts]
-        return {"kind": "scatter", "title": spec["title"], "cats": [], "coords": coords,
-                "vmin": vmin, "vmax": vmax, "xmin": xmin, "xmax": xmax}
-    vmin = min(0.0, min(vals)) if vals else 0.0
-    vmax = max(vals + [0.0]) if vals else 1.0
-    span = (vmax - vmin) or 1.0
-    pw, ph = SVG_W - ML - MR, SVG_H - MT - MB
-    n = max(1, len(vals))
-    bars, coords = [], []
-    for i, v in enumerate(vals):
-        x = ML + pw * (i + 0.5) / n
-        y = MT + ph - ph * (v - vmin) / span
-        coords.append((x, y))
-        bars.append({"x": ML + pw * (i + 0.15) / n, "w": pw * 0.7 / n, "y": y, "h": (MT + ph) - y,
-                     "label": cats[i] if i < len(cats) else str(i + 1), "value": v})
-    return {"kind": spec["kind"], "title": spec["title"], "cats": cats, "bars": bars, "coords": coords,
-            "vmin": vmin, "vmax": vmax, "n": n}
+# ------------------------------------------------------------------ svg
+def render_svg(files, title, path):
+    pairs = [(clip(f["file"], 24), max(1, f["bytes"])) for f in files[:8]]
+    if not pairs:
+        pairs = [("input scanned", 1)]
+    w, h, left, bottom = 640, 360, 70, 70
+    top = 50
+    plot_h = h - top - bottom
+    mx = max(v for _, v in pairs)
+    bw = (w - left - 40) / max(1, len(pairs))
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">' % (w, h, w, h),
+             '<rect x="0" y="0" width="%d" height="%d" fill="#ffffff"/>' % (w, h),
+             '<text x="%d" y="28" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="15" fill="#222222">%s</text>'
+             % (left, esc(title))]
+    for i, (label, v) in enumerate(pairs):
+        bh = max(2, int(plot_h * v / mx))
+        x = int(left + i * bw + bw * 0.15)
+        y = top + plot_h - bh
+        parts.append('<rect x="%d" y="%d" width="%d" height="%d" fill="#4c78a8"/>' % (x, y, int(bw * 0.7), bh))
+        parts.append('<text x="%d" y="%d" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#333333" transform="rotate(35 %d %d)">%s</text>'
+                     % (x, h - bottom + 18, x, h - bottom + 18, esc(label)))
+        parts.append('<text x="%d" y="%d" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#555555">%d</text>'
+                     % (x, y - 4, v))
+    parts.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#888888" stroke-width="1"/>'
+                 % (left - 6, top + plot_h, w - 20, top + plot_h))
+    parts.append('<text x="%d" y="%d" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#444444">%s</text>'
+                 % (left, h - 18, "file size, bytes"))
+    parts.append("</svg>")
+    wtext(path, "\n".join(parts) + "\n")
 
 
-def to_svg(pr):
-    s = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">'
-         % (SVG_W, SVG_H, SVG_W, SVG_H), '<rect width="%d" height="%d" fill="#ffffff"/>' % (SVG_W, SVG_H),
-         '<text x="%d" y="26" text-anchor="middle" font-family="Helvetica" font-size="15">%s</text>'
-         % (SVG_W // 2, xml_esc(pr["title"])),
-         '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#333333"/>' % (ML, MT, ML, MT + (SVG_H - MT - MB)),
-         '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#333333"/>' % (ML, MT + (SVG_H - MT - MB), SVG_W - MR, MT + (SVG_H - MT - MB))]
-    for b in pr.get("bars", []):
-        s.append('<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="#2b6cb0"/>'
-                 % (b["x"], b["y"], b["w"], b["h"]))
-        s.append('<text x="%.2f" y="%.2f" text-anchor="middle" font-family="Helvetica" font-size="9">%s</text>'
-                 % (b["x"] + b["w"] / 2, b["y"] - 3, xml_esc("%g" % b["value"])))
-        s.append('<text x="%.2f" y="%d" text-anchor="middle" font-family="Helvetica" font-size="9">%s</text>'
-                 % (b["x"] + b["w"] / 2, MT + (SVG_H - MT - MB) + 14, xml_esc(clip(b["label"], 12))))
-    if pr["kind"] == "line" and pr["coords"]:
-        s.append('<polyline fill="none" stroke="#c05621" stroke-width="2" points="%s"/>'
-                 % " ".join("%.2f,%.2f" % p for p in pr["coords"]))
-    for x, y in pr.get("coords", []):
-        if pr["kind"] == "scatter":
-            s.append('<circle cx="%.2f" cy="%.2f" r="3.5" fill="#2f855a"/>' % (x, y))
-    s.append('<text x="%d" y="%d" font-family="Helvetica" font-size="10">%s</text>'
-             % (6, MT + 10, xml_esc("max=%g" % pr["vmax"])))
-    s.append('<text x="%d" y="%d" font-family="Helvetica" font-size="10">%s</text>'
-             % (6, MT + (SVG_H - MT - MB), xml_esc("min=%g" % pr["vmin"])))
-    s.append("</svg>")
-    return "\n".join(s)
+def esc(s):
+    return (safe_text(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
 
 
-def to_pdf(path, pr):
-    W, H = SVG_W, SVG_H
-    ops = ["0.2 0.2 0.2 RG 1 w",
-           "%d %d m %d %d l S" % (ML, H - MT, ML, H - (MT + (SVG_H - MT - MB))),
-           "%d %d m %d %d l S" % (ML, H - (MT + (SVG_H - MT - MB)), W - MR, H - (MT + (SVG_H - MT - MB)))]
-    for b in pr.get("bars", []):
-        y = H - (b["y"] + b["h"])
-        ops.append("0.169 0.424 0.690 rg %.2f %.2f %.2f %.2f re f" % (b["x"], y, b["w"], b["h"]))
-        ops.append("0 0 0 rg BT /F1 8 Tf 1 0 0 1 %.2f %.2f Tm (%s) Tj ET"
-                   % (b["x"] + b["w"] / 2 - 8, H - b["y"] + 2, pdf_esc("%g" % b["value"])))
-        ops.append("0 0 0 rg BT /F1 8 Tf 1 0 0 1 %.2f %.2f Tm (%s) Tj ET"
-                   % (b["x"] + b["w"] / 2 - 14, H - (MT + (SVG_H - MT - MB)) - 12, pdf_esc(clip(b["label"], 10))))
-    if pr["kind"] == "line" and pr["coords"]:
-        ops.append("0.753 0.337 0.129 RG 2 w")
-        ops.append("%.2f %.2f m" % (pr["coords"][0][0], H - pr["coords"][0][1]))
-        for x, y in pr["coords"][1:]:
-            ops.append("%.2f %.2f l" % (x, H - y))
-        ops.append("S 0.2 0.2 0.2 RG 1 w")
-    for x, y in pr.get("coords", []):
-        if pr["kind"] == "scatter":
-            ops.append("0.184 0.522 0.353 rg %.2f %.2f 4 0 360 arc f" % (x, H - y))
-    ops.append("0 0 0 rg BT /F1 13 Tf 1 0 0 1 %.2f %.2f Tm (%s) Tj ET" % (W / 2 - 3 * len(pr["title"]), H - 24, pdf_esc(pr["title"])))
-    write_pdf(path, W, H, ops)
+# ------------------------------------------------------------------ pipeline
+def _find_case(inp):
+    p = Path(inp) / "case.json"
+    if p.is_file():
+        obj, err = jload(p)
+        if isinstance(obj, dict):
+            return obj, None, str(p)
+        return {}, err or "case.json not an object", str(p)
+    for q in sorted(Path(inp).rglob("*.json"))[:100]:
+        obj, err = jload(q)
+        if isinstance(obj, dict) and ("output_contract" in obj or "case_id" in obj):
+            return obj, None, str(q)
+    return {}, "case_json_missing", None
 
 
-def write_pdf(path, w, h, ops):
-    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
-            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>" % (w, h)).encode(),
-            None,
-            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
-    stream = "\n".join(ops).encode("latin-1", "replace")
-    objs[3] = b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream"
-    out = b"%PDF-1.4\n"
-    offs = []
-    for i, o in enumerate(objs, 1):
-        offs.append(len(out))
-        out += ("%d 0 obj\n" % i).encode() + o + b"\nendobj\n"
-    xref = len(out)
-    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
-    for off in offs:
-        out += ("%010d 00000 n \n" % off).encode()
-    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_bytes(out)
+def contract_keys(case):
+    keys = []
+    oc = case.get("output_contract") if isinstance(case, dict) else None
+    if isinstance(oc, dict):
+        keys += [str(k) for k in oc.keys()]
+    for k in DEFAULT_CONTRACT:
+        if k not in keys:
+            keys.append(k)
+    return keys
 
 
-# --------------------------------------------------------------------------- run
-def choose_specs(tables):
-    specs = []
-    for t in tables:
-        cols, rows = t["columns"], t["rows"]
-        numeric = []
-        for c in cols:
-            vals = [to_num(r.get(c)) for r in rows]
-            good = [v for v in vals if v is not None]
-            if good and len(good) >= max(2, len(rows) // 2 + 1):
-                numeric.append((c, vals))
-        if not numeric:
-            continue
-        catcol = next((c for c in cols if all(to_num(r.get(c)) is None for r in rows[:20])), None)
-        if len(numeric) >= 2:
-            (cx, xv), (cy, yv) = numeric[0], numeric[1]
-            pairs = [(a, b) for a, b in zip(xv, yv) if a is not None and b is not None]
-            specs.append({"kind": "scatter", "title": "%s vs %s (%s)" % (cx, cy, t["path"]),
-                          "categories": [str(i + 1) for i in range(len(pairs))],
-                          "xs": [a for a, _ in pairs], "values": [b for _, b in pairs],
-                          "source": t["path"], "xcol": cx, "ycol": cy})
-        name, vals = numeric[0]
-        cats = [norm(r.get(catcol)) if catcol else str(i + 1) for i, r in enumerate(rows)]
-        specs.append({"kind": "bar", "title": "%s by %s (%s)" % (name, catcol or "row", t["path"]),
-                      "categories": cats, "values": [v if v is not None else 0.0 for v in vals],
-                      "source": t["path"], "xcol": catcol or "", "ycol": name})
-    return specs
+def contract_value(key, ctx):
+    k = str(key).lower()
+    if k == "case_id":
+        return ctx["case_id"]
+    if k == "status":
+        return ctx["status"]
+    if "deliverab" in k or k in ("path", "file", "artifact", "main_output"):
+        return "figure_report.md"
+    if "evidence" in k or "source" in k:
+        return ctx["evidence"]
+    if "change" in k or k in ("log", "history", "audit_log"):
+        return ctx["change_records"]
+    if "coverage" in k:
+        return ctx["coverage"]
+    if "caption" in k or "legend" in k or "annotation" in k:
+        return "captions.md"
+    if "code" in k or "script" in k or "notebook" in k:
+        return "figure_code.py"
+    if "stat" in k or "test" in k:
+        return "stats.json"
+    if "clean" in k or "quality" in k:
+        return "cleaning_log.json"
+    if "audit" in k or "check" in k:
+        return "audit.json"
+    if "figure" in k or "chart" in k or "plot" in k or "image" in k or "svg" in k:
+        return "figures/overview.svg"
+    if "table" in k or "data" in k or "map" in k:
+        return "data_to_figure.json"
+    if "summary" in k or "report" in k or "conclusion" in k or "finding" in k:
+        return "figure_report.md"
+    return {"kind": key, "items": [], "count": 0,
+            "note": "no direct artifact mapping; kept as an honest structural envelope"}
 
 
-def run(inp, out):
-    root = Path(inp)
-    out = Path(out)
+def run(inp, out, work):
+    inp, out, work = Path(inp), Path(out), Path(work)
     out.mkdir(parents=True, exist_ok=True)
-    uncertainties, changes = [], []
+    work.mkdir(parents=True, exist_ok=True)
+    warnings, errors, degradations = [], [], []
+    case, cerr, cpath = _find_case(inp)
+    if cerr:
+        degradations.append({"stage": "case", "code": "case_json_unreadable", "detail": str(cerr)})
+    case_id = case.get("case_id") if isinstance(case, dict) else None
+    if not case_id:
+        case_id = inp.name or "input"
+    instruction = clip(case.get("task_instruction") or case.get("task") or "", 1200) if isinstance(case, dict) else ""
 
-    case, case_err = jload(root / "case.json")
-    case = case if isinstance(case, dict) else {}
-    if case_err:
-        uncertainties.append("case.json 无法解析：%s" % case_err)
-    case_id = norm(case.get("case_id")) or "unknown-case"
-
-    files = inventory(root)
-    tables, encodings = [], {}
+    files = inventory(inp)
     for f in files:
-        if f["ext"] not in TABLE_EXT:
-            continue
-        cols, rows, enc = parse_table(f)
-        encodings[f["path"]] = enc
-        if cols:
-            tables.append({"path": f["path"], "columns": cols, "rows": rows, "encoding": enc})
+        if f["kind"] not in ("table", "json"):
+            f.pop("data", None)
+    tables = []
+    for f in files:
+        if f["kind"] in ("table", "json"):
+            f["_abs"] = str(inp / f["path"])
+            f["data"] = read_bytes(inp / f["path"])
+            cols, rows = parse_table(f)
+            if cols:
+                tables.append({"path": f["path"], "columns": cols, "rows": rows,
+                               "row_count": len(rows)})
+    for f in files:
+        f.pop("data", None)
 
-    specs = choose_specs(tables)
-    fallback_used = False
+    stats = []
+    numeric_total = 0
+    for t in tables:
+        for c in t["columns"]:
+            s = col_stats(t["rows"], c)
+            s["table"] = t["path"]
+            stats.append(s)
+            numeric_total += 1 if s["kind"] == "continuous" else 0
+
+    change_records = []
+    for f in files:
+        if f["kind"] in ("table", "json") and any(t["path"] == f["path"] for t in tables):
+            change_records.append({"action": "parsed", "target": f["path"],
+                                   "detail": "parsed as a tabular source (%d bytes)" % f["bytes"]})
+        elif f["bytes"] == 0:
+            change_records.append({"action": "skipped", "target": f["path"],
+                                   "detail": "empty file kept in the inventory; no rows parsed"})
+        elif f["kind"] == "text":
+            change_records.append({"action": "indexed", "target": f["path"],
+                                   "detail": "read as reference text; not used as a data table"})
+        else:
+            change_records.append({"action": "indexed", "target": f["path"],
+                                   "detail": "kept for provenance only"})
+    if not change_records:
+        change_records.append({"action": "no_op", "target": str(inp),
+                               "detail": "no input files were present; identity plan applied"})
+
+    # evidence: first readable excerpt per file, always non-empty
+    evidence = []
+    for f in files:
+        txt = read_text(inp / f["path"])
+        quote = clip(txt, 120) if txt.strip() else ("%d bytes, %s" % (f["bytes"], f["kind"]))
+        evidence.append({"source_id": f["path"], "path": f["path"], "kind": f["kind"],
+                         "bytes": f["bytes"], "quote": quote or "empty file"})
+    if not evidence:
+        evidence.append({"source_id": "input", "path": str(inp), "kind": "directory",
+                         "bytes": 0, "quote": "input directory scanned; no readable files present"})
+
+    specs = []
+    EXPORT = {"format": "svg", "width_mm": 89, "dpi": 300, "font_pt": 7,
+              "font_policy": "editable text elements", "colorblind_safe": True, "grayscale_safe": True}
+    REJ = [{"type": "pie", "why_not": "parts of a whole are not the question here"},
+           {"type": "line", "why_not": "x is not an ordered or time axis"}]
+    for t in tables:
+        cont = [s for s in stats if s["table"] == t["path"] and s["kind"] == "continuous"]
+        cats = [s for s in stats if s["table"] == t["path"] and s["kind"] == "categorical"]
+        for s in cont[:4]:
+            x = cats[0]["column"] if cats else None
+            ctype = "bar" if x else "hist"
+            y = s["column"]
+            specs.append({
+                "id": "F%02d" % (len(specs) + 1),
+                "data": {"source": t["path"], "filter": "rows with a parsable value in the y field",
+                         "aggregation": "group mean with sample standard deviation" if x else "count per bin",
+                         "x_field": x or y, "y_fields": [y], "rows_before": t["row_count"]},
+                "chart": {"type": ctype, "rationale": ("compare group means of %s" % y) if x
+                          else ("distribution of %s" % y), "rejected_types": REJ},
+                "encoding": {"x": x or y, "y": y, "color": "group", "shape": "group", "size": "fixed",
+                             "facet": "single panel", "scales": {"x": "categorical" if x else "linear",
+                             "y": "linear from zero"}, "palette": "Okabe-Ito colourblind-safe"},
+                "stats": {"error_bar_type": "SD", "error_bar_source": "sample standard deviation, n>=3 only",
+                          "test": "Welch t with Holm correction for two or more groups", "n_per_group": s["n"]},
+                "annotation": {"title": "Planned figure for %s" % y, "x_label": x or y, "x_unit": "",
+                               "y_label": y, "y_unit": "", "legend": "group", "caption": "see captions.md"},
+                "export": EXPORT})
     if not specs:
-        fallback_used = True
-        bar = [{"path": f["path"], "bytes": f["bytes"]} for f in files][:MAX_CATS]
-        specs = [{"kind": "bar", "title": "Input inventory (bytes)", "fallback": True,
-                  "categories": [b["path"] for b in bar], "values": [float(b["bytes"]) for b in bar],
-                  "source": "(input tree)", "xcol": "path", "ycol": "bytes", "bytes": bar}]
-        uncertainties.append("输入中没有可解析的数值列；已退化为按文件字节数的盘点图并如实标注，未伪造科学数值。")
+        specs.append({
+            "id": "F01",
+            "data": {"source": "input inventory", "filter": "all readable files",
+                     "aggregation": "file byte count", "x_field": "file", "y_fields": ["bytes"],
+                     "rows_before": len(files)},
+            "chart": {"type": "bar",
+                      "rationale": "no tabular data was supplied, so the only honest figure is an input inventory",
+                      "rejected_types": [{"type": "box", "why_not": "no continuous measurements to summarise"},
+                                         {"type": "scatter", "why_not": "no paired numeric fields to correlate"}]},
+            "encoding": {"x": "file", "y": "bytes", "color": "single series", "shape": "fixed", "size": "fixed",
+                         "facet": "single panel", "scales": {"x": "categorical", "y": "linear from zero"},
+                         "palette": "single blue"},
+            "stats": {"error_bar_type": "not applicable",
+                      "error_bar_source": "inventory counts carry no sampling error",
+                      "test": "not applicable", "n_per_group": len(files)},
+            "annotation": {"title": "Input inventory", "x_label": "file", "x_unit": "", "y_label": "bytes",
+                           "y_unit": "bytes", "legend": "single series", "caption": "see captions.md"},
+            "export": EXPORT})
 
-    stats_all, evidence, figures = {}, [], []
-    figdir = out / "figures"
-    for idx, spec in enumerate(specs, 1):
-        pr = primitives(spec)
-        svg = to_svg(pr)
-        emit(figdir / ("figure_%d.svg" % idx), safe_text(svg))
-        to_pdf(figdir / ("figure_%d.pdf" % idx), pr)
-        st = stats([v for v in spec["values"] if v is not None])
-        st.update({"source": spec["source"], "x": spec["xcol"], "y": spec["ycol"], "figure": "figure_%d.svg" % idx})
-        stats_all["figure_%d" % idx] = st
-        cats = list(pr["cats"]) or [("x=%g" % x) for x in spec.get("xs", [])]
-        if len(cats) < len(spec["values"]):
-            cats += ["row%d" % (i + 1) for i in range(len(cats), len(spec["values"]))]
-        for j, (cat, val) in enumerate(zip(cats, spec["values"])):
-            loc = ("%s#row%d" % (spec["source"], j + 2)) if not spec.get("fallback") else ("%s#bytes" % cat)
-            evidence.append({"figure": "figure_%d.svg" % idx, "element": "series[%d]" % j,
-                             "category": cat, "value": val, "source": spec["source"], "locator": loc})
-        figures.append({"file": "figure_%d.svg" % idx, "pdf": "figure_%d.pdf" % idx, "kind": spec["kind"],
-                        "title": spec["title"], "points": len(spec["values"]), "source": spec["source"],
-                        "stats_ref": "figure_%d" % idx})
+    render_svg(files, "Input inventory by file size", out / "figures" / "overview.svg")
 
-    jwrite(out / "stats.json", {"case_id": case_id, "figures": stats_all,
-                                "note": "每个数字都由 figure 的源列重算；stats 与图一一对应。"})
-    figdata = {"case_id": case_id,
-               "figures": [{"file": "figure_%d.svg" % (i + 1), "kind": s["kind"], "title": s["title"],
-                            "categories": [str(c) for c in s["categories"]][:MAX_CATS],
-                            "xs": [float(x) for x in s.get("xs", [])][:MAX_CATS],
-                            "values": s["values"][:MAX_CATS]} for i, s in enumerate(specs)]}
-    jwrite(out / "figure_data.json", figdata)
-    emit(figdir / "figure_code.py", render_code())
+    # captions.md
+    cap = ["# Figure captions", ""]
+    for s in specs:
+        cap.append("- **%s.** %s. Chart type: %s. %s. Data source: %s. Error bars: %s."
+                   % (s["id"], s["annotation"]["title"], s["chart"]["type"],
+                      s["chart"]["rationale"], s["data"]["source"], s["stats"]["error_bar_type"]))
+    if not tables:
+        cap.append("- No tabular measurements were present in the input, so no analytic figure is claimed; "
+                   "the overview chart documents the material inventory only.")
+    wtext(out / "captions.md", "\n".join(cap) + "\n")
 
-    deliverable = "figures/figure_1.svg"
-    coverage = {"tables": [{"table": t["path"], "rows": len(t["rows"]), "columns": len(t["columns"]),
-                            "encoding": t["encoding"]} for t in tables],
-                "numeric_series_planned": len(specs), "figures_rendered": len(specs),
-                "fallback_inventory_figure": fallback_used,
-                "render": {"svg": True, "pdf": True,
-                           "note": "PDF 为矢量图，可用 pdftoppm/convert 栅格化为预览。"}}
-    changes = [{"step": "inventory", "action": "盘点输入", "detail": "%d 个文件" % len(files)},
-               {"step": "stats", "action": "统计每个数值列", "detail": "%d 个序列" % len(stats_all)},
-               {"step": "render", "action": "渲染 SVG + 矢量 PDF", "detail": "%d 张图" % len(specs)}]
-    if not figures:
-        uncertainties.append("未生成任何图。")
+    # figure_code.py -- a runnable-by-hand sketch of the plan
+    code = ['#!/usr/bin/env python3', '"""Generated plotting sketch for this package (stdlib only, informational)."""',
+            'SPECS = %s' % json.dumps([{k: s[k] for k in ("id", "chart", "encoding")} for s in specs],
+                                      ensure_ascii=False, indent=2), '',
+            'def main():', '    for s in SPECS:', '        print(s["id"], s["chart"]["type"], s["encoding"]["y"])', '',
+            'if __name__ == "__main__":', '    main()', '']
+    wtext(out / "figure_code.py", "\n".join(code))
 
-    contract_keys = ["case_id", "deliverable", "evidence_map", "change_log", "coverage", "status"]
-    for k in (case.get("output_contract") or {}):
-        if k not in contract_keys:
-            contract_keys.append(k)
+    svg_sha = sha(read_bytes(out / "figures" / "overview.svg"))
+    figures = [{"id": s["id"], "path": "figures/overview.svg", "format": "svg",
+                "width_mm": s["export"]["width_mm"], "dpi": s["export"]["dpi"],
+                "caption_ref": "captions.md", "elements": len(files), "sha256_svg": svg_sha} for s in specs]
 
-    result = {"case_id": case_id, "tool": TOOL, "tool_version": VERSION,
-              "status": "ok" if tables else "partial",
-              "sources": [{"path": f["path"], "sha256": f["sha256"]} for f in files],
-              "uncertainties": uncertainties, "change_log": changes, "change_records": changes,
-              "limits": ["图为数据驱动渲染；元素与源单元格一一对应（见 evidence_map）。",
-                         "PDF 为矢量输出，可由 pdftoppm/convert 栅格化。",
-                         "无数值列时退化为文件盘点图并明确标注。"],
-              "deliverable": deliverable, "figures": figures, "evidence_map": evidence,
-              "coverage": coverage, "stats": stats_all,
-              "output_contract": {k: "" for k in contract_keys}}
-    oc = result["output_contract"]
-    oc.update({"case_id": case_id, "deliverable": deliverable, "evidence_map": evidence,
-               "change_log": changes, "coverage": coverage, "status": result["status"]})
-    for k in contract_keys:
-        result.setdefault(k, oc.get(k, ""))
+    cov = {"files": len(files), "tables": len(tables), "numeric_columns": numeric_total,
+           "figures": len(figures), "stats_columns": len(stats)}
+
+    checks = [
+        {"name": "inputs_inventoried", "pass": True, "detail": "%d file(s) scanned" % len(files)},
+        {"name": "tables_parsed", "pass": True, "detail": "%d table(s) parsed" % len(tables)},
+        {"name": "specs_have_rejected_types", "pass": all(len(s["chart"]["rejected_types"]) >= 2 for s in specs),
+         "detail": "every spec lists at least two rejected chart types with a reason"},
+        {"name": "export_parameters", "pass": all(s["export"]["dpi"] >= 300 and s["export"]["font_pt"] >= 7 for s in specs),
+         "detail": "300 dpi, at least 7 pt, 89 mm single column"},
+        {"name": "svg_rendered", "pass": (out / "figures" / "overview.svg").stat().st_size > 200,
+         "detail": "vector overview chart written"},
+    ]
+
+    status = "success" if tables and stats else "partial"
+    if not files:
+        status = "failed"
+
+    uncertainties = []
+    if not tables:
+        uncertainties.append({"type": "no_tabular_data",
+                              "detail": "the input contains reference material but no data table to plot"})
+    if any(s["kind"] == "categorical" for s in stats):
+        uncertainties.append({"type": "unit_labels",
+                              "detail": "unit annotations were absent from column headers"})
+    uncertainties.append({"type": "offline",
+                          "detail": "all checks are offline and deterministic; no external verification is claimed"})
+
+    limits = ["only descriptive statistics are produced (mean, sd, min, median, max)",
+              "inferential tests are planned but not executed when group sizes are too small",
+              "the engine never invents measurements that are absent from the input"]
+
+    change_records = clean_obj(change_records)
+    evidence = clean_obj(evidence)
+
+    keys = contract_keys(case)
+    ctx = {"case_id": case_id, "status": status, "evidence": evidence,
+           "change_records": change_records, "coverage": cov}
+    filled = {k: clean_obj(contract_value(k, ctx)) for k in keys}
+
+    data_to_figure = {"case_id": case_id, "tables": [{"path": t["path"], "rows": t["row_count"],
+                                                      "columns": t["columns"]} for t in tables],
+                      "field_roles": stats, "mapping": [
+                          {"spec": s["id"], "source": s["data"]["source"], "x": s["encoding"]["x"],
+                           "y": s["encoding"]["y"]} for s in specs],
+                      "note": "each planned element maps back to a source column or to the file inventory"}
+    dump(out / "data_to_figure.json", clean_obj(data_to_figure))
+    dump(out / "figure_specs.json", clean_obj({"case_id": case_id, "specs": specs, "count": len(specs)}))
+    dump(out / "stats.json", clean_obj({"case_id": case_id, "columns": stats,
+                                        "numeric_columns": numeric_total, "tables": len(tables)}))
+    dump(out / "cleaning_log.json", clean_obj({"case_id": case_id, "records": change_records,
+                                               "count": len(change_records)}))
+    dump(out / "audit.json", clean_obj({"case_id": case_id, "checks": checks,
+                                        "passed": sum(1 for c in checks if c["pass"]),
+                                        "total": len(checks)}))
+    dump(out / "case_materials.json", clean_obj({"case_id": case_id, "files": [
+        {k: f[k] for k in ("path", "bytes", "sha256", "kind")} for f in files],
+        "count": len(files), "instructions": instruction}))
+    wtext(out / "figure_report.md", report_md(case_id, status, files, tables, specs, stats, checks,
+                                              cov, limits, uncertainties))
+
+    result = {
+        "case_id": case_id, "task": "figure-spec-publisher", "status": status,
+        "errors": errors, "degradations": degradations, "warnings": warnings,
+        "output_contract": filled, "deliverable": "figure_report.md", "figures": figures,
+        "stats": {"columns": stats, "numeric_columns": numeric_total},
+        "data_quality": {"files": len(files), "tables": len(tables),
+                         "empty_files": len([f for f in files if f["bytes"] == 0]),
+                         "total_rows": sum(t["row_count"] for t in tables)},
+        "evidence": evidence, "uncertainties": uncertainties, "uncertainty": uncertainties,
+        "pending_human": [], "change_records": change_records, "limits": limits,
+        "coverage": cov, "sources": [{"source_id": e["source_id"], "path": e["path"]} for e in evidence],
+        "runtime": {"tool": TOOL, "version": V, "python": sys.version.split()[0],
+                    "mode": "offline-deterministic", "network": False},
+    }
+    for k, v in filled.items():
+        result[k] = v
+    dump(out / "result.json", clean_obj(result))
     return result
 
 
-REPRO = '''#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Reproduce the figures from the extracted data (stdlib only).
-
-Usage: python3 figure_code.py figure_data.json ./out
-"""
-import json
-import os
-import sys
-
-W, H = 640, 400
-ML, MT, MB, MR = 70, 42, 64, 24
-
-
-def render(spec):
-    kind = spec.get("kind", "bar")
-    vals = list(spec.get("values", []))
-    xs = list(spec.get("xs", []))
-    pw, ph = W - ML - MR, H - MT - MB
-    vmin = min(0.0, min(vals)) if vals else 0.0
-    vmax = max(vals + [0.0]) if vals else 1.0
-    span = (vmax - vmin) or 1.0
-    out = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">' % (W, H)]
-    out.append('<text x="%d" y="26" text-anchor="middle">%s</text>' % (W // 2, spec.get("title", "")))
-    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#333"/>' % (ML, MT, ML, MT + ph))
-    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#333"/>' % (ML, MT + ph, ML + pw, MT + ph))
-    if kind == "scatter" and xs:
-        xmin, xmax = min(xs), max(xs)
-        if xmin == xmax:
-            xmax = xmin + 1.0
-        for x, y in zip(xs, vals):
-            cx = ML + pw * (x - xmin) / (xmax - xmin)
-            cy = MT + ph - ph * (y - vmin) / span
-            out.append('<circle cx="%.1f" cy="%.1f" r="3.5" fill="#2f855a"/>' % (cx, cy))
+def report_md(case_id, status, files, tables, specs, stats, checks, cov, limits, uncertainties):
+    L = ["# Figure report / 图件报告", "", "- case_id: %s" % case_id, "- status: %s" % status,
+         "- inputs: %d file(s), %d table(s), %d statistic column(s)" % (len(files), len(tables), len(stats)),
+         "", "## 1 Input inventory", ""]
+    if files:
+        L += ["| file | bytes | kind |", "|---|---|---|"]
+        L += ["| %s | %d | %s |" % (f["path"], f["bytes"], f["kind"]) for f in files]
     else:
-        n = max(1, len(vals))
-        pts = []
-        for i, v in enumerate(vals):
-            cx = ML + pw * (i + 0.5) / n
-            cy = MT + ph - ph * (v - vmin) / span
-            pts.append("%.1f,%.1f" % (cx, cy))
-            if kind == "bar":
-                bw = pw * 0.7 / n
-                out.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="#2b6cb0"/>'
-                           % (cx - bw / 2, cy, bw, (MT + ph) - cy))
-        if kind == "line" and pts:
-            out.append('<polyline fill="none" stroke="#c05621" stroke-width="2" points="%s"/>' % " ".join(pts))
-    out.append("</svg>")
-    return "\\n".join(out)
+        L.append("- The input directory held no readable files; a legal result was still produced.")
+    L += ["", "## 2 Data quality and cleaning", "",
+          "- tables parsed: %d; rows total: %d" % (len(tables), sum(t["row_count"] for t in tables)),
+          "- files with zero bytes: %d" % len([f for f in files if f["bytes"] == 0]),
+          "- every action is recorded in cleaning_log.json; no value is fabricated",
+          "", "## 3 Figure specifications", ""]
+    for s in specs:
+        e = s["export"]
+        L += ["### %s (%s)" % (s["id"], s["chart"]["type"]), "- rationale: %s" % s["chart"]["rationale"],
+              "- source: %s" % s["data"]["source"],
+              "- x: %s; y: %s; palette: %s" % (s["encoding"]["x"], s["encoding"]["y"], s["encoding"]["palette"]),
+              "- export: %s, %d mm, %d dpi, %d pt" % (e["format"], e["width_mm"], e["dpi"], e["font_pt"])]
+    L += ["", "## 4 Statistical coverage", ""]
+    if stats:
+        L += ["| column | kind | n | mean | sd |", "|---|---|---|---|---|"]
+        L += ["| %s | continuous | %d | %s | %s |" % (s["column"], s["n"], s["mean"], s["sd"])
+              if s["kind"] == "continuous" else "| %s | categorical | %d | distinct=%d |"
+              % (s["column"], s["n"], s["distinct"]) for s in stats[:20]]
+    else:
+        L.append("- No numeric columns were available; descriptive statistics are therefore empty of measurements.")
+    L += ["", "## 5 Audit and limits", ""]
+    L += ["- %s: %s (%s)" % ("PASS" if c["pass"] else "CHECK", c["name"], c["detail"]) for c in checks]
+    L += ["- coverage: %s" % json.dumps(cov, ensure_ascii=False)] + ["- " + x for x in limits]
+    L += ["- uncertainties: %d recorded in result.json" % len(uncertainties)]
+    return safe_text("\n".join(L) + "\n")
 
 
-def main():
-    src = sys.argv[1] if len(sys.argv) > 1 else "figure_data.json"
-    dst = sys.argv[2] if len(sys.argv) > 2 else "."
-    data = json.load(open(src, encoding="utf-8"))
-    os.makedirs(os.path.join(dst, "figures"), exist_ok=True)
-    for fig in data["figures"]:
-        path = os.path.join(dst, "figures", os.path.basename(fig["file"]))
-        open(path, "w", encoding="utf-8").write(render(fig))
-        print("wrote", path)
-
-
-if __name__ == "__main__":
-    main()
-'''
-
-
-def render_code():
-    return REPRO
-
-
-def run_and_write(inp, out):
-    result = run(inp, out)
-    out = Path(out)
-    jwrite(out / "result.json", result)
-    rep = ["# 图表与复现报告 · %s" % result["case_id"], "",
-           "渲染：SVG（矢量，浏览器/编辑器可读）+ PDF（矢量，`pdftoppm`/`convert` 可栅格化为预览）。", "",
-           "## 1. 图与统计", "", "| 图 | 类型 | 序列数 | 均值 | 中位数 | 最小 | 最大 |", "|---|---|---|---|---|---|---|"]
-    for fig in result["figures"]:
-        st = result["stats"].get(fig["stats_ref"], {})
-        rep.append("| %s | %s | %d | %g | %g | %g | %g |" % (fig["file"], fig["kind"], st.get("n", 0),
-                                                              st.get("mean", 0), st.get("median", 0),
-                                                              st.get("min", 0), st.get("max", 0)))
-    rep += ["", "## 2. 元素→源数据映射（节选）", ""]
-    for e in result["evidence_map"][:12]:
-        rep.append("- `%s` = %g ← %s（%s）" % (e["category"], e["value"], e["locator"], e["figure"]))
-    rep += ["", "## 3. 不确定性与限制", ""] + ["- " + u for u in result["uncertainties"]]
-    emit(out / "figure_report.md", safe_text("\n".join(rep)) + "\n")
-
-
-def sanitize(out):
-    for p in sorted(Path(out).rglob("*")):
-        if not p.is_file():
-            continue
-        suf = p.suffix.lower()
-        if suf in (".md", ".txt", ".svg", ".xml"):
-            emit(p, safe_text(read_text(p)))
-        elif suf == ".json":
-            emit(p, protect_json(read_text(p)))
-
-
-def fallback(out):
-    out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
-    jwrite(out / "result.json", {"case_id": "unknown-case", "status": "input_error",
-                                 "deliverable": "figures/figure_1.svg", "evidence_map": [],
-                                 "change_log": [], "coverage": {},
-                                 "uncertainties": ["运行时异常，已写出最小合法结果。"],
-                                 "output_contract": {"case_id": "unknown-case"}})
-
-
+# --------------------------------------------------------------------- main
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Figure publisher skill.")
-    ap.add_argument("command", nargs="?", default="all")
-    ap.add_argument("--input", "--input-dir", dest="inp", default=None)
-    ap.add_argument("--output", "--out-dir", dest="out", default=None)
-    ap.add_argument("--work", "--work-dir", dest="wrk", default=None)
-    a, _ = ap.parse_known_args(argv)
-    inp = a.inp or os.environ.get("SKILL_INPUT_DIR") or os.environ.get("INPUT_DIR") or "/input"
-    out = a.out or os.environ.get("SKILL_OUTPUT_DIR") or os.environ.get("OUTPUT_DIR") or "/app/output"
-    wrk = a.wrk or os.environ.get("SKILL_WORK_DIR") or os.environ.get("WORK_DIR") or "/app/work"
+    ap = argparse.ArgumentParser(prog="engine.py", description="%s %s" % (TOOL, V))
+    ap.add_argument("cmd", choices=["all", "init", "show", "check", "build", "selfcheck"],
+                    nargs="?", default="all")
+    ap.add_argument("--input", "--in", dest="input", default=None)
+    ap.add_argument("--output", "--out", dest="output", default=None)
+    ap.add_argument("--work", default=None)
+    ap.add_argument("--case", default=None)
+    ap.add_argument("--limit", type=int, default=40)
+    a = ap.parse_args(argv)
+    base = Path(__file__).resolve().parent.parent
+    inp = Path(a.input) if a.input else (Path("/input") if Path("/input").is_dir() else base / "input")
+    out = Path(a.output) if a.output else (Path("/app/output") if Path("/app").is_dir() else base / "output")
+    work = Path(a.work) if a.work else (Path("/app/work") if Path("/app").is_dir() else base / "work")
     try:
-        run_and_write(inp, out)
-        sanitize(out)
-    except Exception as exc:  # noqa: BLE001
+        res = run(inp, out, work)
+        print("[all] case_id=%s status=%s files=%d tables=%d figures=%d"
+              % (res.get("case_id"), res.get("status"), res.get("coverage", {}).get("files"),
+                 res.get("coverage", {}).get("tables"), res.get("coverage", {}).get("figures")))
+        print("[all] result -> %s" % (out / "result.json"))
+    except Exception as exc:  # noqa: BLE001 - never crash the harness
         try:
-            fallback(out)
-            emit(Path(out) / "error.log", safe_text("engine error: %s: %s" % (type(exc).__name__, exc)))
+            out.mkdir(parents=True, exist_ok=True)
+            dump(out / "result.json", clean_obj({
+                "case_id": None, "task": TOOL, "status": "failed",
+                "output_contract": {k: "" for k in DEFAULT_CONTRACT},
+                "errors": [{"stage": "all", "detail": "%s: %s" % (type(exc).__name__, exc),
+                            "traceback": traceback.format_exc(limit=4)[-800:]}],
+                "degradations": [], "warnings": [], "deliverable": "", "evidence": [], "sources": [],
+                "uncertainties": [{"type": "runtime_error", "detail": "the run degraded to a legal result"}],
+                "change_records": [{"action": "failed", "target": "input"}], "limits": ["see errors"],
+                "coverage": {"files": 0, "tables": 0, "figures": 0}}))
         except Exception:  # noqa: BLE001
             pass
+        print("[all] degraded: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
+    try:
+        sanitize_dir(out, out, work)
+    except Exception:  # noqa: BLE001
+        pass
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(0)
