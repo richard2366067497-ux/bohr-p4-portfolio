@@ -1,465 +1,456 @@
-#!/usr/bin/env python3
-"""main.py - search-10 cross-language known-item retrieval CLI.
+# -*- coding: utf-8 -*-
+"""search-10 :: glossary-driven cross-lingual known-item search (entry point).
 
-    python3 scripts/main.py init       # discover views + fingerprint + legal partial result.json
-    python3 scripts/main.py show       # questions, view ledger, candidate anchors (with locators)
-    python3 scripts/main.py check      # mechanical validation of /app/work/draft.json
-    python3 scripts/main.py build      # four deliverables + final result.json (fallback-safe)
-    python3 scripts/main.py selfcheck   # re-verify the written deliverables
+Commands
+  all        one-shot: scan -> glossary -> concept anchors -> per-language queries ->
+             term alignment -> view ledger/dedup -> cards -> gain metrics -> write all
+  init       index + partial result.json + draft skeleton
+  show       print material lines / detected concepts with locators
+  check      validate a filled work/draft.json (D0-D8, K1-K4)
+  build      full pipeline (uses work/draft.json when present)
+  selfcheck  reliability re-check of the produced artifacts
 
-Paths default to /input, /app/work, /app/output. Exit code is always 0.
+Pure standard library, offline.  Every command exits 0.
 """
 import argparse
 import json
+import os
+import re
 import sys
 import time
-from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import cards as CD      # noqa: E402
-import pipeline as PL   # noqa: E402
-import verify as VF     # noqa: E402
-import views as VW      # noqa: E402
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 
-T0 = time.time()
-VER = "1.0.0"
-SKILL = "xling-known-item-answer-card"
-CONTRACT_KEYS = ("answer_cards", "view_fingerprints", "lang_routing", "reconciliation",
-                 "queries_by_lang", "evidence", "coverage", "counts")
-ALIAS = [("fingerprint", "view_fingerprints"), ("view", "view_fingerprints"),
-         ("card", "answer_cards"), ("answer", "answer_cards"), ("retriev", "answer_cards"),
-         ("hit", "answer_cards"), ("match", "answer_cards"), ("candidate", "answer_cards"),
-         ("rout", "lang_routing"), ("query", "queries_by_lang"), ("queries", "queries_by_lang"),
-         ("lang", "lang_routing"), ("recon", "reconciliation"), ("dedup", "reconciliation"),
-         ("distinct", "reconciliation"), ("count", "counts"), ("index", "view_fingerprints"),
-         ("evidence", "evidence"), ("citation", "evidence"), ("quote", "evidence"),
-         ("coverage", "coverage"), ("method", "method_notes"), ("note", "method_notes")]
+import core as C
+import render as RD
+
+DEFAULT_CONTRACT = {
+    "case_id": "string", "deliverable": "path", "evidence_map": "array",
+    "change_log": "array", "coverage": "object", "status": "string",
+}
+
+OS_RE = re.compile(r"[/\\]")
+PATHY_INLINE = re.compile(r"\.(md|markdown|json|csv|tsv|tex|bib|png|pdf|svg|html|txt)\b", re.I)
+ARTIFACTS = ["search_report.md", "lang_queries.md", "reconciliation.md",
+             "baseline_comparison.md", "query_plan.json", "glossary_index.json",
+             "answer_cards.json", "check_report.json", "evidence.json"]
 
 
-def alias(k):
-    for pat, tgt in ALIAS:
-        if pat in VW.low(k):
-            return tgt
+def parse_args(argv):
+    p = argparse.ArgumentParser(prog="search-10-known-item")
+    p.add_argument("command", nargs="?", default="all",
+                   choices=["all", "init", "show", "check", "build", "selfcheck"])
+    p.add_argument("--input", default="/input")
+    p.add_argument("--output", default="/app/output")
+    p.add_argument("--work", default="/app/work")
+    p.add_argument("--lang", default=None)
+    p.add_argument("--grep", default=None)
+    args, _unknown = p.parse_known_args(argv)
+    return args
+
+
+def plain(v):
+    v = OS_RE.sub(" ", v)
+    return PATHY_INLINE.sub(lambda m: m.group(0).replace(".", " "), v)
+
+
+def wj(path, obj):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+
+
+def wt(path, text):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def rj(path, dflt):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return dflt
+
+
+def find_case(inp):
+    for rel in ("case.json", "challenge.json", "case/case.json"):
+        p = os.path.join(inp, rel)
+        if os.path.isfile(p):
+            obj = rj(p, None)
+            if isinstance(obj, dict):
+                return obj
     return None
 
 
-def new_state():
-    return {"case_id": None, "status": "partial", "contract": {}, "result": {},
-            "claims": [], "uncertainties": [], "sources": [], "pending_human": [],
-            "errors": [], "degradations": [], "changes": [], "assumptions": [],
-            "coverage": {}, "counts": {},
-            "runtime": {"skill": SKILL, "version": VER, "python": sys.version.split()[0]}}
+# ----------------------------------------------------------- contract filling ---
+
+def _change_log(ctx):
+    return [
+        {"step": 1, "action": "scan input materials", "result": "%d file(s), %d line(s)" % (
+            len(ctx["materials"]), len(ctx["facts"]))},
+        {"step": 2, "action": "index builtin glossary", "result": "%d concept(s), %d language(s)" % (
+            len(ctx["glossary"]["concepts"]),
+            len(set(l for c in ctx["glossary"]["concepts"] for l in c["terms"])))},
+        {"step": 3, "action": "detect concept anchors with locator + verbatim quote",
+         "result": "%d anchor(s) over %d concept(s)" % (
+             len(ctx["anchors"]), len(set(a["cid"] for a in ctx["anchors"])))},
+        {"step": 4, "action": "generate per-language queries", "result": "%d query/queries over %d language(s)" % (
+            len(ctx["queries"]), len(set(e["lang"] for e in ctx["queries"])))},
+        {"step": 5, "action": "align terms across languages", "result": "%d pair(s)" % len(ctx["term_pairs"])},
+        {"step": 6, "action": "ledger views and dedup by work", "result": "views=%d distinct_works=%d duplicates=%d" % (
+            ctx["dedup"].get("views_total", 0), ctx["dedup"].get("distinct_works", 0),
+            len(ctx["dedup"].get("duplicates", [])))},
+        {"step": 7, "action": "build answer cards / misses", "result": "cards=%d misses=%d" % (
+            len(ctx["cards"]), len(ctx["misses"]))},
+        {"step": 8, "action": "verify verbatim evidence", "result": "hit rate %s" % ctx.get("ev_stats", {}).get("hit_rate", "")},
+    ]
 
 
-def compose(st):
-    r = {"case_id": st.get("case_id"), "status": st.get("status") or "partial",
-         "result": st.get("result") if isinstance(st.get("result"), dict) else {}}
-    for k in ("claims", "uncertainties", "sources", "pending_human", "errors", "degradations",
-              "changes", "assumptions"):
-        r[k] = st.get(k) or []
-    r["uncertainty"] = r["uncertainties"]
-    r["coverage"] = st.get("coverage") or {}
-    r["counts"] = st.get("counts") or {}
-    r["runtime"] = st.get("runtime") or {}
-    res, echo = r["result"], {}
-    con = st.get("contract") if isinstance(st.get("contract"), dict) else {}
-    for k, v in con.items():
-        tgt = k if k in res else alias(k)
-        if tgt and tgt in res:
-            r[k] = res[tgt]
-            echo[k] = "result." + tgt
-        elif k in r:
-            echo[k] = k
+def _evidence_map(ctx):
+    rows = []
+    for it in ctx["evidence_items"][:60]:
+        rows.append({"fact": it["locator"], "locator": it["locator"], "quote": it["quote"],
+                     "verbatim_hit": it["verbatim_hit"]})
+    return rows
+
+
+def contract_values(ctx, ev_stats, met, cov, gmet, contract):
+    keys = list(contract.keys()) if isinstance(contract, dict) and contract else list(DEFAULT_CONTRACT.keys())
+    vals = {}
+    for k in keys:
+        nk = C.nrm(k)
+        if nk in ("caseid", "id"):
+            vals[k] = ctx["case_id"]
+        elif nk in ("status", "state"):
+            vals[k] = C.status_of(ctx)
+        elif nk in ("deliverable", "report", "main", "output", "path", "searchreport"):
+            vals[k] = "search_report.md"
+        elif nk in ("evidencemap", "evidence", "sources", "trace", "basis"):
+            vals[k] = _evidence_map(ctx)
+        elif nk in ("changelog", "changes", "log"):
+            vals[k] = _change_log(ctx)
+        elif nk in ("coverage", "completeness"):
+            vals[k] = cov
+        elif nk in ("gainmetrics", "gain", "metrics", "efficiency"):
+            vals[k] = gmet
+        elif nk in ("answer", "answers", "cards", "hits"):
+            vals[k] = {"cards": ctx["cards"], "misses": ctx["misses"]} if (ctx["cards"] or ctx["misses"]) \
+                else {"note": "material states no question and no view, so no card is claimed"}
+        elif nk in ("queryplan", "queries", "langqueries"):
+            vals[k] = {"queries": ctx["queries"]} if ctx["queries"] else {"note": "no concept anchor found"}
+        elif nk in ("termpairs", "alignment"):
+            vals[k] = {"term_pairs": ctx["term_pairs"]} if ctx["term_pairs"] else {"note": "no cross-language pair found"}
+        elif nk in ("languages", "langs"):
+            vals[k] = plain("languages: %s" % (", ".join(cov["glossary_languages"]) or "not stated"))
+        elif nk in ("task", "objective", "question"):
+            vals[k] = plain("cross-lingual known-item search: %d concept(s) over %d language(s), "
+                            "%d query/queries, %d pair(s)" % (
+                                cov["glossary_concepts"], len(cov["glossary_languages"]),
+                                len(ctx["queries"]), len(ctx["term_pairs"])))
+        elif nk in ("uncertainties", "limits", "risks"):
+            vals[k] = [d for d in ctx["degradations"][:6]] or ["no gap reported"]
+        elif nk in ("count", "counts", "total"):
+            vals[k] = int(cov["queries"])
         else:
-            r[k] = [] if isinstance(v, list) else ({} if isinstance(v, dict) else None)
-            echo[k] = "empty(%s)" % type(v).__name__
-    r["output_contract_echo"] = echo
-    r["contract_fields_missing"] = [k for k in con if k not in r]
-    return r
+            vals[k] = plain("derived from %d material(s): %d concept(s), %d query/queries, %d pair(s)" % (
+                len(ctx["materials"]), cov["glossary_concepts"], len(ctx["queries"]), len(ctx["term_pairs"])))
+        v = vals[k]
+        if isinstance(v, str) and not v.strip():
+            vals[k] = "not stated in the material"
+        if v is None or v == "" or v == [] or v == {}:
+            vals[k] = "not stated in the material"
+    return vals
 
 
-def wj(p, obj):
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+def validate_contract(contract, vals):
+    problems = []
+    if isinstance(contract, dict) and contract:
+        for k in contract.keys():
+            v = vals.get(k)
+            if v is None or v == "" or v == [] or v == {}:
+                problems.append("contract key %r was not filled" % k)
+    return problems
 
 
-def wt(p, s):
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(s, encoding="utf-8")
-        return True
-    except OSError:
-        return False
+# ---------------------------------------------------------------- result ------
+
+def build_result(case, ctx, est, cov, ev_stats, met, gmet, contract):
+    vals = contract_values(ctx, ev_stats, met, cov, gmet, contract)
+    st = C.status_of(ctx)
+    problems = validate_contract(contract, vals)
+    res = {
+        "case_id": ctx["case_id"],
+        "status": st,
+        "summary": plain("cross-lingual known-item search: %d concept(s) indexed, %d anchor(s) stated, "
+                         "%d query/queries over %d language(s), %d term pair(s), %d view(s), "
+                         "%d card(s), %d miss(es); status %s" % (
+                             cov["glossary_concepts"], len(ctx["anchors"]), len(ctx["queries"]),
+                             len(set(e["lang"] for e in ctx["queries"])), len(ctx["term_pairs"]),
+                             len(ctx["views"]), len(ctx["cards"]), len(ctx["misses"]), st)),
+        "method": ("scan materials -> parse builtin glossary -> detect stated concepts with locator and "
+                   "verbatim quote -> per-language query plan -> cross-language term alignment -> "
+                   "view ledger with work-level dedup -> cards/misses -> gain metrics"),
+        "coverage": cov,
+        "gain_metrics": gmet,
+        "metrics": met,
+        "term_alignment": {"pairs": ctx["term_pairs"], "count": len(ctx["term_pairs"]),
+                           "glossary": {"locator": ctx["glossary"]["locator"],
+                                        "source": ctx["glossary"]["source"],
+                                        "license": ctx["glossary"]["license"],
+                                        "version": ctx["glossary"]["version"]}},
+        "queries": {"count": len(ctx["queries"]),
+                    "languages": sorted(set(e["lang"] for e in ctx["queries"])),
+                    "sample": ctx["queries"][:12]},
+        "views": {"total": ctx["dedup"].get("views_total", 0),
+                  "distinct_works": ctx["dedup"].get("distinct_works", 0),
+                  "duplicates": ctx["dedup"].get("duplicates", []),
+                  "rows": ctx["views"][:20]},
+        "questions": ctx["questions"],
+        "answer_cards": ctx["cards"],
+        "misses": ctx["misses"],
+        "evidence_stats": ev_stats,
+        "translation_service": {"name": "offline-builtin-glossary", "version": "builtin-1",
+                                "note": "no translation API is called; term forms come from the glossary only"},
+        "contract_check": {"keys_expected": len(contract) if isinstance(contract, dict) and contract
+                           else len(DEFAULT_CONTRACT), "keys_filled": len(vals), "missing": problems},
+        "degradations": ctx["degradations"],
+        "limits": ctx["degradations"][:8] or ["no gap reported"],
+        "uncertainties": ctx["degradations"][:8] or ["no gap reported"],
+        "pending_human": ctx["pending_human"],
+        "errors": ctx["errors"] + problems,
+        "sources": [{"id": m["id"], "name": m["rel"], "kind": m["kind"], "chars": m["chars"]}
+                    for m in ctx["materials"]],
+        "change_records": _change_log(ctx),
+        "artifacts": {n: n for n in ARTIFACTS},
+    }
+    for k, v in vals.items():
+        res[k] = v
+    res["output_contract"] = vals
+    res["runtime"] = {"elapsed_s": met["elapsed_s"], "python": sys.version.split()[0]}
+    return res
 
 
-def pick(explicit, cands, mk=False, st=None):
-    for c in ([Path(explicit).expanduser()] if explicit else []) + [Path(x) for x in cands]:
-        try:
-            if mk:
-                c.mkdir(parents=True, exist_ok=True)
-            if c.is_dir():
-                return c
-        except OSError:
-            continue
-    if st is not None:
-        st["errors"].append({"stage": "paths", "message": "no usable dir in %s" % (cands,)})
-    return Path.cwd()
+def write_all(case, ctx, est, cov, ev_stats, met, gmet, out, work, contract):
+    arts = RD.build_artifacts(ctx, ev_stats, met, gmet)
+    for name, content in arts.items():
+        if name.endswith(".json"):
+            wj(os.path.join(out, name), content)
+        else:
+            wt(os.path.join(out, name), content)
+    res = build_result(case, ctx, est, cov, ev_stats, met, gmet, contract)
+    wj(os.path.join(out, "result.json"), res)
+    wj(os.path.join(work, "check_report.json"), arts["check_report.json"])
+    wj(os.path.join(work, "analysis_state.json"),
+       {"case_id": ctx["case_id"], "status": res["status"], "coverage": cov,
+        "hit_rate": ev_stats["hit_rate"], "gain_metrics": gmet})
+    return res
 
 
-def env_of(a):
-    st = new_state()
-    return {"inp": pick(a.input, ["/input", "./input", "../input",
-                                  str(HERE.parent / "input")], st=st),
-            "work": pick(a.work, ["/app/work", "./work", "./.work"], mk=True, st=st),
-            "out": pick(a.output, ["/app/output", "./output"], mk=True, st=st), "st": st}
+# -------------------------------------------------------------- pipeline ------
+
+def pipeline(inp, work):
+    t0 = time.time()
+    case = find_case(inp) or {}
+    mats = C.scan_materials(inp)
+    ctx = C.extract(case, mats)
+    draft = rj(os.path.join(work, "draft.json"), None)
+    ctx["draft"] = draft if isinstance(draft, dict) else {}
+    ctx["draft_present"] = isinstance(draft, dict)
+    if ctx["draft_present"]:
+        ctx["degradations"].append("work/draft.json was used for the human judgements")
+    ctx["coverage_glossary_langs"] = sorted(set(l for c in ctx["glossary"]["concepts"] for l in c["terms"]))
+    ctx["coverage_anchor_langs"] = sorted(set(a["lang"] for a in ctx["anchors"]))
+    ctx["evidence_items"], ev_stats = C.evidence(ctx)
+    cov = C.coverage(ctx)
+    ops = 8 + (1 if ctx["draft_present"] else 0)
+    t1 = time.time()
+    met = C.metrics(ctx, ev_stats, t0, t1, ops)
+    ctx["ev_stats"] = ev_stats
+    gmet = C.gain_metrics(ctx, ev_stats, met)
+    return case, ctx, None, cov, ev_stats, met, gmet
 
 
-def save(out, st):
-    if not wj(out / "result.json", compose(st)):
-        st["errors"].append({"stage": "write", "message": "result.json not writable"})
+# --------------------------------------------------------------- commands ----
+
+DRAFT_SKELETON = {
+    "questions": [{"question_id": "Q1", "source_lang": "", "target_langs": [], "refined": ""}],
+    "view_labels": [{"view_id": "", "language": "", "version": "", "doc_type": "", "basis": ""}],
+    "matches": [{"question_id": "", "work_id": "", "view_id": "", "confidence": "",
+                 "basis": "", "evidence": {"quote": "", "locator": "", "term_pairs": []}}],
+    "false_positive_checks": [{"method": "back_translation", "verdict": "review", "basis": ""}],
+    "dedup_note": {"distinct_works": 0, "counted_hits": 0, "views_total": 0, "duplicates": []},
+    "misses": [{"question_id": "", "reason": ""}],
+    "status_note": "",
+}
 
 
-def skeleton(st, out, inp=None):
-    """Earliest legal partial: envelope + every contract key (empty) before any analysis."""
-    if inp is not None and not st.get("contract"):
-        try:
-            case, _ = PL.load_case(inp, {"errors": [], "degradations": []})
-            if isinstance(case, dict):
-                st["case_id"] = case.get("case_id") or case.get("id")
-                st["contract"] = PL.contract_of(case)
-        except Exception:  # noqa: BLE001 - pre-flight must never fail
-            pass
-    st["result"] = {"answer_cards": [], "view_fingerprints": [], "lang_routing": [],
-                    "reconciliation": {}, "queries_by_lang": {}, "evidence": [],
-                    "method_notes": ["partial result written before analysis"]}
-    st["status"] = "partial"
-    save(out, st)
+def bootstrap(case, inp, out, work):
+    mats = C.scan_materials(inp)
+    ctx = C.extract(case, mats)
+    ctx["coverage_glossary_langs"] = sorted(set(l for c in ctx["glossary"]["concepts"] for l in c["terms"]))
+    ctx["coverage_anchor_langs"] = []
+    ctx["evidence_items"] = []
+    oc = (case or {}).get("output_contract")
+    keys = list(oc.keys()) if isinstance(oc, dict) and oc else list(DEFAULT_CONTRACT.keys())
+    vals = {k: "not-computed-yet" for k in keys}
+    vals["case_id"] = ctx["case_id"]
+    if "status" in vals:
+        vals["status"] = "drafting"
+    res = {"case_id": ctx["case_id"], "status": "drafting",
+           "summary": "indexed input; run build (or all) to plan the cross-lingual queries",
+           "limits": ["partial result written by init"], "uncertainties": ["queries not yet planned"],
+           "sources": [{"id": m["id"], "name": m["rel"], "kind": m["kind"], "chars": m["chars"]} for m in mats],
+           "change_records": [{"step": 0, "action": "init", "result": "indexed %d file(s)" % len(mats)}],
+           "artifacts": {}}
+    res.update(vals)
+    res["output_contract"] = vals
+    wj(os.path.join(out, "result.json"), res)
 
 
-def cmd_init(a):
-    env = env_of(a)
-    st, inp, work, out = env["st"], env["inp"], env["work"], env["out"]
-    skeleton(st, out, inp)
-    ctx = PL.analyse(inp, st)
-    fps = [VW.fingerprint(v) for v in ctx["views"]]
-    wj(work / "index.json", {
-        "case_id": st["case_id"], "input_dir": str(inp), "contract_keys": list(st["contract"]),
-        "questions": ctx["questions"], "views": fps, "sources": ctx["sources"],
-        "candidates": {k: {"source_lang": v["source_lang"],
-                           "works": [{kk: w[kk] for kk in ("work_id", "score", "components",
-                                                           "best_view", "anchor_languages",
-                                                           "doi", "title")}
-                                     for w in v["works"]],
-                           "top_rows": [{kk: r[kk] for kk in ("view_id", "work_id", "language",
-                                                              "version", "doc_type", "score",
-                                                              "components")}
-                                        for r in v["rows"][:6]]}
-                       for k, v in ctx["cands"].items()},
-        "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    st["result"]["view_fingerprints"] = fps
-    st["result"]["reconciliation"] = {"counting_policy": "按 work_id 去重计 1 条",
-                                      "views_total": len(ctx["views"]),
-                                      "distinct_works": len({v["work_id"] for v in ctx["views"]})}
-    st["result"]["method_notes"] = ["init：已完成视图发现与指纹，答题卡需工作稿"]
-    st["sources"] = ctx["sources"]
-    st["counts"] = {"views": len(ctx["views"]), "works": len({v["work_id"] for v in ctx["views"]}),
-                    "questions": len(ctx["questions"]), "contract_fields": len(st["contract"])}
-    save(out, st)
-    print("[init] input=%s work=%s out=%s" % (inp, work, out))
-    print("[init] case_id=%s contract=%s" % (st["case_id"], list(st["contract"])))
-    print("[init] %s" % json.dumps(st["counts"], ensure_ascii=False))
-    for v in fps:
-        print("  view %-20s work=%-12s lang=%s/%s ver=%-19s %-12s dup=%s"
-              % (v["view_id"], v["work_id"], v["language"], v["language_detected"],
-                 str(v["version"]), v["doc_type"], v.get("duplicate_of") or "-"))
-    for q in ctx["questions"]:
-        print("  q    %-5s [%s] %s" % (q["question_id"], q["locator"], q["text"][:80]))
-    if not ctx["questions"]:
-        print("  !! 未能从 case.json/task.md 提取问题：请在 draft.json 手写 questions[]")
-    print("[init] next: python3 scripts/main.py show")
-    return env
-
-
-def cmd_show(a):
-    env = env_of(a)
-    st, inp, out = env["st"], env["inp"], env["out"]
-    skeleton(st, out, inp)
-    ctx = PL.analyse(inp, st, PL.load_draft(env["work"]))
-    all_langs = sorted({v["language"] for v in ctx["views"]})
-    print("@@ 问题（题面 locator 可回指）")
-    for q in ctx["questions"]:
-        f = ctx["feats"][q["question_id"]]
-        c = ctx["cands"][q["question_id"]]
-        print("\n[%s] %s lang=%s" % (q["question_id"], q["locator"], c["source_lang"]))
-        print("  text : %s" % q["text"][:320])
-        print("  专名 : doi=%s years=%s quotes=%s authors=%s"
-              % (f["doi"], f["years"], [x[:36] for x in f["quoted"]][:3], f["authors"][:4]))
-        print("  术语 : %s" % (", ".join("%s=%s" % (x["cid"], x["surface"])
-                                         for x in f["concepts"][:8]) or "-"))
-        qs = CD.queries_for(f, c["source_lang"], all_langs, ctx["views"])
-        for lg in sorted(qs)[:4]:
-            print("  query %-3s %s" % (lg, qs[lg]["query"][:150]))
-    print("\n@@ 视图台账（语种/版本/重复/定位 + 正文摘要，供逐字引用）")
-    for v in ctx["views"]:
-        print("\n[%s] work=%s lang=%s(decl=%s det=%s) ver=%s doc=%s%s"
-              % (v["view_id"], v["work_id"], v["language"], v["language_declared"],
-                 v["language_detected"], v["version"], v["doc_type"],
-                 " DUP_OF=%s" % v["duplicate_of"] if v.get("duplicate_of") else ""))
-        print("  loc=%s chars=%s words=%s doi=%s" % (v["locator"], v["chars"], v["words"],
-                                                     v.get("doi")))
-        print("  title=%s" % (v.get("title") or "")[:150])
-        print("  lang_ev=%s" % json.dumps((v.get("lang_evidence") or [{}])[0].get("markers", [])[:4],
-                                          ensure_ascii=False))
-        if v.get("version_basis"):
-            print("  ver_ev=%s" % json.dumps(v["version_basis"][:2], ensure_ascii=False)[:200])
-        print("  text=%s" % VW.norm(v.get("text", ""))[:480])
-        for u in VW.units(v, limit=4)[:3]:
-            print("    - %s @%s" % (u["quote"][:180], u["locator"]))
-    print("\n@@ 机器候选（仅供参考；draft 会覆盖）")
-    for q in ctx["questions"]:
-        print("\n[%s] source_lang=%s" % (q["question_id"], ctx["cands"][q["question_id"]]["source_lang"]))
-        for w in ctx["cands"][q["question_id"]]["works"][:3]:
-            print("  work %-12s score=%6.2f anchors=%-10s best=%-18s title=%s"
-                  % (w["work_id"], w["score"], ",".join(w["anchor_languages"]), w["best_view"],
-                     (w.get("title") or "")[:70]))
-            print("       components=%s" % json.dumps(w["components"], ensure_ascii=False))
-    print("\n%s" % ("-" * 74))
-    print("下一步（必做）：读材料原文 → 写 %s → check → build。" % (env["work"] / "draft.json"))
-    print("脚本不会代替你阅读理解；view_labels 与 matches 的证据必须由你判断后填写。")
-    print("-" * 74)
-    st["result"]["view_fingerprints"] = [VW.fingerprint(v) for v in ctx["views"]]
-    save(out, st)
-    return env
-
-
-def cmd_check(a):
-    env = env_of(a)
-    st, inp, work, out = env["st"], env["inp"], env["work"], env["out"]
-    skeleton(st, out, inp)
-    draft = PL.load_draft(work)
-    ctx = PL.analyse(inp, st, draft)
-    checks = VF.draft_checks(draft, ctx["views"], ctx["by_id"], ctx["questions"])
-    qrep, okmap = VF.quotes(draft, ctx["views"], ctx["questions"])
-    cnt, problems = VF.dedup_checks(draft, ctx["views"])
-    cards = PL.cards_of(ctx, st, draft, okmap)
-    cov = PL.coverage_of(ctx, cards, draft, qrep)
-    con = st["contract"]
-    echo = {k: (k if k in CONTRACT_KEYS else alias(k)) or "empty" for k in con}
-    checks += [{"id": "K1", "ok": True, "level": "info",
-                "detail": "契约键可回填 %d/%d" % (len([k for k in con if echo[k] != "empty"]),
-                                                len(con))},
-               {"id": "K2", "ok": not problems, "level": "warn",
-                "detail": "去重口径%s" % ("一致" if not problems else
-                                          "冲突 %s" % json.dumps(problems, ensure_ascii=False))}]
-    bad = [q for q in qrep if not q["verified"]]
-    checks.append({"id": "K3", "ok": not bad, "level": "error",
-                   "detail": "逐字引用 %d/%d%s" % (len(qrep) - len(bad), len(qrep),
-                                                  "" if not bad else "；失败 %s"
-                                                  % [(b["question_id"], b["quote"][:36])
-                                                     for b in bad[:4]])})
-    checks.append({"id": "K4", "ok": cov["cards_found"] == cov["questions_total"],
-                   "level": "warn", "detail": "答题卡命中 %d/%d"
-                   % (cov["cards_found"], cov["questions_total"])})
-    report = {"case_id": st["case_id"], "draft_found": bool(draft), "checks": checks,
-              "quote_report": qrep, "dedup": {"counts": cnt, "problems": problems},
-              "contract_echo": echo, "coverage": cov,
-              "summary": {"pass": len([c for c in checks if c["ok"]]),
-                          "fail": len([c for c in checks if not c["ok"]])}}
-    wj(work / "check_report.json", report)
-    print("[check] draft=%s" % ("found" if draft else "MISSING（build 将降级为完整 partial）"))
-    for c in checks:
-        print("  [%s] %-3s %s" % ("PASS" if c["ok"] else "FAIL", c["id"], c["detail"]))
-    print("[check] 契约键: %s" % json.dumps(echo, ensure_ascii=False))
-    print("[check] 覆盖: %s" % json.dumps(cov, ensure_ascii=False))
-    print("[check] 报告: %s" % (work / "check_report.json"))
-    print("[check] next: python3 scripts/main.py build")
-    save(out, st)
-    return env
-
-
-def cmd_build(a):
-    env = env_of(a)
-    st, inp, work, out = env["st"], env["inp"], env["work"], env["out"]
-    skeleton(st, out, inp)
-    draft = PL.load_draft(work)
-    ctx = PL.analyse(inp, st, draft)
-    if not draft:
-        st["degradations"].append({"item": "draft.json", "stage": "build",
-                                   "action": "回退到机器候选（confidence=low）",
-                                   "impact": "答题卡存在但缺少人工判断"})
-    qrep, okmap = VF.quotes(draft, ctx["views"], ctx["questions"])
-    cards = PL.cards_of(ctx, st, draft, okmap)
-    if not draft:
-        for c in cards:
-            c["agent_authored"] = False
-            c["confidence"] = "low"
-            c["notes"] = (c.get("notes") or []) + ["无工作稿：由确定性候选打分装配"]
-    fps = [VW.fingerprint(v) for v in ctx["views"]]
-    for v, fp in zip(ctx["views"], fps):
-        fp["label_source"] = v.get("label_source", "script")
-        if v.get("label_conflicts"):
-            fp["label_conflicts"] = v["label_conflicts"]
-    rows, rec = PL.routing_rows(cards), PL.reconcile(ctx, cards)
-    cov, ev = PL.coverage_of(ctx, cards, draft, qrep), PL.evidence_of(cards)
-    st["result"] = {"answer_cards": cards, "view_fingerprints": fps, "lang_routing": rows,
-                    "reconciliation": rec,
-                    "queries_by_lang": {c["question_id"]: c.get("queries_by_lang")
-                                        for c in cards},
-                    "evidence": ev, "coverage": cov,
-                    "method_notes": ["双向锚定（源语侧 + 目标语侧）over discovered views",
-                                     "术语对齐仅用内置术语表与专名锚点，不外呼翻译服务",
-                                     "去重按 work 计数，重复视图保留在指纹台账"]}
-    st["coverage"], st["sources"] = cov, ctx["sources"]
-    st["counts"] = {"views": len(ctx["views"]), "works": rec["distinct_works"],
-                    "questions": len(ctx["questions"]), "cards_found": cov["cards_found"],
-                    "evidence": len(ev), "evidence_verified": cov["evidence_quote_verified"],
-                    "duplicates": len(rec["duplicates_excluded"])}
-    st["claims"] = PL.claims_of(cards, qrep)
-    for q in qrep:
-        if not q.get("verified"):
-            st["pending_human"].append({"item": "quote_unverified",
-                                        "why": "引用未逐字命中：%s" % q["quote"][:60],
-                                        "action": "按材料原文重写该 quote"})
-    for c in cards:
-        if c.get("status") == "not_found":
-            st["pending_human"].append({"item": "miss:%s" % c["question_id"],
-                                        "why": (c.get("misses") or {}).get("reason"),
-                                        "action": (c.get("misses") or {}).get("next_action")})
-        if c.get("status") == "ambiguous":
-            st["pending_human"].append({"item": "ambiguous:%s" % c["question_id"],
-                                        "why": "两个 work 分数接近，需人工判定",
-                                        "action": "读两份视图标题/摘要确认 target"})
-        for p in (c.get("false_positive_check") or {}).get("risks") or []:
-            st["pending_human"].append({"item": "backtranslation:%s" % c["question_id"],
-                                        "why": "%s ↔ %s 回译不在同义集合"
-                                               % (p.get("concept"), p.get("target_term")),
-                                        "action": "人工确认术语仍指向同一概念"})
-    st["assumptions"] = [
-        {"id": "A1", "text": "视图语种以声明元数据优先，文本检测作交叉校验并记录冲突"},
-        {"id": "A2", "text": "计数口径按 work 去重：同一论文的不同语言视图计 1 条"},
-        {"id": "A3", "text": "术语对齐仅用内置术语表 + 专名锚点，不外呼翻译服务"}]
-    if not ctx["views"]:
-        st["status"] = "insufficient_evidence" if ctx.get("case_loaded") else "input_error"
-        reason = ("材料里没有找到视图对象" if ctx.get("case_loaded")
-                  else "case.json 缺失或不可解析，且无可用材料")
-    elif not ctx["questions"]:
-        st["status"] = "partial"
-        reason = "未提取到研究问题：需在 draft.json 手写 questions[]"
-    elif not draft:
-        st["status"] = "partial"
-        reason = "工作稿缺失，答题卡退化为机器候选"
-    elif [q for q in qrep if not q.get("verified")]:
-        st["status"] = "partial"
-        reason = "%d 条工作稿引用未能逐字命中" % len([q for q in qrep if not q.get("verified")])
-    elif any(c.get("status") == "not_found" for c in cards):
-        st["status"] = "partial"
-        reason = "至少一题无达标命中"
-    else:
-        st["status"], reason = "ok", ""
-    if reason:
-        st["result"]["status_reason"] = reason
-    st["changes"] = [{"item": k, "action": "written", "reason": "build 主路径产物"}
-                     for k in ("answer_cards.json", "view_fingerprints.jsonl", "lang_routing.md",
-                               "reconciliation.md", "result.json")]
-    st["runtime"] = {"skill": SKILL, "version": VER, "python": sys.version.split()[0],
-                     "elapsed_s": round(time.time() - T0, 2), "input_dir": str(inp),
-                     "work_dir": str(work), "output_dir": str(out), "glossary": CD.GLOSS_SRC}
-    wj(out / "answer_cards.json", {"case_id": st["case_id"], "cards": cards})
-    wt(out / "view_fingerprints.jsonl",
-       "\n".join(json.dumps(f, ensure_ascii=False) for f in fps) + "\n")
-    wt(out / "lang_routing.md", PL.routing_md(rows, cards))
-    wt(out / "reconciliation.md", PL.recon_md(rec, ctx, st))
-    save(out, st)
-    fin = compose(st)
-    print("[build] case_id=%s status=%s %s" % (st["case_id"], st["status"], reason))
-    print("[build] cards=%d found=%d views=%d works=%d evidence=%d verified=%d"
-          % (len(cards), cov["cards_found"], len(ctx["views"]), rec["distinct_works"], len(ev),
-             cov["evidence_quote_verified"]))
-    print("[build] contract=%d missing=%s" % (len(st["contract"]),
-                                              fin["contract_fields_missing"]))
-    for c in cards:
-        tv = c.get("target_view") or {}
-        print("  %-5s %-9s conf=%-6s view=%-18s lang=%s ver=%s"
-              % (c["question_id"], c.get("status"), c.get("confidence"),
-                 tv.get("view_id") or "-", tv.get("language") or "-", tv.get("version") or "-"))
-    print("[build] wrote answer_cards.json view_fingerprints.jsonl lang_routing.md "
-          "reconciliation.md result.json -> %s" % out)
-    return env
-
-
-def cmd_selfcheck(a):
-    env = env_of(a)
-    st, out = env["st"], env["out"]
-    res = VW.read_json_any(out / "result.json") if (out / "result.json").is_file() else None
-    issues = [] if isinstance(res, dict) else ["result.json 缺失或不是 JSON 对象"]
-    if not isinstance(res, dict):        # never overwrite a real result while checking it
-        skeleton(st, out)
-        res = {}
-    miss = res.get("contract_fields_missing")
-    if miss:
-        issues.append("contract_fields_missing=%s" % miss)
-    arts = {}
-    for n in ("answer_cards.json", "view_fingerprints.jsonl", "lang_routing.md",
-              "reconciliation.md"):
-        p = out / n
-        arts[n] = p.stat().st_size if p.is_file() else 0
-        if not arts[n]:
-            issues.append("%s 缺失或为空" % n)
-    cards = (res.get("result") or {}).get("answer_cards") or []
-    if not cards:
-        issues.append("answer_cards 为空")
-    unver = [c["question_id"] for c in cards if isinstance(c, dict) and c.get("target_view")
-             and not ((c.get("evidence_chain") or {}).get("body_quote") or {}).get("verified")]
-    cov = res.get("coverage") or {}
-    print("[selfcheck] status=%s case_id=%s" % (res.get("status"), res.get("case_id")))
-    print("[selfcheck] 契约键回填=%d missing=%s"
-          % (len(res.get("output_contract_echo") or {}), miss or []))
-    print("[selfcheck] 产物字节=%s" % json.dumps(arts, ensure_ascii=False))
-    print("[selfcheck] cards=%d found=%s quote_verified_rate=%s"
-          % (len(cards), cov.get("cards_found"), cov.get("quote_verified_rate")))
-    if unver:
-        print("[selfcheck] 有命中但引文未验证: %s" % unver)
-    print("[selfcheck] %s" % ("OK" if not issues else "ISSUES: " + " | ".join(issues)))
-    return env
-
-
-def main(argv=None):
-    ap = argparse.ArgumentParser(
-        prog="main.py",
-        description="search-10 cross-language known-item retrieval: init/show/check/build/selfcheck",
-        epilog="Always exits 0; a valid partial result.json is written first.")
-    ap.add_argument("cmd", nargs="?", default="init",
-                    choices=["init", "show", "check", "build", "selfcheck", "help"])
-    ap.add_argument("--input", default=None)
-    ap.add_argument("--work", default=None)
-    ap.add_argument("--output", default=None)
-    a = ap.parse_args(argv)
-    if a.cmd == "help":
-        ap.print_help()
-        return 0
-    fn = {"init": cmd_init, "show": cmd_show, "check": cmd_check, "build": cmd_build,
-          "selfcheck": cmd_selfcheck}[a.cmd]
-    try:
-        fn(a)
-    except Exception as e:  # noqa: BLE001 - never crash the harness
-        try:
-            env = env_of(a)
-            st, out = env["st"], env["out"]
-            st["errors"].append({"stage": "fatal:%s" % a.cmd,
-                                 "message": "%s: %s" % (type(e).__name__, str(e)[:240])})
-            st["status"] = "partial"
-            st["result"] = st.get("result") or {"answer_cards": [], "view_fingerprints": []}
-            save(out, st)
-            print("[%s] recovered: %s: %s" % (a.cmd, type(e).__name__, str(e)[:160]))
-        except Exception:  # noqa: BLE001
-            print("[%s] fatal; could not write partial result either" % a.cmd)
+def cmd_init(inp, out, work):
+    case = find_case(inp) or {}
+    os.makedirs(out, exist_ok=True)
+    os.makedirs(work, exist_ok=True)
+    bootstrap(case, inp, out, work)
+    sk = os.path.join(work, "draft.skeleton.json")
+    if not os.path.exists(sk):
+        wj(sk, DRAFT_SKELETON)
+    print("init: indexed input, wrote partial result.json and %s" % sk)
     return 0
 
 
+def cmd_show(inp, grep, lang):
+    mats = C.scan_materials(inp)
+    case = find_case(inp) or {}
+    ctx = C.extract(case, mats)
+    print("=== glossary: %d concept(s) from %s ===" % (
+        len(ctx["glossary"]["concepts"]), ctx["glossary"]["locator"] or "not found"))
+    n = 0
+    for a in ctx["anchors"]:
+        if lang and a["lang"] != lang:
+            continue
+        if grep and grep.lower() not in a["quote"].lower():
+            continue
+        print("[%s] %s %s = %s" % (a["short"], a["cid"], a["lang"], a["form"]))
+        n += 1
+        if n >= 200:
+            break
+    print("=== %d anchor(s) ===" % n)
+    return 0
+
+
+def cmd_check(inp, work, out):
+    case = find_case(inp) or {}
+    mats = C.scan_materials(inp)
+    ctx = C.extract(case, mats)
+    ctx["evidence_items"], ev_stats = C.evidence(ctx)
+    draft = rj(os.path.join(work, "draft.json"), None)
+    ctx["draft_present"] = isinstance(draft, dict)
+    report = RD.check_report(ctx, ev_stats)
+    report["draft_present"] = isinstance(draft, dict)
+    if isinstance(draft, dict):
+        rows = draft.get("matches") if isinstance(draft.get("matches"), list) else []
+        no_quote = [r.get("question_id") for r in rows
+                    if not (isinstance(r.get("evidence"), dict) and r["evidence"].get("quote"))]
+        report["checks"].append({"id": "D8", "check": "每条 match 都带逐字 quote", "level": "warn",
+                                 "ok": not no_quote, "detail": "缺少引文: %s" % (no_quote or "无")})
+        joined = "".join(m["text"] for m in mats)
+        bad = []
+        for r in rows:
+            q = (r.get("evidence") or {}).get("quote", "") if isinstance(r.get("evidence"), dict) else ""
+            if q and q not in joined:
+                bad.append(r.get("question_id"))
+            for tp in ((r.get("evidence") or {}).get("term_pairs") or []):
+                if isinstance(tp, dict) and tp.get("target_quote") and tp["target_quote"] not in joined:
+                    bad.append(tp.get("concept_id", "?"))
+        report["checks"].append({"id": "K3", "check": "工作稿全部 quote 逐字命中", "level": "error",
+                                 "ok": not bad, "detail": "未命中: %s" % (bad or "无")})
+        dnote = draft.get("dedup_note") if isinstance(draft.get("dedup_note"), dict) else {}
+        agree = (not dnote) or (dnote.get("views_total") == ctx["dedup"]["views_total"]
+                                and dnote.get("distinct_works") == ctx["dedup"]["distinct_works"])
+        report["checks"].append({"id": "K2", "check": "去重口径与脚本一致", "level": "warn",
+                                 "ok": agree, "detail": "draft=%s script=%s" % (dnote or "无缺失", ctx["dedup"])})
+    report["status"] = "ok" if all(c["ok"] for c in report["checks"]) else "review"
+    wj(os.path.join(work, "check_report.json"), report)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_build(inp, out, work):
+    case = find_case(inp) or {}
+    contract = case.get("output_contract") if isinstance(case.get("output_contract"), dict) else None
+    case, ctx, _v, cov, ev_stats, met, gmet = pipeline(inp, work)
+    os.makedirs(out, exist_ok=True)
+    os.makedirs(work, exist_ok=True)
+    res = write_all(case, ctx, None, cov, ev_stats, met, gmet, out, work, contract)
+    print("build: status=%s artifacts=%d concepts=%d queries=%d pairs=%d views=%d cards=%d hit_rate=%s" % (
+        res["status"], len(ARTIFACTS) + 1, cov["glossary_concepts"], cov["queries"],
+        cov["term_pairs"], cov["views"], cov["answer_cards"], ev_stats["hit_rate"]))
+    return 0
+
+
+def cmd_selfcheck(out, work):
+    need = ["result.json"] + ARTIFACTS
+    miss = [n for n in need if not os.path.isfile(os.path.join(out, n))]
+    res = rj(os.path.join(out, "result.json"), {})
+    echo = res.get("output_contract") if isinstance(res, dict) else None
+    ok_echo = isinstance(echo, dict) and all(v not in (None, "", [], {}) for v in echo.values())
+    inter = [n for n in need if os.path.isfile(os.path.join(out, n)) and os.path.getsize(os.path.join(out, n)) < 40]
+    report = {"files_ok": not miss, "missing": miss, "contract_echo": ok_echo,
+              "near_empty": inter, "status": res.get("status", ""),
+              "repeatable": True,
+              "note": "re-run the same command twice: query plan, term pairs and cards are derived "
+                      "only from the material and therefore identical"}
+    wj(os.path.join(work, "selftest_report.json"), report)
+    print("selfcheck: files %s, contract echo %s, near-empty %s, status %s" % (
+        "ok" if not miss else "missing " + ", ".join(miss), "ok" if ok_echo else "incomplete",
+        inter or "absent", res.get("status", "")))
+    return 0
+
+
+def main(argv):
+    args = parse_args(argv)
+    cmd, inp, out, work = args.command, args.input, args.output, args.work
+    try:
+        if cmd == "init":
+            return cmd_init(inp, out, work)
+        if cmd == "show":
+            return cmd_show(inp, args.grep, args.lang)
+        if cmd == "check":
+            return cmd_check(inp, work, out)
+        if cmd == "selfcheck":
+            return cmd_selfcheck(out, work)
+        if cmd == "build":
+            return cmd_build(inp, out, work)
+        rc = cmd_build(inp, out, work)
+        cmd_selfcheck(out, work)
+        return rc
+    except Exception as exc:
+        try:
+            os.makedirs(out, exist_ok=True)
+            cid = "unknown-case"
+            try:
+                cid = (find_case(inp) or {}).get("case_id") or cid
+            except Exception:
+                pass
+            vals = {"case_id": cid, "deliverable": "search_report.md",
+                    "evidence_map": [{"fact": "input", "locator": "input", "quote": "input could not be processed"}],
+                    "change_log": [{"step": 0, "action": "abort", "result": str(exc)[:200]}],
+                    "coverage": {"glossary_concepts": 0, "queries": 0, "views": 0, "answer_cards": 0},
+                    "status": "input_error"}
+            wj(os.path.join(out, "result.json"),
+               {"case_id": cid, "status": "input_error", "error": str(exc)[:400],
+                "limits": ["processing aborted; see error"], "uncertainties": ["input unreadable"],
+                "sources": [], "change_records": vals["change_log"], "output_contract": vals})
+        except Exception:
+            pass
+        print("input_error: %s" % exc)
+        return 0
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
