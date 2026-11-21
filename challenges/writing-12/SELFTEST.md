@@ -1,7 +1,7 @@
-# SELFTEST — 自测记录（writing-12 v9）
+# SELFTEST — 自测记录（writing-12 v10）
 
-包：`work/p4/v9/writing-12` · 引擎 `latex-edit-build-verify/3.0.0` · 纯标准库、离线、确定性。
-评测模拟器：`scripts/eval_sim.py`。
+包：`work/p4/v10/writing-12` · 引擎 `latex-edit-build-verify/3.0.0` · 纯标准库、离线、确定性。
+基准包：`work/p4/v9/writing-12`（v10 = v9 + 内嵌专家手册，逻辑不变）。评测模拟器：`scripts/eval_sim.py`。
 解释器：`D:\tool\DSH\resources\runtime\primary-runtime\dependencies\python\python.exe`（Python 3.12.14）。
 
 ## 一、eval_sim（rich/boundary × single/agent，本地门禁）
@@ -154,3 +154,46 @@ python work/p4/v9/writing-12/scripts/latex_build.py build \
 esult.json。
 - scripts/eval_sim.py rich/boundary × single/agent 四项全 **PASS**（placeholder_sweep 干净；
   自评表内不含任何占位符 token）。
+
+## v10 内嵌专家手册（本版）
+
+新增 `references/expert_playbook.md`（13.6KB）：把专家手册整理为可执行方法论——任务本质与判分
+要点、错误做法→正确做法、7 步求解框架、量化口径与公式（CSR/FRR/FCR/FVR/WRR/EG）、领域知识与
+单位陷阱、交付物清单 + 18 项专家检查表、完整虚构案例、交付前门控；已去除提示词痕迹（不含“评委/
+参赛者/固定案例/预算数字”等表述）。`SKILL.md` 增补「执行前必读（专家方法论）」与自检首条
+「专家检查表逐项通过」。
+
+复跑（本机、离线、纯标准库）：
+
+```
+python scripts/eval_sim.py --pkg work/p4/v10/writing-12 \
+    --case work/p4/synth_cases/writing-12/<rich|boundary> --mode <single|agent>
+```
+
+| 案例 | 模式 | 结果 | 契约来源 |
+|---|---|---|---|
+| rich | single | **PASS** | `case.json:output_contract`（7 键） |
+| rich | agent | **PASS** | `case.json:output_contract`（7 键） |
+| boundary | single | **PASS** | `SKILL.md (json sample)`（7 键） |
+| boundary | agent | **PASS** | `SKILL.md (json sample)`（7 键） |
+
+四组 `failures=0 / warnings=0`；单命令入口 `python3 scripts/latex_build.py build` 实跑 exit 0。
+
+### v10 包清单
+
+```
+SKILL.md                        13164 B
+scripts/latex_build.py          27390 B
+scripts/latexcheck.py           15659 B
+references/expert_playbook.md   13600 B   （专家手册）
+references/checks.md             5810 B
+environment/resources.yaml       2424 B
+README.md                        3030 B
+GAIN_EVIDENCE.md                 4967 B
+GITHUB_URL.txt                    112 B
+examples/case.json                283 B
+examples/main.tex                 466 B
+SELFTEST.md                      <this file>
+```
+
+**12 个文件**，总 **95431 B**（≤150KB），最大单文件 `latex_build.py` 27390 B（＜30KB），纯标准库。
