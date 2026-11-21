@@ -1,6 +1,6 @@
 ---
 name: field-contract-cleaner
-description: 契约驱动的科研汇总表清洗：先由 Agent 读数据字典、每指标单位/QC 规则和清洗工单，为每个字段写「字段契约」，脚本再按契约执行可逆变换、逐单元格记账、生成清洗表 + 变换账本 + 字段级质量报告 + 三方对账，并把报告数字回算校验到清洗表。用于仪器/文献汇总表的缺失值与异常值标记、重复记录识别、单位与编码修复、数据质量报告，要求结果可逐字段复核且不复跑即失效的场景。单命令入口 `all` 一次产出全部交付物并把 output_contract 的每个键回填进 result.json。Use when a case ships a data dictionary, per-metric unit/QC rules and a cleaning workorder and asks for a cleaned table plus a reproducible, auditable quality report.
+description: 契约驱动的科研汇总表清洗：先由 Agent 读数据字典、每指标单位/QC 规则和清洗工单，为每个字段写「字段契约」，脚本再按契约执行可逆变换、逐格记账、生成清洗表 + 账本 + 字段级质量报告 + 三方对账，并把报告数字回算到清洗表。用于汇总表的缺失/异常标记、重复识别、单位与编码修复、质量报告，要求可逐字段复核。单命令入口 `all` 一次产出全部交付物并把 output_contract 的每个键回填进 result.json。Use when a case ships a data dictionary, per-metric unit/QC rules and a cleaning workorder and asks for a cleaned table plus a reproducible, auditable quality report.
 version: 1.1.0
 ---
 
@@ -23,7 +23,7 @@ version: 1.1.0
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
 
-`all` 依次做 `init`（建索引 + 先写合法 partial `result.json`）与 `build`（执行契约 → 清洗表 / 账本 / 报告 / 对账 / `result.json`），恒 exit 0；工作稿缺失时自动走 §8 兜底链，产出「完整但降级」，绝不产出空目录。等价的单命令别名是 `build`（同一实现，只是不重写 `work/index.json`）。
+`all` 依次做 `init`（建索引 + 先写合法 partial `result.json`）与 `build`（执行契约 → 清洗表 / 账本 / 报告 / 对账 / `result.json`），恒 exit 0；工作稿缺失时自动走 §8 兜底链，产出「完整但降级」，绝不产出空目录。等价别名是 `build`（同一实现，不重写 `work/index.json`）。
 
 ## 1. 用途与适用条件
 
@@ -33,7 +33,7 @@ python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/ou
 
 **不适用**：统计建模与假设检验、总体推断、均值/中位数填补、图表美化与出版排版、数据库运维、实验方案设计、论文写作。**禁止**用本 Skill 的输出去补全或替换原始实验数据。
 
-**三条红线**（违反即降级并记 `degradations`）：① **不填补**——缺失/未检出/低于检出限/无效文本只标记不改值，`impute`/`fill_mean`/`fill_median`/`dropna` 一律被 `check` 拒绝；② **不推断总体**——只给可数描述量（行数、缺失条数、缺失率、越界条数、重复组数），不给置信区间与显著性；③ **不覆盖原始文件**——材料只读，`init` 记 sha256，`build` 结束复算，不一致记 `source_mutated`。
+**三条红线**（违反即降级并记 `degradations`）：① **不填补**——缺失/未检出/低于检出限/无效文本只标记不改值，`impute`/`fill_*`/`dropna` 被 `check` 拒绝；② **不推断总体**——只给可数描述量（行数、缺失条数/率、越界条数、重复组数），不给置信区间与显著性；③ **不覆盖原始文件**——材料只读，`init` 记 sha256，`build` 复算，不一致记 `source_mutated`。
 
 ## 2. 运行契约
 
@@ -71,11 +71,11 @@ python3 scripts/main.py selfcheck  # 复检：契约键回填、产物齐全、�
 
 ## 5. 数据模型：契约 / 账本 / 三方对账
 
-**字段契约**是唯一事实源：每字段一条，声明语义、类型、目标单位、有效范围、缺失码、无效规则、动作和依据 locator；清洗只能做契约里写的事。
+**字段契约**是唯一事实源：每字段一条，声明语义、类型、目标单位、有效范围、缺失码、无效规则、动作与依据 locator；清洗只做契约里写的事。
 
 **变换账本**是唯一执行记录：**聚合行**（表×字段×动作，含 `rows_affected`、样例、可逆性、`mapping_ref`）与**单元格行**（只对真的改了值的动作逐格记 `input`/`output`/`row`/`locator`，保证 `input` 可由 `output` 反算）。
 
-**三方对账**：`raw_rows = kept_rows + marked_rows + quarantined_rows` 每表成立，否则 `status=partial` + `degradations`。**不允许静默丢行**——重复记录不删除，改 `__row_status=quarantined` + `duplicate_of:<record_id>` 保留。
+**三方对账**：`raw_rows = kept_rows + marked_rows + quarantined_rows` 每表成立，否则 `status=partial` + `degradations`。**不允许静默丢行**——重复记录不删，改 `__row_status=quarantined` + `duplicate_of:<record_id>` 保留。
 
 清洗表在原始列后追加四列（不改列名、不改列序）：`record_id`、`__src_row`、`__row_status`、`__flags`。`__flags` 形如 `glucose:MISSING_CODE(-999);auc:UNIT_CONVERTED(mg/L->ug/mL)`，可被下游按格解析，也是报告数字的独立来源。
 
@@ -133,7 +133,7 @@ python3 scripts/main.py selfcheck  # 复检：契约键回填、产物齐全、�
 
 ## 8. build 的兜底（必须成立）
 
-工作稿缺失、坏 JSON、只写一半、或字段名对不上真实列时，`build` **不报错退出**，而是：① 用字典（无字典则表头 + 值分布画像）合成**保守契约**，全字段 `planned_action=keep`，只做无争议的标记与编码修复，字典/工单未声明单位映射时**不换算**；② 照样写出全部产物（含 `cleaned_table.csv`、`transform_ledger.jsonl`、`data_quality_report.md`、`field_contract.json`、`reconciliation.json`、`field_issues.csv`、`result.json`）；③ `status=partial`，`degradations` 逐条写清缺口，`pending_human` 列出待确认字段。字典里声明了但表头没有的字段，契约从字典条目单独投影（`source=synthesized:dictionary_only`），不会被丢弃。
+工作稿缺失、坏 JSON、只写一半、或字段名对不上真实列时，`build` **不报错退出**，而是：① 用字典（无字典则表头 + 值分布画像）合成**保守契约**，全字段 `planned_action=keep`，只做无争议的标记与编码修复，字典/工单未声明单位映射时**不换算**；② 照样写出全部产物（`cleaned_table.csv`、`transform_ledger.jsonl`、`data_quality_report.md`、`field_contract.json`、`reconciliation.json`、`field_issues.csv`、`result.json`）；③ `status=partial`，`degradations` 写清缺口，`pending_human` 列出待确认字段。字典声明了但表头没有的字段，契约从字典条目投影（`source=synthesized:dictionary_only`），不被丢弃。
 
 ## 9. 输出产物与 result.json 回填规则
 
@@ -147,17 +147,17 @@ python3 scripts/main.py selfcheck  # 复检：契约键回填、产物齐全、�
 | `field_contract.json` | 实际生效的契约（含来源标注 `source: draft|synthesized|synthesized:dictionary_only`） |
 | `reconciliation.json` | 每表行数守恒、账本影响数 vs 清洗表计数、报告数字 vs 回算数字 |
 | `field_issues.csv` | 字段级问题清单（字段/问题码/条数/占比/动作/依据 locator） |
-| `result.json` | `output_contract` 全键回填 + 信封（`case_id/skill/status/stage/deliverable/sources/reconciliation/evidence_map/counts/row_accounting/uncertainty/pending_human/errors/degradations/change_log/verification/runtime`） |
+| `result.json` | `output_contract` 全键回填 + 信封（`case_id/skill/status/stage/deliverable/sources/counts/row_accounting/verification/runtime` 等） |
 
-**回填规则**：`output_contract` 的**每个键都必须存在**且键名不改；能对应上真实列的键填该列的逐字段投影块（`{"source","column","count","rows":[...]}`），能对应信封的键填真值，跑不了的键填 `{"computed": false, "reason", "requirement", "input"}`，没有专用槽位的键（如 `none`）填「本案例无专用槽位」的说明块。**绝不写空壳、绝不写裸 `null`、绝不删键**；交付文本里也不出现任何占位符 token（合法值若形似占位符，序列化时用 JSON 转义，解码后原值不变）。
+**回填规则**：`output_contract` 的**每个键都必须存在**且键名不改；能对应上真实列的键填该列的逐字段投影块（`{"source","column","count","rows":[...]}`），能对应信封的键填真值，跑不了的键填 `{"computed": false, "reason", "requirement", "input"}`，没有专用槽位的键（如 `none`）填「本案例无专用槽位」说明块。**绝不写空壳、绝不写裸 `null`、绝不删键**；交付文本也不出现占位符 token（合法值若形似占位符，序列化时转义，解码后原值不变）。
 
 ## 10. 质量规则（对应评分点）
 
 1. **答得全**：五类处理（缺失/异常/重复/格式与单位/质量报告）各在产物里有可数落点；`field_issues.csv` 一行一字段一问题码。
 2. **改得准**：每个动作都带 `basis` 或 `workorder_ref`（locator 形式）；单位换算用注册表 + 显式 factor；不填补、不推断总体。
-3. **数得住**：报告里每个数字都能由 `__flags` 回算（`report_matches_table`）；账本 `input` 可由 `output` 反算（`ledger_invertible`）；原始 sha256 前后一致（`source_unchanged`）。
+3. **数得住**：报告数字能由 `__flags` 回算（`report_matches_table`）；账本 `input` 可由 `output` 反算（`ledger_invertible`）；原始 sha256 前后一致（`source_unchanged`）。
 4. **跑得动**：坏 JSON、空表、无字典、无工单、`-`/`—` 分隔符、GB18030、XLSX 全走同一路径，恒 exit 0。
-5. **带得走**：`references/rules.json` 可改词表与单位表而不动脚本；本文档给工作稿 schema、字段契约字典、问题码表、locator 规范、模板与复用/维护指引。
+5. **带得走**：`references/rules.json` 可改词表与单位表而不动脚本；本文档给工作稿 schema、字段契约字典、问题码表、locator 规范与模板。
 
 ## 11. 失败处理与降级矩阵
 
@@ -178,7 +178,7 @@ python3 scripts/main.py selfcheck  # 复检：契约键回填、产物齐全、�
 
 ## 12. 自查
 
-`python3 scripts/main.py selfcheck` 检查项：契约键回填、产物齐全、契约字段覆盖、动作合法性、无填补、单位映射有逆、行数守恒、账本可逆、报告数字可回算、原始 hash 未变、清洗表 sha 与记录一致。任一 `ok:false` 都要回到 `draft.json` 修，或如实保留 `partial`——**不允许为了让检查变绿而改材料或改报告数字**。
+`python3 scripts/main.py selfcheck` 检查项：契约键回填、产物齐全、契约字段覆盖、动作合法性、无填补、单位映射有逆、行数守恒、账本可逆、报告数字可回算、原始 hash 未变、清洗表 sha 一致。任一 `ok:false` 都要回到 `draft.json` 修，或如实保留 `partial`——**不允许为了让检查变绿而改材料或改报告数字**。
 
 ## 13. 调用示例（示例，非正式案例结果）
 
@@ -192,7 +192,6 @@ python3 scripts/main.py selfcheck --input ./demo --output ./out --work ./work
 ```
 
 示意输出（**示例，自造夹具 `examples/sample_data.csv`，非正式案例结果**）：`counts = {rows_raw: 12, rows_kept: 8, rows_marked: 2, rows_quarantined: 2, fields: 5, issues: 9}`，`reconciliation.ok = true`，`status = partial`。此数字只演示接口，不是任何隐藏案例的答案。
-
 ## 14. 评估与对照设计（evaluation / comparison design）
 
 本包用「同输入、同入口」的对照来证明增益，结论写进 GAIN_EVIDENCE.md：
@@ -240,27 +239,27 @@ SELFTEST.md 记录 7 个边界用例的可复现结论（每个都要求 exit 0�
 |---|---|---|---|---|---|
 | glucose | 空腹血糖 | numeric | mg/L | 0..50 | `-999`, `NA` |
 
-**质量报告模板**（`data_quality_report.md` 的固定骨架）：① 输入与编码表（文件/类型/编码/行×列/sha256）→ ② 字段契约表（契约 id/字段/类型/单位/范围/动作/依据）→ ③ 变换账本摘要（动作/字段/问题码/影响行数/改值/可逆）→ ④ 三方对账（raw = kept + marked + quarantined，逐表 OK/FAIL）→ ⑤ 逐字段问题清单（数字由 `__flags` 回算）→ ⑥ 未处置/待人工确认 → ⑦ 可逆性与复现（换算反算示例、复现命令、清洗表 sha）→ ⑧ 边界与不确定性。
+**质量报告模板**（`data_quality_report.md` 的固定骨架）：① 输入与编码表（文件/类型/编码/行×列/sha256）→ ② 字段契约表（id/字段/类型/单位/范围/动作/依据）→ ③ 账本摘要（动作/字段/问题码/影响行数/改值/可逆）→ ④ 三方对账（raw = kept + marked + quarantined，逐表 OK/FAIL）→ ⑤ 逐字段问题清单（数字由 `__flags` 回算）→ ⑥ 未处置/待人工确认 → ⑦ 可逆性与复现（反算示例、复现命令、清洗表 sha）→ ⑧ 边界与不确定性。
 
 ## 18. 文件清单
 
 ```
-SKILL.md                 本文档（单命令入口/契约声明/规则/降级/评估/增量/边界/模板）
-README.md                30 秒上手、入口命令、产物清单、与基线的差别
-SELFTEST.md              自查清单 + §16 七个边界用例的可复现结论
-GAIN_EVIDENCE.md         §14/§15 的对照证据（逐项可由交付文件核验）
+SKILL.md                 本文档（入口/契约/规则/降级/评估/边界/模板）
+README.md                30 秒上手、入口、产物、基线差别
+SELFTEST.md              自查清单 + §16 七个边界用例结论
+GAIN_EVIDENCE.md         §14/§15 对照证据（可由交付文件核验）
 GITHUB_URL.txt           作品集地址（两行）
-environment/resources.yaml  运行环境声明（解释器版本、标准库、无网络、seed、超时预算）
-examples/sample_data.csv 最小夹具（演示 flags/账本/对账的可用输入）
-references/rules.json    可编辑词表：缺失/无效/LOD 码、编码顺序、mojibake 标记、单位注册表、动作枚举、红线、不变式
-scripts/main.py          CLI 与编排（all/init/show/check/build/selfcheck），兜底 finalize，恒 exit 0
-scripts/cleanlib.py      材料层：编码判定与 mojibake 修复、读表(csv/tsv/txt/xlsx)、发现、字典/工单/QC 解析、单元格语义、契约回填的 JSON 写入
+environment/resources.yaml  运行环境声明（解释器、标准库、无网络、seed、预算）
+examples/sample_data.csv 最小夹具（演示 flags/账本/对账）
+references/rules.json    可编辑词表：缺失/无效/LOD 码、编码顺序、mojibake、单位注册表、动作枚举、红线、不变式
+scripts/main.py          CLI 与编排（all/init/show/check/build/selfcheck），兜底 finalize，exit 0
+scripts/cleanlib.py      材料层：编码判定与 mojibake 修复、读表(csv/tsv/txt/xlsx)、发现、字典/工单解析、单元格语义、JSON 写入
 scripts/cleanrun.py      执行层：字段画像、契约归一化与合成、逐格执行、账本聚合、行数守恒、报告数字回算
-scripts/report.py        呈现层：质量报告渲染、字段问题清单、契约回填信封、独立审计
+scripts/report.py        呈现层：报告渲染、问题清单、契约回填信封、独立审计
 ```
 
 ## 19. 边界与维护
 
-- 版本 `1.1.0`（`scripts/cleanlib.py` 的 `VERSION` 与之同源）；改词表/单位只动 `references/rules.json`，改 schema 只动契约层，不动内核逻辑。
-- 已知边界：不做统计检验与总体推断；XLSX 只读首个工作表 + 共享字符串 + 日期样式；日期按 ISO-8601 输出（不推断时区）；注册表未收录的单位不换算（只标 `UNIT_UNKNOWN`）；`-`/`—` 既可能是负号占位也可能是分隔符，仅在列内一致性判定可信时切分。
+- 版本 `1.1.0`（`scripts/cleanlib.py` 的 `VERSION` 同源）；改词表/单位只动 `references/rules.json`，改 schema 只动契约层。
+- 已知边界：不做统计检验与总体推断；XLSX 只读首个工作表 + 共享字符串 + 日期样式；日期按 ISO-8601 输出（不推断时区）；注册表未收录的单位只标 `UNIT_UNKNOWN`；`-`/`—` 既可能是负号占位也可能是分隔符，仅在列内一致性可信时切分。
 - 改脚本后必跑 `selfcheck` + 一次最小夹具回归，并确认两次运行清洗表 sha 相同。
