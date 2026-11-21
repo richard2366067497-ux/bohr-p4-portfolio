@@ -9,6 +9,14 @@ version: 2.0.0
 本包把"改稿"拆成两件事：**原稿不动**（逐字保留）、**注记可回源**（每条注记都能定位到原句）。
 脚本负责解析、定位、渲染、版本控制与契约回填；Agent 负责判断"这一段该补什么注记"。
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（专家方法论）
 
 **动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
@@ -61,10 +69,6 @@ version: 2.0.0
 规则化注记并在 `degradations` 记录，`build` 仍然 finalize 全部产物。
 
 ## 1. 单命令入口（single-command entry，一条命令跑完全流程；评测入口，无 draft 时执行）
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 这一条命令完成：发现 case/workorder/章节 → 解析段落锚点 → 生成源文注记（Agent 草稿存在则优先合并）
 → 生成修订稿（原文逐字 + 注记块）→ 抽取并核对保留事实 → 证据地图 → propose/accept、版本比对、
