@@ -44,7 +44,17 @@ version: 1.0.0
 每个键都必须回填为**诚实的非空值**（`report_path`→真实报告路径，`coverage`→覆盖表，`summary`/`severity_summary`→
 真实统计文本，`uncertainties`→不确定性说明），不留 `null`、不写类型串；详见 §2 输入契约与 §3 输出契约回填。
 
-## 0. 五命令主路径（先看这里）
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+`build` 即完整流程（解析 → 规则候选 → 兜底 finalize → 全部产物与 `result.json`）；缺工作稿时产出 `status=partial` 的规则兜底稿（全部 `pending_review`），仍写出全部产物，退出码恒为 0。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+```
+
+## 0. 五命令主路径（Agent 逐步）
 
 ```bash
 python3 scripts/main.py init        # 解析 case.json/task.md、材料索引与对象表，先写合法 partial result.json
