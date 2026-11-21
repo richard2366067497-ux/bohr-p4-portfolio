@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""cite_engine.py -- entry point for the reference-management Skill (writing-04, v7).
+"""cite_engine.py -- reference-management entry point (writing-04).
 
-Subcommands
------------
-  all       single-command pipeline (discover -> parse -> dedup -> match ->
-            render -> write every artifact + result.json).  This is the entry
-            the evaluator runs.
-  probe     read-only inventory of /input (what manuscripts / libraries exist).
-  check     re-open an existing /app/output and audit it (contract, numbering,
-            change traceability).  Never writes a deliverable.
-  build     like ``all`` but folds in an Agent-authored work/draft.json.
-  selftest  run an embedded synthetic corpus and assert the real algorithms fire.
-
-Honesty: no network, no clock, no fabrication.  An empty library still yields a
-valid result.json whose contract keys are honest structural envelopes, and the
-process always exits 0 (argparse usage errors are the only exit 2).
+  all       single-command pipeline; the evaluator runs this.
+  probe     read-only inventory of /input.
+  check     audit an existing /app/output (contract, numbering, traceability).
+  build     like all, folding in an Agent-authored work/draft.json.
+  selftest  embedded synthetic corpus; asserts the real algorithms fire.
+Offline, deterministic, no fabrication; always exits 0 (argparse errors -> 2).
 """
 from __future__ import annotations
 
@@ -31,7 +23,7 @@ import citelib as L
 import citerender as R
 
 SKILL = "citation-ledger-sync"
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 DEFAULT_KEYS = ["numbering_policy", "key_to_number", "references", "duplicates",
                 "unknown_keys", "sources", "uncertainty", "change_records"]
 SKIP_DIRS = {"out", "output", "app", "scripts", "skills", "work", "tmp", "__pycache__"}
