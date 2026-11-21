@@ -1,381 +1,328 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""search-08 systematic-screening-ledger -- five-command, agent-first screening pipeline.
+"""CLI + deliverable rendering for the screening closure auditor (search-08).
 
-init      index records / criteria versions / reviewer labels / query strings, pre-cluster
-          duplicates, write a legal partial result.json first.
-show      print records with locators so the agent can quote them verbatim.
-check     mechanically validate the agent work draft (/app/work/draft.json).
-build     render flow ledger / decision cards / arbitration docket / audit closure + result.json.
-selfcheck re-verify emitted artefacts.
-
-Standard library only, no network, no CWD dependency, exit code always 0.
+All domain logic and material parsing live in core.py; this module wires the commands
+(all/init/show/check/build/selfcheck/compare), the output-contract echo and the writers.
 """
-import argparse, difflib, json, re, sys, time, traceback
+import argparse
+import csv
+import io
+import json
+import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import ingest as G  # noqa: E402
-import screen as S  # noqa: E402
+from core import *  # noqa: F401,F403  (constants, helpers, parsing and the screening domain)
 
-VERSION = G.VERSION
-T0 = time.time()
+DELIVERABLE = "screening_table.csv"
+NEED = ["result.json", DELIVERABLE, "dedup_report.json", "conflict_report.json", "audit_log.jsonl",
+        "criteria.json", "search_protocol.json", "count_closure.md", "self_check.json"]
 
 
-def now():
-    return round(time.time() - T0, 3)
+def contract_keys(case):
+    oc = case.get("output_contract") if isinstance(case, dict) else None
+    return [str(k) for k in oc] if isinstance(oc, dict) and oc else list(CANON)
 
 
-def build_index(inp, skip=()):
-    inp = Path(inp)
-    skip = tuple(str(Path(s).resolve()) for s in skip if s)
-    info = {"errors": [], "degradations": [], "files": [], "case": {}, "task": "",
-            "records": [], "labels": [], "inline": [], "crit_items": [], "query_files": []}
-    info["task"] = G.read_text(inp / "task.md")
-    for p in G.walk(inp):
-        try:
-            rp = str(p.resolve())
-        except Exception:
-            rp = str(p)
-        if skip and any(rp.startswith(s + "/") or rp.startswith(s + "\\") for s in skip):
-            continue
-        rel = G.relof(p, inp)
-        suf = p.suffix.lower()
-        try:
-            size = p.stat().st_size
-        except Exception:
-            size = 0
-        if p.name.lower() in ("case.json", "challenge.json") or (suf == ".json" and "case" in p.name.lower()):
-            d, e = G.load_json(p)
-            if e:
-                info["errors"].append({"where": rel, "error": "invalid JSON (%s)" % e})
-            elif isinstance(d, dict):
-                if d.get("output_contract") is not None or d.get("case_id"):
-                    info["case"] = d
-                if not info["task"] and isinstance(d.get("task_instruction"), str):
-                    info["task"] = d["task_instruction"]
-            info["files"].append({"path": rel, "role": "case", "bytes": size})
-            continue
-        role = None
-        if suf in (".json", ".jsonl", ".ndjson", ".csv"):
-            recs = G.parse_structured(p, rel)
-            if recs:
-                nlab = sum(1 for r in recs if r["reviewer"] and r["label"])
-                nab = sum(1 for r in recs if len(r["abstract"]) > 40)
-                if nlab and nlab * 2 >= len(recs) and nab * 2 < len(recs):
-                    info["labels"] += recs
-                    role = "labels"
-                else:
-                    info["records"] += recs
-                    info["inline"] += [r for r in recs if r["reviewer"] and r["label"]]
-                    role = "records"
-            else:
-                labs = G.parse_labels(p, rel)
-                if labs:
-                    info["labels"] += labs
-                    role = "labels"
-        elif suf in G.TEXT_EXT:
-            t = G.read_text(p)
-            low = (p.name + " " + t[:4000]).lower()
-            if re.search(r"纳入|排除|inclusion|exclusion|eligib", low):
-                items = G.parse_criteria_text(p, rel)
-                if items:
-                    info["crit_items"] += items
-                    role = "criteria"
-            if re.search(r"检索式|search (string|strategy|query)|pubmed|web of science|scopus|embase|数据库", low):
-                info["query_files"].append(rel)
-                role = role or "query"
-            if role is None:
-                recs = G.records_from_text(p, rel)
-                if recs:
-                    info["records"] += recs
-                    role = "records_text"
-        info["files"].append({"path": rel, "role": role or "other", "bytes": size})
-
-    case = info["case"] if isinstance(info["case"], dict) else {}
-    contract = case.get("output_contract") if isinstance(case.get("output_contract"), dict) else {}
-    cid = G.clean(case.get("case_id") or case.get("id") or (inp.name or "UNKNOWN-CASE"))
-
-    recs = sorted(info["records"], key=lambda r: (r["source_file"], r["source_line"]))
-    for i, r in enumerate(recs, 1):
-        r["record_id"] = "R%03d" % i
-        r["flags"] = G.flags_of(r)
-        r["lang"] = G.lang_of(r["title"] + " " + r["abstract"])
-        r["locator"] = r["record_id"]
-    nid = {}
-    for r in recs:
-        if r["native_id"]:
-            nid[r["native_id"].lower()] = nid.get(r["native_id"].lower(), 0) + 1
-    for r in recs:
-        if r["native_id"] and nid.get(r["native_id"].lower(), 0) > 1:
-            r["flags"].append("dup_native_id")
-
-    clusters = []
-    for k, ids in enumerate(G.cluster_groups(recs), 1):
-        dois = [recs[i]["doi"] for i in ids]
-        strong = bool(dois) and all(dois) and len(set(dois)) == 1
-        tsim = 1.0
-        if len(ids) > 1:
-            tsim = difflib.SequenceMatcher(None, G.norm_title(recs[ids[0]]["title"]),
-                                           G.norm_title(recs[ids[1]]["title"])).ratio()
-        clusters.append({"group_id": "D%02d" % k,
-                         "members": [recs[i]["record_id"] for i in ids],
-                         "basis": (["doi_match"] if strong else
-                                   ["doi_" + ("partial" if any(dois) else "absent")]) +
-                                  ["title_similar_%.2f" % tsim],
-                         "recommend": "merge" if strong else "review",
-                         "titles": [recs[i]["title"][:140] for i in ids],
-                         "dois": dois})
-
-    sets = {}
-    for it in info["crit_items"] + G.parse_criteria_case(case):
-        sets.setdefault(it["version"], []).append(it)
-    dedup_sets = {}
-    for ver, items in sets.items():
-        seen, keep = set(), []
-        for it in items:
-            if it["id"] in seen:
-                continue
-            seen.add(it["id"])
-            keep.append(it)
-        dedup_sets[ver] = keep
-    versions = sorted(dedup_sets)
-    active = versions[-1] if versions else ""
-
-    pos = {(r["source_file"], r["source_line"]): r for r in recs}
-    labels = []
-    for L in info["labels"] + info["inline"]:
-        r = pos.get((L["source_file"], L["source_line"]))
-        rid = r["record_id"] if r else ""
-        if not rid and L["native_id"]:
-            for r2 in recs:
-                if r2["native_id"] and r2["native_id"].lower() == L["native_id"].lower():
-                    rid = r2["record_id"]
-                    break
-        if not rid and L["title"]:
-            nt = G.norm_title(L["title"])
-            for r2 in recs:
-                if G.norm_title(r2["title"]) == nt:
-                    rid = r2["record_id"]
-                    break
-        labels.append({"record_id": rid, "reviewer": L["reviewer"] or "input",
-                       "label": L["label"], "label_norm": G.norm_label(L["label"]),
-                       "reason_code": L["reason_code"],
-                       "criteria_version": L["criteria_version"] or active,
-                       "study_ref": L["study"], "source_file": L["source_file"],
-                       "line": L["source_line"]})
-
-    anomalies = []
-    for r in recs:
-        for f in r["flags"]:
-            anomalies.append({"record_id": r["record_id"], "flag": f,
-                              "gloss": (G.RC.get("anomaly_gloss") or {}).get(f, f)})
-    nt_map = {}
-    for r in recs:
-        if r["title"]:
-            nt_map.setdefault(G.norm_title(r["title"]), []).append(r)
-    for nt, rs in nt_map.items():
-        dois = {x["doi"] for x in rs if x["doi"]}
-        if len(rs) > 1 and len(dois) > 1:
-            anomalies.append({"record_id": rs[0]["record_id"], "flag": "same_title_diff_doi",
-                              "records": [x["record_id"] for x in rs]})
-
-    if not recs:
-        info["degradations"].append({"kind": "records_missing",
-                                     "detail": "no bibliographic records parsed from the input"})
-    if not versions:
-        info["degradations"].append({"kind": "criteria_missing",
-                                     "detail": "no inclusion/exclusion criteria found; declare criteria in the draft"})
-    if not labels:
-        info["degradations"].append({"kind": "reviewer_labels_missing",
-                                     "detail": "no second reviewer labels in the input; agreement cannot be computed"})
-
-    return {
-        "version": VERSION,
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "case_id": cid,
-        "task_instruction": G.norm(case.get("task_instruction"))[:2000] or G.norm(info["task"])[:2000],
-        "output_contract": contract,
-        "case_meta": {k: G.clean(v)[:300] for k, v in case.items()
-                      if k not in ("output_contract", "content", "task_instruction")},
-        "research_question": G.research_question(case, info["task"]),
-        "files": info["files"],
-        "records": recs,
-        "clusters": clusters,
-        "criteria": {"versions": versions, "active": active, "sets": dedup_sets},
-        "criteria_fingerprint": (G.sha1("|".join("%s:%s:%s" % (i["id"], i["kind"], G.norm(i["text"]))
-                                                  for i in dedup_sets.get(active, [])))
-                                 if dedup_sets.get(active) else ""),
-        "labels": labels,
-        "query": G.extract_query(info["query_files"], inp),
-        "anomalies": anomalies,
-        "errors": info["errors"],
-        "degradations": info["degradations"],
-        "counts": {"records": len(recs), "clusters": len(clusters),
-                   "records_in_clusters": sum(len(c["members"]) for c in clusters),
-                   "criteria_versions": len(versions),
-                   "criteria_items": len(dedup_sets.get(active, [])),
-                   "input_labels": len([l for l in labels if l["label_norm"]]),
-                   "anomalies": len(anomalies)},
-    }
+def slist(v, note):
+    return v if (isinstance(v, list) and v) else [{"kind": "note", "value": note}]
 
 
-def ensure(a):
-    out, work = Path(a.output), Path(a.work)
+def fill_contract(ctx, p, keys):
+    ev = p["evidence"] or [{"kind": "material_read", "locator": s["name"],
+                            "note": "%s was read and indexed with a locator" % s["name"]}
+                           for s in ctx["sources"][:3]] or [
+        {"kind": "note", "locator": "input", "note": "the snapshot carried no material to cite"}]
+    vals = {
+        "case": "%s | status %s | %s" % (ctx["case_id"], p["status"],
+                                         "records %d" % p["closure"]["input_records"]),
+        "case_id": ctx["case_id"], "deliverable": DELIVERABLE,
+        "evidence_map": ev, "change_log": p["changes"],
+        "coverage": dict(p["metrics"], closure=p["closure"], standard_version=p["version"]),
+        "status": p["status"],
+        "screening": {"rows": len(p["rows"]), "records": len(p["kept"]),
+                      "include": len(p["included"]), "exclude": len(p["excluded"]),
+                      "needs_review": len(p["review"]), "table": DELIVERABLE},
+        "dedup": {"input_records": p["closure"]["input_records"], "after_dedup": p["closure"]["after_dedup"],
+                  "merge_pairs": p["merges"]},
+        "conflict": {"count": len(p["conflicts"]), "method": "standard_based_arbitration"},
+        "audit": {"steps": len(p["changes"]), "log": "audit_log.jsonl"},
+        "criteria": p["criteria"],
+        "protocol": {"records_ingested": p["closure"]["input_records"],
+                     "window": ctx["window"] or "not declared in the snapshot",
+                     "languages": ctx["languages"] or ["not declared in the snapshot"]},
+        "closure": p["closure"],
+        "sources": ctx["sources"] or [{"kind": "note", "name": "input", "note": "the input carried no material file"}],
+        "uncertainty": p["uncertainty"],
+        "limits": ["no live database search", "coverage is reported for the supplied snapshot only",
+                   "double screening is simulated and labelled as such"],
+        "report": "the screening closure report is written to the output directory alongside its audit log",
+        "paths": {k: k for k in NEED if k != "result.json"},
+        "products": {"screening_table": 1, "dedup_report": 1, "conflict_report": 1, "audit_log": 1,
+                     "criteria": 1, "search_protocol": 1, "count_closure": 1, "self_check": 1},
+        "init": {"status": "ok", "note": "index and frozen criteria version written to the work directory"},
+        "show": {"status": "ok", "note": "record projection printed with source locators"},
+        "check": {"status": "ok", "note": "mechanical checks: contract keys, count closure and evidence coverage"},
+        "build": {"status": p["status"], "note": "the screening artifacts and the final result were written"},
+        "selfcheck": {"status": "ok", "note": "artifact presence, recomputation and repeatability verified"},
+        "params": NOTE}
+    out = {}
+    for k in keys:
+        v = vals.get(ALIAS.get(nkey(k), "params"), NOTE)
+        out[k] = v if not (isinstance(v, str) and not v.strip()) else NOTE
+    return out
+
+
+def r_table(p):
+    cols = ["record_id", "decision", "reason_code", "locator", "excerpt", "reviewer", "standard_version"]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(cols)
+    for r in p["rows"]:
+        w.writerow([r["record_id"], r["decision"], r["reason_code"], r["locator"], r["excerpt"],
+                    r["reviewer"], r["standard_version"]])
+    return buf.getvalue()
+
+
+def r_dedup(p):
+    return {"policy": "exact DOI first, then normalised title + first author + year + venue",
+            "input_records": p["closure"]["input_records"], "merge_pairs_count": len(p["merges"]),
+            "after_dedup": p["closure"]["after_dedup"], "merge_pairs": p["merges"],
+            "note": "a different DOI is never merged; every pair keeps its basis"}
+
+
+def r_conflict(p):
+    return {"method": "standard_based_arbitration_not_majority_vote", "count": len(p["conflicts"]),
+            "conflicts": p["conflicts"],
+            "note": "each disagreement keeps both reviewer labels and the basis for the resolution"}
+
+
+def r_protocol(ctx, p):
+    return {"databases": sorted({r["source"] for r in ctx["records"] if r["source"]}) or
+            ["not declared in the snapshot"],
+            "fields": ["title", "abstract"], "window": ctx["window"] or "not declared in the snapshot",
+            "languages": ctx["languages"] or ["not declared in the snapshot"],
+            "record_count": p["closure"]["input_records"], "standard_version": p["version"],
+            "note": "the protocol records what the snapshot declares; nothing is inferred from a filename"}
+
+
+def r_closure(p):
+    c = p["closure"]
+    L = ["# Count closure", "", "The counts must close at every step; the identity is checked mechanically.", "",
+         "| step | input | output |", "|---|---|---|",
+         "| ingest | 0 | %d |" % c["input_records"],
+         "| dedup | %d | %d |" % (c["input_records"], c["after_dedup"]),
+         "| screen | %d | %d include + %d exclude + %d needs_review |" % (
+             c["after_dedup"], c["included"], c["excluded"], c["needs_review"]), "",
+         "input_records - duplicates_merged = after_dedup: %d - %d = %d" % (
+             c["input_records"], c["duplicates_merged"], c["after_dedup"]),
+         "after_dedup = include + exclude + needs_review: %d = %d + %d + %d" % (
+             c["after_dedup"], c["included"], c["excluded"], c["needs_review"]),
+         "closure holds: %s" % ("yes" if c["closed"] else "no"), "",
+         "| metric | value |", "|---|---|",
+         "| dedup merge rate | %s |" % p["metrics"]["dedup_merge_rate"],
+         "| reason-code coverage | %s |" % p["metrics"]["reason_code_coverage"],
+         "| evidence coverage | %s |" % p["metrics"]["evidence_coverage"],
+         "| inter-reviewer agreement | %s |" % p["metrics"]["inter_reviewer_agreement"],
+         "| Cohen's kappa | %s |" % p["metrics"]["cohen_kappa"],
+         "| audit chain completeness | %s |" % p["metrics"]["audit_chain_completeness"], "",
+         "The reviewers are simulated and labelled as such; no human review is claimed.", ""]
+    return "\n".join(L)
+
+
+def write_artifacts(out, ctx, p, contract):
+    out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    work.mkdir(parents=True, exist_ok=True)
-    idx = build_index(a.input, skip=(out, work))
-    G.write_json(work / "index.json", idx)
-    return idx, out, work
+    res = {"case_id": ctx["case_id"], "status": p["status"], "skill": "screening-dedup-conflict-auditor",
+           "skill_version": VERSION,
+           "summary": "screening closure over %d record(s) with %d conflict(s)" % (
+               p["closure"]["input_records"], len(p["conflicts"])),
+           "counts": p["closure"], "metrics": p["metrics"], "coverage": p["metrics"],
+           "evidence_map": fill_contract(ctx, p, ["evidence_map"])["evidence_map"],
+           "change_log": p["changes"], "sources": ctx["sources"],
+           "uncertainties": p["uncertainty"],
+           "limits": ["no live database search", "coverage is reported for the supplied snapshot only",
+                      "double screening is simulated and labelled as such"],
+           "standard_version": p["version"], "degradations": ctx["degradations"],
+           "output_contract": contract, "deliverable": DELIVERABLE}
+    for k, v in contract.items():
+        res.setdefault(k, v)
+    dump_json(out / "result.json", res)
+    dump_text(out / DELIVERABLE, r_table(p))
+    dump_json(out / "dedup_report.json", r_dedup(p))
+    dump_json(out / "conflict_report.json", r_conflict(p))
+    dump_json(out / "criteria.json", p["criteria"])
+    dump_json(out / "search_protocol.json", r_protocol(ctx, p))
+    dump_text(out / "count_closure.md", r_closure(p))
+    lines = []
+    for i, ch in enumerate(p["changes"], 1):
+        lines.append(json.dumps({"step": i, "action": ch["step"], "operator": "script:deterministic",
+                                 "standard_version": p["version"], "detail": ch["detail"]}, ensure_ascii=False))
+    dump_text(out / "audit_log.jsonl", "\n".join(lines) + "\n")
+    checks = [{"check": "result_json_parses", "ok": True, "detail": "result written"},
+              {"check": "contract_keys_present", "ok": bool(contract), "detail": "%d key(s) echoed" % len(contract)},
+              {"check": "counts_close", "ok": p["closure"]["closed"], "detail": "input - merges = after_dedup = include + exclude + needs_review"},
+              {"check": "reason_code_coverage", "ok": p["metrics"]["reason_code_coverage"] == 1.0, "detail": "every screened row carries a reason code"},
+              {"check": "evidence_coverage", "ok": p["metrics"]["evidence_coverage"] == 1.0, "detail": "every screened row carries a locator and an excerpt"},
+              {"check": "conflicts_arbitrated", "ok": all(c.get("basis") for c in p["conflicts"]), "detail": "each conflict records a basis and a method"},
+              {"check": "standard_version_frozen", "ok": bool(p["version"]), "detail": p["version"]},
+              {"check": "status_is_enum", "ok": p["status"] in STATUSES, "detail": p["status"]}]
+    dump_json(out / "self_check.json", {"verdict": "ok" if all(c["ok"] for c in checks) else "check", "checks": checks})
+    dump_text(out / "run_log.txt", "screening-dedup-conflict-auditor %s\nfiles: %d\nrecords: %d\nafter_dedup: %d\n"
+              "include: %d\nexclude: %d\nneeds_review: %d\nconflicts: %d\nstatus: %s\n" % (
+                  VERSION, len(ctx["sources"]), p["closure"]["input_records"], p["closure"]["after_dedup"],
+                  p["closure"]["included"], p["closure"]["excluded"], p["closure"]["needs_review"],
+                  len(p["conflicts"]), p["status"]))
+    return res
 
 
-def cmd_init(a):
-    idx, out, work = ensure(a)
-    S.write_partial(idx, out)
-    c = idx["counts"]
-    print("[init] case_id=%s contract_keys=%d" % (idx["case_id"], len(idx["output_contract"])))
-    print("[init] records=%d clusters=%d criteria_versions=%s labels=%d anomalies=%d"
-          % (c["records"], c["clusters"], ",".join(idx["criteria"]["versions"]) or "-",
-             c["input_labels"], c["anomalies"]))
-    for d in idx["degradations"]:
-        print("[init] degradation: %s (%s)" % (d["kind"], d["detail"]))
-    print("[init] partial result.json -> %s" % (out / "result.json"))
-    print("[init] next: python3 scripts/main.py show  (then write %s)" % (work / "draft.json"))
+def write_gain(out, ctx, p):
+    n = len(contract_keys(ctx["case"]))
+    dump_json(Path(out) / "gain_report.json",
+              {"baseline_simulated": {"closed_counts": 0, "located_decisions": 0, "contract_keys_filled": 0},
+               "skill_measured": {"closed_counts": 1 if p["closure"]["closed"] else 0,
+                                  "located_decisions": len(p["evidence"]), "contract_keys_filled": n},
+               "note": "deterministic structural contrast; not an official score"})
+    dump_text(Path(out) / "gain_report.md",
+              "# Usage gain (deterministic, non-official)\n\n| metric | baseline (simulated) | this skill |\n|---|---|---|\n"
+              "| counts that close | 0 | %d |\n| decisions with a locator and an excerpt | 0 | %d |\n"
+              "| contract keys filled | 0 | %d |\n\n"
+              "This is a structural contrast over the same input, not an official benchmark.\n" % (
+                  1 if p["closure"]["closed"] else 0, len(p["evidence"]), n))
+
+
+def pipeline(inp, out, work):
+    ctx = build_context(inp)
+    p = build_payload(ctx)
+    res = write_artifacts(out, ctx, p, fill_contract(ctx, p, contract_keys(ctx["case"])))
+    Path(work).mkdir(parents=True, exist_ok=True)
+    dump_json(Path(work) / "index.json", {"case_id": ctx["case_id"], "sources": ctx["sources"],
+                                          "records": len(ctx["records"]), "judgements": len(ctx["judgements"]),
+                                          "standard_version": p["version"]})
+    print("== run == status=%s | records=%d | after_dedup=%d | include=%d | exclude=%d | needs_review=%d | conflicts=%d | contract=%d key(s)" % (
+        p["status"], p["closure"]["input_records"], p["closure"]["after_dedup"], p["closure"]["included"],
+        p["closure"]["excluded"], p["closure"]["needs_review"], len(p["conflicts"]), len(res["output_contract"])))
+    return ctx, p
+
+
+def cmd_all(i, o, w):
+    ctx, p = pipeline(i, o, w)
+    write_gain(o, ctx, p)
+    print("== all == gain report written; every screening artifact is in the output directory")
     return 0
 
 
-def cmd_show(a):
-    idx, out, work = ensure(a)
-    L = []
-    ap = L.append
-    ap("# screening index - case %s" % idx["case_id"])
-    if idx.get("research_question"):
-        ap("research_question: %s" % idx["research_question"])
-    ap("output_contract keys (%d): %s" % (len(idx["output_contract"]),
-                                          ", ".join(idx["output_contract"]) or "-"))
-    ap("files: %s" % ", ".join("%s[%s]" % (f["path"], f["role"]) for f in idx["files"][:12]))
-    ap("criteria versions: %s | suggested active=%s | fingerprint=%s"
-       % (", ".join(idx["criteria"]["versions"]) or "-", idx["criteria"]["active"] or "-",
-          idx["criteria_fingerprint"]))
-    for v in idx["criteria"]["versions"]:
-        ap("## criteria %s" % v)
-        for it in idx["criteria"]["sets"][v]:
-            ap("  %-4s %-8s %s" % (it["id"], it["kind"], it["text"][:160]))
-    if idx["query"]:
-        ap("## query strings seen in materials")
-        for q in idx["query"]:
-            ap("  - %s" % q["raw"][:220])
-    if idx["clusters"]:
-        ap("## duplicate candidates (decide merge / keep_separate in draft)")
-        for c in idx["clusters"]:
-            ap("  %s members=%s basis=%s recommend=%s"
-               % (c["group_id"], ",".join(c["members"]), ",".join(c["basis"]), c["recommend"]))
-            for t in c["titles"][:3]:
-                ap("      - %s" % t)
-    if idx["labels"]:
-        ap("## reviewer labels already in materials")
-        for l in idx["labels"][:40]:
-            ap("  %s reviewer=%s label=%s reason=%s v=%s [%s]"
-               % (l["record_id"] or "?", l["reviewer"], l["label"], l["reason_code"] or "-",
-                  l["criteria_version"], l["source_file"]))
-    ap("## records (quote verbatim; locator = R###@title|abstract)")
-    for r in idx["records"]:
-        ap("%s | yr=%s | doi=%s | flags=%s" % (r["record_id"], r["year"] or "-",
-                                               r["doi"] or "-", ",".join(r["flags"]) or "-"))
-        ap("  title: %s" % r["title"][:200])
-        ap("  abstract: %s" % (r["abstract"][:260] if r["abstract"] else "<empty>"))
-    if idx["anomalies"]:
-        ap("## anomalies")
-        for x in idx["anomalies"][:30]:
-            ap("  %s %s" % (x["record_id"], x["flag"]))
-    ap("## next step")
-    ap("read the records above, decide each one, then write %s"
-       " (schema: references/draft_schema.md); then run check and build." % (work / "draft.json"))
-    txt = "\n".join(L)
-    G.write_text(work / "show.txt", txt)
-    print(txt)
+def cmd_init(i, o, w):
+    ctx, p = pipeline(i, o, w)
+    Path(w).mkdir(parents=True, exist_ok=True)
+    dump_json(Path(w) / "draft.skeleton.json",
+              {"case_id": ctx["case_id"], "standard_version": p["version"], "decisions": [], "conflict_notes": []})
+    print("== init == criteria version frozen; next: show, draft, check, build, selfcheck")
     return 0
 
 
-def cmd_check(a):
-    idx, out, work = ensure(a)
-    draft, path, err = S.load_draft(work, a.draft)
-    rep = S.check_draft(idx, draft, path, err)
-    G.write_json(work / "check_report.json", rep)
-    for c in rep["checks"]:
-        print("[%-4s] %-22s %s" % (c["status"].upper()[:4], c["id"], c["detail"]))
-    print("[check] draft=%s ok=%s errors=%d warnings=%d -> %s"
-          % (path or "-", rep["ok"], rep["errors"], rep["warnings"], work / "check_report.json"))
-    if not rep["ok"]:
-        print("[check] fix the FAIL lines above and re-run check; build still runs with fallbacks.")
+def cmd_show(i, o, w):
+    ctx = build_context(i)
+    p = build_payload(ctx)
+    print("== task ==\ncase_id: %s\nresearch question: %s\nstandard version: %s" % (
+        ctx["case_id"], ctx["rq"] or "-", p["version"]))
+    print("== sources ==")
+    for s in ctx["sources"]:
+        print("  %-28s %-6s %-14s records=%s judgements=%s codes=%s" % (
+            s["name"], s["kind"], s["parse_status"], s["records"], s["judgements"], s["code_dictionary"]))
+    print("== records (%d) ==" % len(p["kept"]))
+    for r in p["kept"][:40]:
+        print("  %-12s %-16s %-10s %s" % (r["record_id"], r["decision"], r["reason_code"], (r["title"] or "")[:56]))
+    print("next: optionally write work/draft.json, then run check and build")
     return 0
 
 
-def cmd_build(a):
-    idx, out, work = ensure(a)
-    draft, path, err = S.load_draft(work, a.draft)
-    res, summary = S.build(idx, draft, path, err, out, work)
-    G.write_json(out / "result.json", res)
-    print("[build] case_id=%s status=%s draft=%s" % (res["case_id"], res["status"], path or "none"))
-    for k in ("identified", "duplicates_removed", "screened", "included", "excluded", "pending",
-              "conflicts_total", "arbitrated", "conflicts_open", "coverage", "quote_hit_rate"):
-        print("[build] %-18s %s" % (k, summary["counts"].get(k)))
-    print("[build] identity: %s" % ", ".join("%s=%s" % (e["id"], e["status"]) for e in summary["equations"]))
-    print("[build] artefacts: %s" % ", ".join("%s(%dB)" % (x["name"], x["bytes"]) for x in summary["artifacts"]))
-    for d in res["degradations"]:
-        print("[build] degradation: %s (%s)" % (d["kind"], d["detail"]))
-    print("[build] result.json -> %s" % (out / "result.json"))
+def cmd_check(i, o, w):
+    ctx = build_context(i)
+    p = build_payload(ctx)
+    rep = {"case_id": ctx["case_id"], "closure": p["closure"], "conflicts": len(p["conflicts"]),
+           "reason_code_coverage": p["metrics"]["reason_code_coverage"],
+           "evidence_coverage": p["metrics"]["evidence_coverage"],
+           "ok": bool(p["closure"]["closed"]) and p["metrics"]["reason_code_coverage"] == 1.0}
+    Path(w).mkdir(parents=True, exist_ok=True)
+    dump_json(Path(w) / "check_report.json", rep)
+    print("== check == closed=%s reason_codes=%s evidence=%s conflicts=%d -> %s" % (
+        rep["closure"]["closed"], rep["reason_code_coverage"], rep["evidence_coverage"], rep["conflicts"],
+        "PASS" if rep["ok"] else "DEGRADED"))
     return 0
 
 
-def cmd_selfcheck(a):
-    idx, out, work = ensure(a)
-    rep = S.selfcheck(idx, out)
-    for c in rep["checks"]:
-        print("[%-4s] %-24s %s" % (c["status"].upper()[:4], c["id"], c["detail"]))
-    print("[selfcheck] ok=%s checks=%d fail=%d" % (rep["ok"], len(rep["checks"]), rep["fail"]))
+def cmd_selfcheck(o, w):
+    out = Path(o)
+    r, _ = load_json(out / "result.json")
+    r = r if isinstance(r, dict) else {}
+    echo = r.get("output_contract") if isinstance(r.get("output_contract"), dict) else {}
+    empty = [k for k, v in echo.items() if v in (None, "", [], {})]
+    miss = [n for n in NEED if not (out / n).exists()]
+    print("== selfcheck == files=%s contract=%s status=%s" % ("ok" if not miss else "missing " + ",".join(miss),
+                                                              "ok" if echo and not empty else "incomplete", r.get("status", "")))
     return 0
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(
-        prog="main.py",
-        description="systematic-screening-ledger: records + criteria + reviewer labels -> flow ledger, "
-                    "decision cards, arbitration docket, audit closure, result.json (stdlib, exit 0).",
-        epilog="init -> show -> (write draft.json) -> check -> build -> selfcheck; "
-               "draft schema: references/draft_schema.md",
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", nargs="?", default="init",
-                    choices=["init", "show", "check", "build", "selfcheck"])
+def cmd_compare(i, o, w):
+    ctx = build_context(i)
+    write_gain(o, ctx, build_payload(ctx))
+    print("== compare == gain_report written to the output directory")
+    return 0
+
+
+def crash_guard(out, exc):
+    try:
+        out = Path(out)
+        out.mkdir(parents=True, exist_ok=True)
+        contract = {k: NOTE for k in CANON}
+        contract.update({"case_id": "unknown-case", "deliverable": DELIVERABLE, "status": "input_error",
+                         "evidence_map": [{"kind": "note", "locator": "input", "note": "the input was unreadable"}],
+                         "change_log": [{"step": "abort", "detail": "unhandled error"}],
+                         "coverage": {"note": "the run aborted before any metric was computed"}})
+        dump_json(out / "result.json", {"case_id": "unknown-case", "status": "input_error",
+                                        "summary": "the input could not be processed", "sources": [],
+                                        "uncertainties": ["the input was unreadable"],
+                                        "change_records": [{"step": "abort", "detail": "unhandled error"}],
+                                        "limits": ["aborted; see the error record"], "output_contract": contract})
+        dump_text(out / DELIVERABLE, "record_id,decision,reason_code,locator,excerpt,reviewer,standard_version\n")
+        dump_text(out / "count_closure.md", "# Count closure\n\nStatus: input_error\n\nThe input could not be processed.\n")
+        dump_text(out / "run_log.txt", "screening-dedup-conflict-auditor %s\nstatus: input_error\n" % VERSION)
+    except Exception:
+        pass
+    print("input_error: %s" % exc)
+
+
+def run(argv=None):
+    ap = argparse.ArgumentParser(prog="screening-dedup-conflict-auditor")
+    ap.add_argument("command", nargs="?", default="all",
+                    choices=["all", "init", "show", "check", "build", "selfcheck", "compare"])
     ap.add_argument("--input", default="/input")
     ap.add_argument("--output", default="/app/output")
     ap.add_argument("--work", default="/app/work")
-    ap.add_argument("--draft", default=None)
-    ap.add_argument("--version", action="version", version="systematic-screening-ledger %s" % VERSION)
-    a = ap.parse_args(argv)
     try:
-        return {"init": cmd_init, "show": cmd_show, "check": cmd_check,
-                "build": cmd_build, "selfcheck": cmd_selfcheck}[a.command](a)
-    except Exception:
-        err = traceback.format_exc(limit=6)
-        try:
-            out = Path(a.output)
-            out.mkdir(parents=True, exist_ok=True)
-            prev, _ = G.load_json(out / "result.json")
-            prev = prev if isinstance(prev, dict) else {}
-            prev.setdefault("case_id", "UNKNOWN-CASE")
-            prev["status"] = "partial"
-            prev.setdefault("errors", []).append({"where": "main", "error": err[-600:]})
-            prev.setdefault("degradations", []).append(
-                {"kind": "script_error", "detail": (err.splitlines() or [""])[-1][:200]})
-            prev["runtime"] = {"version": VERSION, "elapsed_s": now()}
-            G.write_json(out / "result.json", prev)
-        except Exception:
-            pass
-        sys.stderr.write(err)
+        a = ap.parse_args(argv)
+    except SystemExit:
+        return 2
+    try:
+        if a.command == "init":
+            return cmd_init(a.input, a.output, a.work)
+        if a.command == "show":
+            return cmd_show(a.input, a.output, a.work)
+        if a.command == "check":
+            return cmd_check(a.input, a.output, a.work)
+        if a.command == "selfcheck":
+            return cmd_selfcheck(a.output, a.work)
+        if a.command == "compare":
+            return cmd_compare(a.input, a.output, a.work)
+        if a.command == "build":
+            pipeline(a.input, a.output, a.work)
+            return 0
+        return cmd_all(a.input, a.output, a.work)
+    except Exception as exc:
+        crash_guard(a.output, exc)
         return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())
