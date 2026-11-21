@@ -9,6 +9,14 @@ license: MIT
 
 把一坨杂乱文件变成**可回溯、可复跑、可复核**的规范化文件库：盘点 → 命名规范 → 去重 → 版本链 → 归档 → 证据打包。
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（强制）
 
 **执行前先阅读 `references/expert_playbook.md`，按其中的专家检查表逐项产出。** 该手册给出评分要点、高频错误→正确做法、量化公式、24 项自查表与完整案例，是产出质量的下限保障。本文件只描述命令接口与契约；方法论以 playbook 为准。
@@ -44,13 +52,7 @@ license: MIT
 
 ## 单命令等价入口（single command — one shot，无 draft，评测入口）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
-
-一条命令即完成整条流水线（等价于 init→build→selfcheck），直接产出完整契约与全部交付物：
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+一条命令即完成整条流水线（等价于 init→build→selfcheck），直接产出完整契约与全部交付物；命令见文首「单命令评测入口」。
 
 ## Agent 路径（五命令，逐步）
 
@@ -71,7 +73,7 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --work /ap
 
 ## 单命令等价入口（single command — one shot，无 draft）
 
-见文首「单命令等价入口（评测入口）」——同一条 `all` 命令，一条命令跑完整条流水线。
+见文首「单命令评测入口」——同一条 `all` 命令，一条命令跑完整条流水线。
 
 ## 规则要点
 
