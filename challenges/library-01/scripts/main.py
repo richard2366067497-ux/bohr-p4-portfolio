@@ -534,8 +534,14 @@ def main(argv=None):
         ap.add_argument("--json", action="store_true")
         ap.add_argument("--limit", type=int, default=200)
         a = ap.parse_args(argv)
-        return {"init": cmd_init, "show": lambda x: S.cmd_show(x, cli_paths), "check": cmd_check,
+        code = {"init": cmd_init, "show": lambda x: S.cmd_show(x, cli_paths), "check": cmd_check,
                 "build": cmd_build, "selfcheck": cmd_selfcheck, "all": cmd_all}[a.cmd](a) or 0
+        try:
+            import finalize
+            finalize.run(cli_paths(a)[2])
+        except Exception:
+            pass
+        return code
     except SystemExit:
         return 0
     except Exception as e:
