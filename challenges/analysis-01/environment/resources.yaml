@@ -1,5 +1,5 @@
 # environment/resources.yaml — field-contract-cleaner (analysis-01 · v9)
-# 运行环境与资源声明。脚本只读这些事实，不从这里取路径（路径一律走 --input/--output/--work）。
+# 运行环境与资源声明；路径一律走 --input/--output/--work，脚本不从这里取路径。
 runtime:
   language: python
   version: ">=3.8"
@@ -7,7 +7,7 @@ runtime:
   package_manager: none
   dependencies: []          # 纯标准库：csv, json, re, hashlib, zipfile, argparse, traceback, pathlib, time, datetime
   network: false
-  clock: false              # 交付物字节稳定，不读系统时间（仅 work/run.log 记相对耗时）
+  clock: false              # 交付物字节稳定，不读系统时间（work/run.log 只记相对耗时）
   seed: 20240517
 resources:
   cpu: 1
@@ -24,13 +24,7 @@ entry:
   single_command: "python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work"
   agent_path: ["init", "show", "check", "build", "selfcheck"]
 input_formats: [csv, tsv, tab, txt, xlsx, xlsm, json, jsonl, md, yaml, yml]
-output_files:
-  - result.json
-  - cleaned_table.csv
-  - transform_ledger.jsonl
-  - data_quality_report.md
-  - field_contract.json
-  - reconciliation.json
-  - field_issues.csv
+output_files: [result.json, cleaned_table.csv, transform_ledger.jsonl,
+               data_quality_report.md, field_contract.json, reconciliation.json, field_issues.csv]
 editable_without_code_change:
-  - references/rules.json   # 缺失/无效/LOD 码、编码顺序、mojibake 标记、单位注册表、动作枚举、红线、不变式
+  - references/rules.json   # 缺失/无效/LOD 码、编码顺序、mojibake、单位注册表、动作枚举、红线、不变式
