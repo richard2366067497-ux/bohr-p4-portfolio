@@ -348,7 +348,9 @@ def cmd_build(a):
                        for s, T in zip(src_now, tables)]}
     if not immut["ok"]:
         D.append({"kind": "source_mutated", "detail": "source hash changed during build"})
-    cleaned_sha = results[0]["sha_out"] if results else ""
+    cleaned_sha = results[0]["sha_out"] if results else \
+        (L.sha_bytes((out / "cleaned_table.csv").read_bytes())
+         if (out / "cleaned_table.csv").is_file() else "")
     rt_ok = not [d for d in D if d["kind"] == "report_table_mismatch"]
     counts = {"fields": len({L.nkey(c["field"]) for c in contracts}),
               "fields_in_header": len({L.nkey(h) for T in tables for h in T["header"]}),
@@ -397,7 +399,8 @@ def cmd_build(a):
                    "locator": (e.get("row_refs") or [e.get("locator_base")])[0],
                    "source": e["table"], "contract_id": e["contract_id"],
                    "workorder_ref": e["workorder_ref"], "sample": e.get("input_sample", "")})
-    payload = {"status": status, "contract": contract, "deliverable": cleaned_sha and "cleaned_table.csv",
+    payload = {"status": status, "contract": contract, "deliverable": "cleaned_table.csv",
+               "primary_artifact_sha256": cleaned_sha,
                "cleaned_table": "cleaned_table.csv",
                "change_log": all_agg, "report_path": "data_quality_report.md",
                "field_contract_path": "field_contract.json",
@@ -406,11 +409,23 @@ def cmd_build(a):
                "field_issues": issues, "evidence_map": ev, "counts": counts,
                "row_accounting": acct, "uncertainty": U, "pending_human": P,
                "errors": E, "degradations": D,
+               "sources": [{"rel": f.get("rel"), "kind": f.get("kind"), "size": f.get("size"),
+                            "sha256_16": (f.get("sha") or "")[:16]}
+                           for f in (info.get("files") or [])],
+               "uncertainties": U or ["本次输入没有可分析的数据表，清洗表为降级骨架；"
+                                      "所有计数为 0，原因逐条写在 degradations 里"],
+               "limits": ["不做统计检验与总体推断，只给可数描述量",
+                          "缺失/未检出/越界只标记不改值，绝不填补",
+                          "单位不在注册表内不换算，只标 UNIT_UNKNOWN",
+                          "XLSX 只读首个工作表；日期按 ISO-8601 输出，不推断时区",
+                          "重复记录隔离不删除，行数守恒 raw = kept + marked + quarantined"],
+               "change_records": [{"action": e.get("action"), "field": e.get("field"),
+                                   "table": e.get("table"), "rows_affected": e.get("rows_affected"),
+                                   "reversible": e.get("reversible")} for e in all_agg[:60]],
                "summary": ("cleaned %d rows over %d fields; %d issue codes; %d unit conversions; "
                            "%d rows quarantined" % (counts["rows_raw"], counts["fields"],
                                                     len(issues), counts["unit_conversions"],
-                                                    counts["rows_quarantined"])),
-               "sources": src_now}
+                                                    counts["rows_quarantined"]))}
     res = RP.write_result(out, cid, contract, payload, "build", SKILL, now, contracts=contracts)
     chk = RP.audit(out, inp)
     res["verification"] = chk
