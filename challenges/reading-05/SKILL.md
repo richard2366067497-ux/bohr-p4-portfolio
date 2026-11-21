@@ -23,6 +23,22 @@ version: 3.0.0
 
 ---
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 七步框架（含门控）** 推进——输入盘点 → 文档登记 → 定义字段 → 单文抽取
+  → 建原始矩阵 → 可比性判定 → 计算与整合 → 独立核验 → 交付；前一步未冻结不进入下一步。
+- **字段与口径**：按其 **§3 可比性分级** 与 **§4 公式** 逐格核验，原值 / 原单位 / 归一值分开保存，
+  不跨文档补值，不把去除率当吸附量。
+- **容差**：按其 **§5 舍入包络** 判定复算是否通过，明确区分舍入包络与实验不确定性。
+- **陷阱**：按其 **§6 领域陷阱清单** 逐条排雷；未报告项写 `NR`，不写成 0 或「无」。
+- **门控**：交付前逐项通过其 **§9 防扣分自查表**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties`，绝不静默提升为 `answered`。
+
+---
+
 ## 1. 入口命令（第一条，必须先看）
 
 单命令即可跑完整条闭环并产出全部产物（评测只跑这一条也能过）：
@@ -187,6 +203,8 @@ Agent 的措辞不能绕过取证要求。（本文件是选做增强，主路�
 - [ ] `reading_record.md` / `golden_standard.json` / `diff_report.md` / `version_history.md` /
   `self_check.json` 均非空且可互相核对。
 - [ ] 空输入 / 坏文件 / 碎片笔记三条路径各跑过一次，均 exit 0 且有缺口报告。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §9 的 23 项防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties`，绝不静默提升为 `answered`。
 
 ---
 
@@ -196,13 +214,18 @@ Agent 的措辞不能绕过取证要求。（本文件是选做增强，主路�
 SKILL.md                       本文件：入口、双路径、口径、契约、降级、自查
 scripts/main.py                入口：build / show / check / selfcheck，闭环编排与契约组装
 scripts/client_kit.py          取文（含纯标准库 PDF/DOCX）、锚定、选句、质检、渲染
+references/expert_playbook.md  专家参考手册：七步框架/可比性分级/公式/容差/陷阱/自查表（执行前必读）
 references/client_contract.md  契约键语义、locator 方案、选句与状态口径
 environment/resources.yaml     资源入口声明（命令、路径、预算、无网络、纯标准库）
+examples/case.json             最小可复跑样例：case_id + output_contract + task_instruction
+examples/materials/paper.txt   最小可复跑样例材料（含量化结论，跑出 answered）
 README.md                      安装、用法、产物、限制、维护
 SELFTEST.md                    自测记录：eval_sim rich/boundary × single/agent
+GAIN_EVIDENCE.md               无 Skill 基线对照与使用增益证据（确定性 baseline_sim，非官方对照）
 GITHUB_URL.txt                 仓库地址与子目录
 ```
 
 - 依赖：Python 3.9+ 标准库（`json`/`re`/`zipfile`/`zlib`/`html`/`hashlib`/`argparse`）；无第三方、无网络、无外部模型。
 - 版本 3.0.0：契约键名冻结；新增规则 → 次版本；阈值与文案 → 修订号。
 - 每次改动后跑 `main.py selfcheck` 与 `scripts/eval_sim.py`（四组组合），结果记入 `SELFTEST.md`。
+- 复跑样例：`python3 -B scripts/main.py --input examples --output /tmp/out --work /tmp/work`（应得 `status=answered`）。
