@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""report_engine: structure extraction, reading order, coverage, evidence and draft candidates.
+"""report_engine: structure, coverage, evidence, draft candidates.
 
-Every derived item (section, table, formula, caption, reference, footnote, running-matter note) keeps
-the locator of the page object it came from plus the verbatim substring it was read from. Nothing is
-invented: an unreadable field is reported with its reason, and the coverage matrix says which check
-was possible.
+Every derived item keeps the locator of the page object it came from plus the verbatim substring it
+was read from. Nothing is invented: an unreadable field carries its reason.
 """
 import hashlib, json, os, re
 from pdf_engine import CAP_RE, MATH_RE, is_caption
@@ -12,8 +10,18 @@ from pdf_engine import CAP_RE, MATH_RE, is_caption
 REF_HEAD = re.compile(r"^\s*(references|bibliography|literature cited)\b", re.I)
 ABS_HEAD = re.compile(r"^\s*(abstract|摘要|summary)\s*[:：]?\s*$", re.I)
 REF_ITEM = re.compile(r"(?=\[\d{1,3}\])|(?=^\s*\d{1,3}\.\s)")
-AUTH_RE = re.compile(r"(\b[A-Z][a-zà-ÿ'’-]+\b[^,;]{0,18}(?:,|;|\band\b)){2,}|\bet al\b|"
-                     r"([A-Z]\.\s?){2,}")
+AUTH_RE = re.compile(r"(\b[A-Z]\.\s?){0,3}[A-Z][a-zà-ÿ'’-]{1,}")
+
+
+def looks_like_authors(text):
+    t = norm(text)
+    if not (3 <= len(t.split()) <= 16) or len(t) > 160 or FIG_RE.search(t):
+        return False
+    if re.search(r"\bet al\b", t, re.I):
+        return True
+    if re.search(r"[.!?。]\s+\S", t) and not re.match(r"^[A-Z]\.", t):
+        return False
+    return len(AUTH_RE.findall(t)) >= 3
 FIG_RE = re.compile(r"\b(fig(?:ure)?\.?|table|tab\.|scheme|chart)\b", re.I)
 FOOT_RE = re.compile(r"^\s*[*†‡§¶]|^\s*\d{1,2}\s+(?=[A-Z])")
 
@@ -41,7 +49,7 @@ def wt(path, text):
 
 def rj(path, default=None):
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, "r", encoding="utf-8-sig") as fh:
             return json.load(fh)
     except (OSError, ValueError):
         return default
@@ -102,8 +110,8 @@ def changes(ctx):
                      "reversible": True})
         ex = sum(len([x for x in (p.get("excluded") or []) if x["text"]]) for p in e)
         recs.append({"change_id": "CH-02", "action": "running_matter_marked", "locator": ctx["rel"],
-                     "detail": "%d repeated header or footer band(s) were kept in layout_objects.jsonl "
-                               "but left out of the reading order" % ex, "reversible": True})
+                     "detail": "%d repeated header/footer band(s) stayed in layout_objects.jsonl and "
+                               "were left out of the reading order" % ex, "reversible": True})
     for i, a in enumerate(st.get("draft_applied") or [], start=len(recs) + 1):
         recs.append({"change_id": "CH-%02d" % i, "action": "draft_override_applied",
                      "locator": a.get("locator") or ctx["rel"], "field": a.get("field"),
@@ -111,8 +119,8 @@ def changes(ctx):
     if not recs:
         recs.append({"change_id": "CH-01", "action": "source_left_untouched",
                      "locator": ctx["rel"] or "input",
-                     "detail": "no readable text layer was found, so no field was derived and no source "
-                               "byte was rewritten; the per-file reason is in unreadable.json",
+                     "detail": "no readable text layer was found; no field was derived and no source "
+                               "byte was rewritten",
                      "reversible": True})
     ctx["change_records"] = recs
     return recs
@@ -139,8 +147,8 @@ def uncertain(ctx):
             out.append("parser flags on %s: %s"
                        % (ctx["rel"], ", ".join(ctx["primary"]["meta"]["flags"])))
         if (ctx["primary"]["meta"].get("engine") or "").startswith("text"):
-            out.append("a plain-text material has no page geometry, so columns and tables cannot be "
-                       "recovered; supply the PDF for layout checks")
+            out.append("a plain-text material has no page geometry, so columns and tables are "
+                       "unrecoverable")
     out.append("reading order is rebuilt from word positions, so a layout without a whitespace gutter "
                "may be ordered top-to-bottom")
     for e in ctx["errors"]:
@@ -152,7 +160,7 @@ def coverage_rows(ctx):
     if not ctx["primary"]:
         return {"file": ctx["rel"] or "input", "pages": 0, "objects_total": 0, "objects_by_type": {},
                 "checks": [{"check": "text_layer", "value": False,
-                            "note": "no file under the input directory carried a readable text layer"}],
+                            "note": "no file under the input directory carried a text layer"}],
                 "missing": ["title", "abstract", "sections", "tables", "formulas", "references"]}
     return coverage(ctx["primary"]["entries"], ctx["structure"], ctx["rel"],
                     ctx["structure"]["unreadable"])
@@ -161,7 +169,7 @@ def coverage_rows(ctx):
 def blocks_payload(ctx, cap=60):
     if not ctx["primary"]:
         return {"count": 0, "by_type": {}, "items": [],
-                "note": "no page object was rebuilt; see unreadable for the per-file reason"}
+                "note": "no page object was rebuilt; see unreadable"}
     rows = flat_blocks(ctx["primary"]["entries"])
     by = {}
     for b in rows:
@@ -170,7 +178,7 @@ def blocks_payload(ctx, cap=60):
               "type": b["type"], "page": b["page"], "chars": len(b["text"]),
               "quote": quote(b["text"], 160), "sha256_16": sha16(b["text"])} for b in rows[:cap]]
     return {"count": len(rows), "by_type": by, "items": items,
-            "note": "every row keeps the page object it was read from"}
+            "note": "each row keeps the page object it came from"}
 
 
 def envelope(items, note, extra=None):
@@ -185,37 +193,36 @@ def contract_values(ctx):
     meta = (ctx["primary"] or {}).get("meta") or {}
     doc = {"file": ctx["rel"] or "no readable file",
            "pages": len((ctx["primary"] or {}).get("entries") or []),
-           "engine": meta.get("engine", "none"), "chars": meta.get("chars", 0),
+           "engine": meta.get("engine") or "no text-layer engine was needed", "chars": meta.get("chars", 0),
            "title": (st["title"] or {}).get("text", "no title line was rebuilt"),
-           "note": "the file this reading is based on; a second readable file would be reported as a "
-                   "separate material"}
+           "note": "the file this reading is based on"}
     return {
         "document": doc,
         "blocks": blocks_payload(ctx),
         "sections": envelope([{"id": s["id"], "level": s["level"], "title": s["title"],
                                "locator": s["locator"], "page": s["page"]} for s in st["sections"]],
-                             "headings in reading order; the level comes from the size or the numbering"),
+                             "headings in reading order; level from the size or the numbering"),
         "tables": envelope([{"id": t["id"], "label": t["label"] or t["id"], "locator": t["locator"],
                              "rows": t["row_count"], "cols": t["col_count"],
                              "header": t["rows"][0] if t["rows"] else []} for t in st["tables"]],
                            "grids rebuilt from consecutive row objects"),
         "formulas": envelope([{"id": f["id"], "number": f["number"], "locator": f["locator"],
                                "quote": f["quote"]} for f in st["formulas"]],
-                             "lines that carry math marks and an operator"),
+                             "lines with math marks and an operator"),
         "reading_order_notes": envelope([{"page": n["page"], "kind": n["kind"], "detail": n["detail"]}
                                          for n in st["reading_order_notes"]],
-                                        "one note per page that needed a column decision",
+                                        "one note per page needing a column decision",
                                         {"columns": sum(p["columns"] for p in
                                                         (ctx["primary"] or {}).get("entries") or [])}),
         "unreadable": envelope([{"file": u["file"], "status": u["status"], "reason": u["reason"],
                                  "locator": u["locator"]} for u in st["unreadable"]],
-                               "files that could not be read, with the reason and nothing guessed"),
+                               "files that could not be read, with the reason"),
         "sources": envelope([{"id": m["id"], "rel": m["rel"], "kind": m["kind"], "status": m["status"],
                               "chars": m["chars"], "reason": m["reason"]} for m in mats],
-                            "every file found under the input directory, read or not"),
-        "uncertainty": envelope(uncertain(ctx), "limits of this reading pass, stated rather than hidden"),
-        "change_records": envelope(changes(ctx), "every step that changed the order or a derived field; "
-                                                 "each is reversible and names its locator"),
+                            "every file under the input directory, read or not"),
+        "uncertainty": envelope(uncertain(ctx), "limits of this pass, stated not hidden"),
+        "change_records": envelope(changes(ctx), "every step that changed the order or a field; each "
+                                                 "is reversible and names its locator"),
     }
 
 
@@ -225,16 +232,26 @@ def build_structure(entries, rel):
     first_page = [b for b in blocks if b["page"] == 1]
     body = [b for b in first_page if b["type"] in ("paragraph", "heading", "caption", "table_row")]
     title, authors, abstract = {}, [], {}
-    cands = [b for b in body if b["type"] == "paragraph" and 12 <= len(b["text"]) <= 220]
+    cands = [b for b in body if b["type"] in ("paragraph", "heading") and 6 <= len(b["text"]) <= 220]
+    tblock = None
     if cands:
-        top = max(cands, key=lambda b: (b["size"], -b["bbox"][1]))
-        title = {"text": top["text"], "locator": loc(top), "page": 1, "size": top["size"],
-                 "quote": quote(top["text"])}
-    after = [b for b in body if title and b["bbox"][1] > title.get("size", 0) + 0 and
-             b["bbox"][1] >= 0 and b["text"] != title.get("text")]
-    for b in after[:2]:
-        if AUTH_RE.search(b["text"]) and not FIG_RE.search(b["text"]):
-            authors.append({"text": b["text"], "locator": loc(b), "quote": quote(b["text"])})
+        sizes = sorted(b["size"] for b in cands)
+        med = sizes[len(sizes) // 2]
+        big = [b for b in cands if b["size"] >= 1.12 * med and not FIG_RE.search(b["text"])]
+        pool = big or [b for b in cands if len(b["text"]) >= 12]
+        if pool:
+            top = max(pool, key=lambda b: (b["size"], -b["bbox"][1]))
+            tblock = top
+            title = {"text": top["text"], "locator": loc(top), "page": 1, "size": top["size"],
+                     "bbox": top["bbox"], "quote": quote(top["text"])}
+    if tblock:
+        for b in body:
+            if b is tblock or b["text"] == title["text"]:
+                continue
+            if not (0 <= b["bbox"][1] - tblock["bbox"][3] <= 90):
+                continue
+            if looks_like_authors(b["text"]):
+                authors.append({"text": b["text"], "locator": loc(b), "quote": quote(b["text"])})
     for i, b in enumerate(blocks):
         if ABS_HEAD.match(b["text"]):
             k = i + 1
@@ -251,15 +268,20 @@ def build_structure(entries, rel):
                 abstract = {"text": b["text"], "locator": loc(b), "quote": quote(b["text"], 260)}
                 break
     sections, tables, formulas, captions, refs, footnotes = [], [], [], [], [], []
+    def _tid():
+        return "T%02d" % (len(tables) + 1)
+
     run = []
     for i, b in enumerate(blocks):
         if b["type"] == "table_row":
             run.append(b)
             continue
         if run:
-            tables.append(_table(run, blocks, loc, rel))
+            tables.append(_table(run, blocks, loc, rel, _tid()))
             run = []
         if b["type"] == "heading":
+            if title and b["text"] == title.get("text"):
+                continue
             sections.append({"id": "S%02d" % (len(sections) + 1), "level": b["level"],
                              "title": b["text"], "page": b["page"], "locator": loc(b),
                              "quote": quote(b["text"], 120), "blocks_after": 0})
@@ -275,7 +297,7 @@ def build_structure(entries, rel):
         if sections:
             sections[-1]["blocks_after"] += 1
     if run:
-        tables.append(_table(run, blocks, loc, rel))
+        tables.append(_table(run, blocks, loc, rel, _tid()))
     ref_start = None
     for i, b in enumerate(blocks):
         if b["type"] == "heading" and REF_HEAD.match(b["text"]):
@@ -297,7 +319,8 @@ def build_structure(entries, rel):
                 and b["bbox"][3] > 0.85 * 1000 and len(b["text"]) < 320:
             footnotes.append({"id": "FN%02d" % (len(footnotes) + 1), "page": b["page"],
                               "locator": loc(b), "quote": quote(b["text"], 160)})
-    labels = {t["label"].lower() for t in tables if t.get("label")}
+    labels = {t["label"].lower() for t in tables if t.get("label")} | \
+             {c["kind"].lower() for c in captions if c.get("kind")}
     cited = sorted({m.group(0).lower() for b in blocks for m in
                     re.finditer(r"(?:fig(?:ure)?\.?|table|scheme)\s*\d{1,3}", b["text"], re.I)})
     notes = []
@@ -325,7 +348,7 @@ def _fnum(text):
     return "(%s)" % m.group(1) if m else ""
 
 
-def _table(run, blocks, loc, rel):
+def _table(run, blocks, loc, rel, tid="T01"):
     rows, cols = [], 0
     for b in run:
         cells = cells_from_words(b["words"], b["size"]) if b.get("words") else []
@@ -341,7 +364,7 @@ def _table(run, blocks, loc, rel):
             m = CAP_RE.match(b["text"])
             label = m.group(0).strip() if m else ""
             break
-    return {"id": "T%02d" % (len(rows) and len(run) or 1), "page": run[0]["page"] if run else 0,
+    return {"id": tid, "page": run[0]["page"] if run else 0,
             "locator": loc(run[0]) if run else rel, "label": label, "caption": quote(cap, 200),
             "quote": quote(" | ".join(rows[0]) if rows else "", 200),
             "row_count": len(rows), "col_count": cols, "rows": rows[:40],
@@ -425,7 +448,7 @@ def render_parsed(entries, structure, rel, meta):
         tag = b["type"]
         L.append("- `%s` [%s p%d %s %s] %s" % (tag, rel, b["page"], b["oid"], tag, quote(b["text"], 200)))
     if not flat_blocks(entries):
-        L.append("- no text object could be rebuilt from this file; see `unreadable.json` for the reason")
+        L.append("- no text object could be rebuilt; see `unreadable.json`")
     L += ["", "## Tables", ""]
     for t in structure["tables"]:
         L += ["- %s page %d (%d×%d) `%s`" % (t["label"] or t["id"], t["page"], t["row_count"],
@@ -433,7 +456,7 @@ def render_parsed(entries, structure, rel, meta):
         for row in t["rows"][:12]:
             L.append("  - " + " | ".join(row))
     if not structure["tables"]:
-        L.append("- no table row was rebuilt in this file")
+        L.append("- no table row was rebuilt")
     L += ["", "## Formulas", ""]
     L += ["- `%s` page %d %s" % (f["text"], f["page"], f["number"]) for f in structure["formulas"]] \
         or ["- no line carried a math mark with an operator"]
@@ -442,7 +465,7 @@ def render_parsed(entries, structure, rel, meta):
         or ["- no figure or table caption was matched"]
     L += ["", "## References", ""]
     L += ["- %s %s" % (r["label"], quote(r["quote"], 180)) for r in structure["references"]] \
-        or ["- no reference list was found under a reference heading"]
+        or ["- no reference list was found"]
     L += ["", "## Reading order notes", ""]
     L += ["- page %d (%s): %s" % (n["page"], n["kind"], n["detail"])
           for n in structure["reading_order_notes"]] or ["- single-column file: natural order kept"]
@@ -459,7 +482,7 @@ def page_map(entries, rel):
                                    "chars": len(o["text"]), "text": quote(o["text"], 120)}
                                   for o in e["objects"]]})
     return {"file": rel, "page_count": len(pages), "pages": pages,
-            "note": "bbox is [x0, y0, x1, y1] with a top-left origin; pages are 1-based"}
+            "note": "bbox is [x0, y0, x1, y1], top-left origin; pages are 1-based"}
 
 
 def layout_objects(entries, rel):
@@ -477,7 +500,7 @@ def layout_objects(entries, rel):
 
 
 def draft_candidates(structure, entries, rel):
-    """Candidates a human can accept or correct: every value already carries its locator."""
+    """Candidates to accept or correct: each value already carries its locator."""
     cands = {"source_file": rel, "items": []}
 
     def add(field, value, locator, why):
@@ -507,8 +530,20 @@ def draft_candidates(structure, entries, rel):
     return cands
 
 
-def apply_draft(structure, draft, rel):
-    """Human overrides win; empty or unanchored entries are ignored and recorded as such."""
+def loc_resolves(locator, rel, objects):
+    """A locator resolves only when it names a page object this reading rebuilt: '<file> pN <oid>'
+    and anything behind it. Nothing else counts."""
+    if not locator:
+        return False
+    for o in objects or []:
+        pre = "%s p%d %s" % (rel, o["page"], o["oid"])
+        if locator == pre or locator.startswith(pre + " "):
+            return True
+    return False
+
+
+def apply_draft(structure, draft, rel, objects=None):
+    """Human overrides win; unanchored entries are rejected and recorded."""
     applied, rejected = [], []
     items = draft.get("items") if isinstance(draft.get("items"), list) else []
     for it in items:
@@ -522,7 +557,7 @@ def apply_draft(structure, draft, rel):
         if not field or not value:
             rejected.append(dict(rec, reason="empty field or value"))
             continue
-        if locator and not locator.startswith(rel) and " p" not in locator:
+        if not loc_resolves(locator, rel, objects):
             rejected.append(dict(rec, reason="locator does not name a page object of this file"))
             continue
         if field == "title":
@@ -549,8 +584,7 @@ def apply_draft(structure, draft, rel):
                                             "page": 0, "locator": locator, "label": "-",
                                             "quote": quote(value, 200), "from_draft": True})
         else:
-            rejected.append(dict(rec, reason="field is not one of title authors abstract section "
-                                             "table formula caption reference"))
+            rejected.append(dict(rec, reason="field is not one the draft schema accepts"))
             continue
         applied.append(rec)
     structure["draft_applied"] = applied
