@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """main.py - entry, contract and envelope for graphics-04.
 
-    run | init | check | build | show      (`run` is the single-command entry, see SKILL.md)
+    run | init | show | check | build | selfcheck      (`run` is the single-command entry, see SKILL.md)
 
 One pass reads the materials (sheet.py), lays the apparatus and the steps out,
 paints one canvas and serialises it three ways (draw.py), then writes
@@ -310,12 +310,20 @@ def cmd_show(out):
     return 0
 
 
+def cmd_selfcheck(work):
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    rep = self_check(work)
+    print("selfcheck: %s" % ("ok" if rep["ok"] else "see work/self_check.json"))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="main.py",
                                  description="Apparatus / technical-route material -> editable "
                                              "layered SVG + vector PDF + PNG -> result.json.")
     ap.add_argument("cmd", nargs="?", default="run",
-                    choices=["run", "init", "show", "check", "build"],
+                    choices=["run", "init", "show", "check", "build", "selfcheck"],
                     help="run (default) = the full single-command pipeline")
     ap.add_argument("--input", help="input directory (default /input)")
     ap.add_argument("--output", help="output directory (default /app/output)")
@@ -336,6 +344,8 @@ def main(argv=None):
             return cmd_check(inp, out, work)
         if a.cmd == "show":
             return cmd_show(out)
+        if a.cmd == "selfcheck":
+            return cmd_selfcheck(work)
         S = pipeline(inp, out, work)
         if os.environ.get("WEEKLY_SKIP_PROBE") != "1":
             self_check(work)
