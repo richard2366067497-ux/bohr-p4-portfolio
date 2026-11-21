@@ -1,0 +1,73 @@
+# environment/resources.yaml — experiment-02 / plan-feasibility-review (v10)
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟。
+skill: plan-feasibility-review
+version: 2.6.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py show --input /input --output /app/output --work /app/work
+    - "Agent: read /app/output/evidence.json + /app/output/checks.json, optionally write /app/work/draft.json"
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --input /input --output /app/output --work /app/work
+  expert_playbook: references/expert_playbook.md   # 执行前必读：七类审查框架 / 量化口径 / 18 项检查表
+
+scripts:
+  - scripts/main.py       # CLI：all / init / show / check / build / selfcheck（单命令 all = 全流程）
+  - scripts/extract.py    # 材料解析：资源四态、价格/货期、机时窗口、参数域与约束、审批项，逐条带 locator+quote
+  - scripts/engine.py     # 七大类逐版本判定、行级时长与成本、排序与胜出、待确认清单
+  - scripts/render.py     # 产物渲染（表格/markdown/契约键回填）
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  material_roles_by_extension:
+    ".json": "结构化材料（case.json、resources、prices、booking、domains/constraints、approval、candidate versions）"
+    ".md"/".txt": "文字材料（方案章节、资源清单、组织方约束；含 not exceed / 不超过 → le，at least / ≥ → ge 等边界词）"
+    ".csv": "表格材料（资源/价格/排期台账）"
+  discovery: "walk 输入目录；资源/价格/机时/参数域/约束/审批按 JSON 键名或文字正则识别；缺料降级为 insufficient_evidence"
+
+required_outputs:
+  - feasibility_review.md
+  - checks.json
+  - estimate.json
+  - risks.json
+  - confirmations.json
+  - evidence.json
+  - version_diff.md
+  - result.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 120
+  max_output_files: 24
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case, case_id, plan, equipment, material, booking, budget, domains, approval, source, task]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> tasks/<key>.json -> SKILL.md json 样例 -> 默认产物键"
+  echo: "每个契约键既写在顶层，也写进 result.json.output_contract；状态键值取 answered/partial/insufficient_evidence/input_error 之一"
+  placeholders: forbidden
+  expert_checklist: "references/expert_playbook.md §6 的 S01–S18 逐项通过后方可交付"
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
