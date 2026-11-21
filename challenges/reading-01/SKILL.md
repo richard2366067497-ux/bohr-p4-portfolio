@@ -7,6 +7,19 @@
 纯标准库、离线。文本层用 zlib + 对象扫描自建（不依赖 xref），可选加速器 `pymupdf` 只在环境里
 已安装时才用。读不出来的东西一律进 `unreadable`，绝不猜字。
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 七步框架（含门控）** 推进——锁定契约 → PDF 预检 → 原始提取 → 版面与阅读顺序
+  → 特殊结构 → 完成案例任务 → 定向核验 → 原子交付；前一步未冻结不进入下一步。
+- **口径**：按其 **§3 文本与阅读顺序口径** 与 **§4 表格/公式/证据口径** 逐项核验，原始层与规范化层分开保存。
+- **门槛**：按其 **§5 建议内部门控** 判定字符准确率、阅读顺序、表格 F1 与证据覆盖率；扫描件不设脱离图像质量的统一承诺。
+- **陷阱**：按其 **§6 领域陷阱清单** 逐条排雷（错误做法 → 正确做法）。
+- **门控**：交付前逐项通过其 **§9 防扣分自查表（24 项）**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainty`，绝不静默提升为完整成功。
+
 ## 1. 适用输入
 
 | 输入 | 处理 |
@@ -140,3 +153,13 @@ check_report.json、compare_report.json、analysis_state.json。
 - GAIN_EVIDENCE.md — 同输入同契约下，基线与本 skill 的质量/效率对照（`compare` 命令复现）。
 - `examples/sample.pdf` — 两页两栏样例（含表格、公式、题注、参考文献、页眉页脚）。
 - `environment/resources.yaml` — 资源入口声明。
+
+## 10. 交付前自查
+
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键非空、无类型占位符。
+- [ ] `blocks` / `sections` / `tables` / `formulas` 中每项都带 `locator` 与逐字引文。
+- [ ] `unreadable` / `uncertainty` 如实记录读不到的文件与原因，不猜字。
+- [ ] `parsed.md` / `structure.json` / `evidence.json` / `coverage.json` / `page_map.json` 均非空且可互相核对。
+- [ ] 空输入 / 全是坏文件两条路径各跑过一次，均 exit 0 且有缺口报告。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §9 的 24 项防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainty`，绝不静默提升为完整成功。
