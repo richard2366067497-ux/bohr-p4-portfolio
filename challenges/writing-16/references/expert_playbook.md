@@ -93,20 +93,19 @@
 10. **文献依据**：案例事实以原始材料为主；外部资料仅在允许时用于术语解释并标外部来源；缺引用标缺口。
 
 > 受众矩阵与强度词表见 `references/audience-genre-matrix.md`；工作稿字段字典见 `references/draft-schema.md`。
-> 本手册统一承载评分口径（旧 `acceptance-rubric.md` 已并入 §1/§5）。
 
 ---
 
 ## 5. 交付物清单与专家检查表
 
-**必需交付物**：`deliverable.md`（完整成稿、段号、必要标题与图表引用，对照 `02_brief.md` 查受众/
-体裁/篇幅）；`result.json`（原契约全字段、`case_id`、状态、主结果、来源、不确定性、修改记录，
-`python -m json.tool` 可解析）；`retained_facts.json`/`evidence_map.csv`（事实 ID、输出段号、来源
-文件、页/节/表图/段号、逐字引文、派生公式）；`change_log.md`/`diff_map.md`（原段定位、改后段号、
-保留/压缩/删除/改写/降级、理由）；`glossary.csv`/`terms_and_limits.md`（术语锁、缩写展开、禁用
-升级词、待确认）；`qa.md`（指标、篇幅计数、复算命令、输入哈希、异常与剩余限制）；其他格式附件
-（DOCX/幻灯片/图示须附真实 PDF/PNG 预览）。**定位格式**：`文件名 | PDF物理页x（印刷页y） | 节/表/图 |
-段落 | "逐字引文"`；纯文本 `标题 | 第n自然段 | "逐字引文"`；只写文件名不算有效定位。
+**必需交付物**：`deliverable.md`（完整成稿、段号、必要标题与图表引用）；`result.json`（原契约全字段、
+`case_id`、状态、主结果、来源、不确定性、修改记录，`python -m json.tool` 可解析）；
+`retained_facts.json`/`evidence_map.csv`（事实 ID、输出段号、来源文件、页/节/表图/段号、逐字引文、
+派生公式）；`change_log.md`/`diff_map.md`（原段定位、改后段号、保留/压缩/删除/改写/降级、理由）；
+`glossary.csv`/`terms_and_limits.md`（术语锁、缩写展开、禁用升级词、待确认）；`qa.md`（指标、篇幅
+计数、复算命令、输入哈希、异常与剩余限制）；其他格式附件（DOCX/幻灯片/图示须附真实 PDF/PNG 预览）。
+**定位格式**：`文件名 | PDF物理页x（印刷页y） | 节/表/图 | 段落 | "逐字引文"`；纯文本
+`标题 | 第n自然段 | "逐字引文"`；只写文件名不算有效定位。
 
 **专家检查表（逐项通过方可交付）**：
 
