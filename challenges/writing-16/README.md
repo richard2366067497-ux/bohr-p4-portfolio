@@ -13,7 +13,6 @@
 
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --work /app/work --output /app/output
-python3 scripts/main.py all --input /input --work /app/work --output /app/output   # 包内相对写法
 ```
 
 五命令主路径（Agent 增强路径）：
@@ -33,8 +32,8 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck # 复检产物：契约�
   `environment/resources.yaml`。
 - 环境变量 `SKILL_INPUT` / `SKILL_WORK` / `SKILL_OUTPUT` 可覆盖默认目录（与 `--input/--work/--output` 等价）。
 - 输出目录不可写时自动退到包旁的 `work/`、`output/`，并把该降级写进 `degradations`。
-- 支持 `.md .txt .json .csv .tsv .tex .rst .bib` 文本，以及 PDF/DOCX/XLSX/图片的可用文本层；
-  解析不了的类型只降级、不报错，并记入 `degradations` 与 `sources`。
+- 支持 `.md .txt .json .csv .tsv .tex .rst .bib` 文本，以及 PDF/DOCX/XLSX/图片的可用文本层；解析不了
+  的类型只降级、不报错，并记入 `degradations` 与 `sources`。
 
 ## 3. 自检（SELFTEST，可复算）
 
@@ -55,7 +54,7 @@ python scripts/eval_sim.py --pkg work/p4/v10/writing-16 --case work/p4/synth_cas
 
 - 不做统计推断、不补源文之外的数据、不代写结论；缺口进 `uncertainty` / `open_questions`。
 - 兜底稿（无工作稿）只做逐字抽取，`status=partial`，稿首明确标注「未完成受众改写」。
-- 机械守卫用词表+正则，能证明“数字/单位/引用没丢、强度没漂移”，不能证明“文笔最好”；语义质量
-  仍由人工/平台对照。
-- 参考 `GAIN_EVIDENCE.md`（增益对照与运行记录）、`references/expert_playbook.md`（评分口径、框架
-  与检查表；旧 `acceptance-rubric.md` 已并入其中）。
+- 机械守卫用词表+正则，证明“数字/单位/引用没丢、强度没漂移”，不证明“文笔最好”；语义质量仍由人工/
+  平台对照。
+- 参考 `GAIN_EVIDENCE.md`、`references/expert_playbook.md`（评分口径、框架与检查表；旧
+  `acceptance-rubric.md` 已并入其中）。
