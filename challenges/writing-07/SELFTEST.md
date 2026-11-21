@@ -1,4 +1,4 @@
-# SELFTEST — intro-relatedwork-writer（writing-07 v9）
+# SELFTEST — intro-relatedwork-writer（writing-07 v10）
 
 本文件记录 **2026-11-21** 用 `scripts/eval_sim.py` 对 rich / boundary 两个合成用例 ×
 single / agent 两种模式做的本地评测结果，以及一次自带材料的功能运行。所有评测均为
@@ -7,13 +7,13 @@ single / agent 两种模式做的本地评测结果，以及一次自带材料�
 ## 复现命令
 
 ```bash
-python scripts/eval_sim.py --pkg work/p4/v9/writing-07 \
+python scripts/eval_sim.py --pkg work/p4/v10/writing-07 \
   --case work/p4/synth_cases/writing-07/rich     --mode single
-python scripts/eval_sim.py --pkg work/p4/v9/writing-07 \
+python scripts/eval_sim.py --pkg work/p4/v10/writing-07 \
   --case work/p4/synth_cases/writing-07/rich     --mode agent
-python scripts/eval_sim.py --pkg work/p4/v9/writing-07 \
+python scripts/eval_sim.py --pkg work/p4/v10/writing-07 \
   --case work/p4/synth_cases/writing-07/boundary --mode single
-python scripts/eval_sim.py --pkg work/p4/v9/writing-07 \
+python scripts/eval_sim.py --pkg work/p4/v10/writing-07 \
   --case work/p4/synth_cases/writing-07/boundary --mode agent
 ```
 
@@ -64,5 +64,15 @@ near-empty 或占位符文件，并把结果写入 `work/selftest_report.json`�
 result.json、manuscript.md、sources_used.md、claim_map.md、gap_ledger.md、
 contribution_alignment.md、change_log.md、baseline_comparison.md、evidence.json、
 verification.json（共 10 个）。
+
+## v10 复跑与随包方法论
+
+- 新增 `references/expert_playbook.md`（判分要点/公式/领域陷阱/20 项检查表/完整虚构案例）；
+  SKILL.md 增加「执行前必读（专家方法论）」，版本 9.0.0 → 9.1.0。
+- `eval_sim.py` 四组组合（`work/p4/v10/writing-07` × {rich,boundary} × {single,agent}）全 **PASS**，
+  `failures=[] warnings=[]`；rich 契约 5 键（`case.json:output_contract`）、boundary 取
+  `SKILL.md (json sample)`。
+- 单命令实跑（输入 `examples/`）：`exit 0`，10 个产物，`status=partial`（示例材料仅含草稿骨架）。
+- 13 个文件、合计 81,200 B（≤14 文件、≤150KB、单文件 ≤30000 B）；`__pycache__` 已清理。
 
 > 以上为本地模拟评测（`scripts/eval_sim.py`）结果，不代表平台正式分数；正式案例以平台 `/input` 为准。
