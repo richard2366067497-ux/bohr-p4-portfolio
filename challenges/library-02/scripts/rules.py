@@ -1,16 +1,13 @@
-# -*- coding: utf-8 -*-
 """rules.py - term scoring, hard filters, dedupe/version chains and deterministic retrieval."""
 import os
 import re
 from pathlib import Path
-
 YEAR_RE = re.compile(r"(?<!\d)(20\d{2}|19[89]\d)(?!\d)")
 VER_RE = re.compile(r"(?i)(?:\bv(?:er(?:sion)?)?\s*[-_.]?(\d+(?:\.\d+)*)\b|\brev(?:ision)?\s*[-_.]?(\d+)\b"
                     r"|第\s*(\d+)\s*版|\br(\d+)\b)")
 FINAL_RE = re.compile(r"(?i)(final|submitted|accepted|published|终版|定稿|最终|已提交)")
 BATCH_RE = re.compile(r"(?i)\b(?:batch|批次|lot|run)[-_\s]?([A-Z]?\d{1,4})\b")
 PROJ_RE = re.compile(r"(?i)\b(?:project|proj|项目)[-_\s]?(?:no\.?|编号)?[-_\s]?([A-Z]{1,4}[-_]?\d{2,6})\b")
-
 FKEY = {"year": "year", "年份": "year", "年": "year", "date": "year", "time": "year",
         "时间": "year", "pub_year": "year", "published": "year",
         "type": "type", "类型": "type", "格式": "type", "format": "type", "ext": "type",
@@ -26,7 +23,6 @@ FKEY = {"year": "year", "年份": "year", "年": "year", "date": "year", "time":
 TYPE_WORD = re.compile(r"(?i)\b(pdf|docx?|xlsx?|pptx?|csv|txt|markdown|md|tex|json|png|jpe?g|"
                        r"扫描件|图片)\b")
 OPS = (">=", "<=", "!=", "==", "=>", "=<", "=", ">", "<")
-
 def lk(d, keys, default=None):
     if not isinstance(d, dict):
         return default
@@ -36,13 +32,10 @@ def lk(d, keys, default=None):
         if kk in low and low[kk] not in (None, "", [], {}):
             return low[kk]
     return default
-
 def norm_type_word(w):
     w = str(w).lower().strip(".")
     return {"doc": "docx", "xls": "xlsx", "ppt": "pptx", "markdown": "md",
             "扫描件": "pdf", "图片": "image"}.get(w, w)
-
-# ---------------------------------------------------------------- path metadata
 def meta_from_name(rel):
     s = str(rel)
     out = {"sources": {}}
@@ -66,7 +59,6 @@ def meta_from_name(rel):
         out["project"] = m.group(1)
         out["sources"]["project"] = "path"
     return out
-
 def merge_declared(decl, rel):
     out = {"year": None, "version": None, "project": None, "batch": None, "tags": [], "sources": {}}
     guess = meta_from_name(rel)
@@ -89,8 +81,6 @@ def merge_declared(decl, rel):
     elif isinstance(tg, str):
         out["tags"] = [t.strip() for t in re.split(r"[,;、]", tg) if t.strip()]
     return out
-
-# ---------------------------------------------------------------- filter parsing
 def _cond(key, value, op=None):
     k = FKEY.get(str(key).strip().lower()) or FKEY.get(str(key).strip())
     if not k:
@@ -109,7 +99,6 @@ def _cond(key, value, op=None):
     if k == "type":
         s = norm_type_word(s)
     return {"key": k, "op": op2 or "=", "value": s, "raw": f"{key} {op2 or '='} {s}"}
-
 def _cond_str(part):
     part = part.strip()
     if not part:
@@ -143,7 +132,6 @@ def _cond_str(part):
     if ty:
         return [{"key": "type", "op": "=", "value": norm_type_word(ty.group(1)), "raw": part}]
     return [{"key": "unparsed", "op": "=", "value": part, "raw": part}]
-
 def parse_filters(raw):
     conds = []
     if raw in (None, "", [], {}):
@@ -172,11 +160,8 @@ def parse_filters(raw):
         for part in re.split(r"[;,、]|\band\b|\bAND\b", raw):
             conds.extend(_cond_str(part))
     return [c for c in conds if c]
-
 def filter_text(c):
     return f"{c['key']}{c['op']}{c['value']}" if c["op"] != "in" else f"{c['key']} in {c['value']}"
-
-# ---------------------------------------------------------------- filter evaluation
 def doc_attrs(doc):
     md = doc.get("meta") or {}
     a = {"year": md.get("year"), "version": doc.get("version") or md.get("version"),
@@ -191,7 +176,6 @@ def doc_attrs(doc):
     if a["year"] is None and doc.get("mtime_year"):
         a["year"] = doc["mtime_year"]
     return a
-
 def _cmp(op, have, want):
     if op == "in":
         wants = [str(w).lower() for w in (want if isinstance(want, (list, tuple)) else [want])]
@@ -213,10 +197,8 @@ def _cmp(op, have, want):
             return op in (">=", "<=")
         return a > b if op in (">", ">=") else a < b
     return False
-
 def _natkey(s):
     return [(0, int(t)) if t.isdigit() else (1, t.lower()) for t in re.split(r"(\d+)", str(s or ""))]
-
 def eval_filters(conds, doc):
     attrs = doc_attrs(doc)
     fails = []
@@ -235,7 +217,6 @@ def eval_filters(conds, doc):
             fails.append({"filter": c["raw"], "reason": "mismatch",
                           "detail": f"{k}={have!r} 不满足 {op} {want!r}"})
     return (not fails), fails
-
 def filter_ledger(conds, docs):
     rows = []
     for c in conds:
@@ -257,7 +238,6 @@ def filter_ledger(conds, docs):
                                          + ", ".join(removed[:5]) if removed else
                                          "放宽后无额外命中")})
     return rows
-
 def apply_all(conds, docs):
     allowed, blocked = [], {}
     for d in docs:
@@ -267,11 +247,8 @@ def apply_all(conds, docs):
         else:
             blocked[d.get("doc_id")] = f
     return allowed, blocked, bool(allowed)
-
-# ---------------------------------------------------------------- duplicates / versions
 COPY_RE = re.compile(r"(?i)(?:^|[\s_\-.])copy(?:[\s_\-.]|$)|copy\s*of|duplicate|backup|\bbak\b|"
                      r"副本|拷贝|复制件")
-
 def base_key(rel):
     s = Path(str(rel)).name.lower()
     s = re.sub(r"\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|tsv|json|tex|png|jpe?g|tiff?)$", "", s)
@@ -283,7 +260,6 @@ def base_key(rel):
                r"\1", s)
     s = re.sub(r"[\s_\-.]+", "", s)
     return s or Path(str(rel)).stem.lower()
-
 def ver_rank(doc):
     v = str(doc.get("version") or (doc.get("meta") or {}).get("version") or "")
     if not v:
@@ -292,18 +268,15 @@ def ver_rank(doc):
         return (9999,)
     nums = re.findall(r"\d+", v)
     return tuple(int(x) for x in nums) if nums else (0,)
-
 def _tokens(doc):
     txt = (doc.get("_head") or " ".join(p.get("text", "")[:120] for p in (doc.get("paragraphs") or [])[:4])
            or "")[:1600].lower()
     return set(re.findall(r"[a-z0-9一-龥]{2,}", txt))
-
 def _sim(a, b):
     ta, tb = _tokens(a), _tokens(b)
     if not ta or not tb:
         return 0.0
     return len(ta & tb) / float(len(ta | tb))
-
 def dedupe(docs):
     groups, excluded = [], []
     by_sha = {}
@@ -311,13 +284,11 @@ def dedupe(docs):
         if d.get("status") not in ("ok", "low_text_quality") or not d.get("sha256"):
             continue
         by_sha.setdefault(d["sha256"], []).append(d)
-
     def pref(g):
         return sorted(g, key=lambda d: (bool(d.get("declared")),
                                         0 if COPY_RE.search(d.get("path", "")) else 1,
                                         ver_rank(d), -len(d.get("path", "")),
                                         str(d.get("doc_id"))))[-1]
-
     for sha, g in by_sha.items():
         if len(g) < 2:
             continue
@@ -371,11 +342,8 @@ def dedupe(docs):
                               "members": [{"doc_id": d.get("doc_id"), "path": d.get("path"),
                                            "sha256_16": d.get("sha256_16")} for d in g]})
     return groups, excluded, conflicts
-
-# ---------------------------------------------------------------- retrieval (deterministic candidates)
 def _nw(s):
     return re.sub(r"\s+", " ", str(s or "").replace("\u3000", " ").replace("\u00a0", " ")).strip()
-
 SYN = {
     "buffer": ["缓冲液", "缓冲", "pbs", "tris", "hepes"],
     "缓冲液": ["buffer", "pbs", "tris", "hepes"],
@@ -404,17 +372,13 @@ SYN = {
     "参考文献": ["references", "bibliography"],
     "project": ["项目", "项目编号", "proj"],
 }
-
-# ---------------------------------------------------------------- retrieval
 def q_terms(q, extra=None):
     terms = {}
-
     def add(t, w):
         t = _nw(t).lower()
         if len(t) < 2:
             return
         terms[t] = max(terms.get(t, 0.0), w)
-
     low = q.lower()
     for tok in re.findall(r"[A-Za-z][A-Za-z0-9\-_.]{2,}", q):
         add(tok, 1.3)
@@ -431,7 +395,6 @@ def q_terms(q, extra=None):
             for v in vs:
                 add(v, 1.2)
     return terms
-
 def score_para(text, terms, phrase=None):
     low = text.lower()
     s, hits, toks = 0.0, [], None
@@ -450,7 +413,6 @@ def score_para(text, terms, phrase=None):
     if phrase and len(phrase) > 6 and phrase.lower() in low:
         s += 2.0
     return round(s, 4), hits
-
 def search(index, question, conds, extra=None, k=8):
     docs = index.get("docs") or []
     allowed, blocked, ok = apply_all(conds, docs)
