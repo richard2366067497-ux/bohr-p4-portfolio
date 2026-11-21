@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif">
+<rect id="bg" x="0" y="0" width="1600" height="1000" fill="#FFFFFF"/>
+<g id="layer-title">
+<text x="800.0" y="74.0" font-size="25" font-weight="bold" text-anchor="middle" fill="#1B2A33">Mechanism figure (draft not supplied - degraded from workorder/material)</text>
+<text x="800.0" y="100.0" font-size="14" text-anchor="middle" fill="#5D6D7E">status=partial: entity types, arrow semantics and compartments are unconfirmed</text>
+</g>
+<g id="layer-compartments">
+<rect x="48.0" y="132.0" width="1504.0" height="744.0" rx="4" fill="#FAFBFC" stroke="#D5DBDF" stroke-width="1"/>
+<text x="60.0" y="156.0" font-size="15" font-weight="bold" fill="#37474F">Cytoplasm</text>
+</g>
+<g id="layer-entities">
+<g id="ent-x" data-entity-type="unspecified" data-compartment="cytoplasm" data-italic="false" data-locator="task.md#para7" data-quote="现有 AI Agent 或工具在“生物机制图与通路图”场景中的常见问题，主要不是画不出来，而是画得像却不对：把输入句子里的名词平铺成一圈节点，节点之间随意连线，不区分激活与抑制；" data-quote-status="verbatim">
+<rect x="694.0" y="477.0" width="212.0" height="54.0" rx="9" fill="#ECEFF1" stroke="#546E7A" stroke-width="1.3"/>
+<text x="800.0" y="504.0" font-size="15" text-anchor="middle" fill="#102A33">不区分</text>
+</g>
+</g>
+<g id="layer-edges">
+<g id="rel-r1" data-relation-type="activation" data-from="x" data-to="x" data-direction="forward" data-evidence="mined" data-locator="task.md#para7" data-quote="现有 AI Agent 或工具在“生物机制图与通路图”场景中的常见问题，主要不是画不出来，而是画得像却不对：把输入句子里的名词平铺成一圈节点，节点之间随意连线，不区分激活与抑制；" data-quote-status="verbatim">
+<polyline points="694.0,504.0 800.0,504.0 800.0,504.0 906.0,504.0" fill="transparent" stroke="#1F6FB2" stroke-width="2.4" stroke-linejoin="round"/>
+<polygon points="906.0,504.0 895.0,508.6 895.0,499.4" fill="#1F6FB2" stroke="#1F6FB2" stroke-width="1.0"/>
+</g>
+</g>
+<g id="layer-labels">
+</g>
+<g id="layer-legend">
+<line x1="48" y1="876.0" x2="1552" y2="876.0" stroke="#CFD8DC" stroke-width="1"/>
+<text x="48" y="898.0" font-size="14" font-weight="bold" fill="#37474F">Legend (generated from what the canvas encodes)</text>
+<rect x="48.0" y="910.0" width="18" height="14" rx="3" fill="#ECEFF1" stroke="#546E7A" stroke-width="1"/>
+<text x="76.0" y="922.0" font-size="14" fill="#37474F">entity type: unspecified</text>
+<line x1="424.0" y1="917.0" x2="446.0" y2="917.0" stroke="#1F6FB2" stroke-width="2.4"/>
+<polygon points="446.0,917.0 435.0,921.6 435.0,912.4" fill="#1F6FB2" stroke="#1F6FB2" stroke-width="1.0"/>
+<text x="452.0" y="922.0" font-size="14" fill="#37474F">relation type: activation</text>
+</g>
+<g id="layer-notes">
+<text x="48" y="984" font-size="14" fill="#78909C">Every node and edge carries a locator and a verbatim quote in content_map.json; every label stays editable text.</text>
+</g>
+</svg>
