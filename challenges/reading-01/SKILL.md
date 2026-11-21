@@ -80,6 +80,8 @@
 
 ## 4. 单命令（等价入口，one-shot，评测入口）
 
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
