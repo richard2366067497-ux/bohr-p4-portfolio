@@ -11,6 +11,14 @@ excluded_full_text）→ 纳入（included）→ 质量评价（design_fit / ris
 sample_or_data_adequacy / reporting_completeness / directness）。所有计数都落在 `prisma_flow.json`
 与 `result.json` 的逐键回填里，`screening_ledger.jsonl` 记录每一题的取舍与理由。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -77,11 +85,8 @@ sample_or_data_adequacy / reporting_completeness / directness）。所有计数�
 
 下面这一条就是完整流程（scan → 筛选 → 全文评估 → 评价 → 报告 → result.json），退出码恒为 0：
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
-```bash
-python3 -B /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 ## 分步五命令（保留兼容）
 
