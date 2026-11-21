@@ -273,6 +273,19 @@ def discover(root, case=None):
     return docs
 
 
+def baseline_concat(docs):
+    """Verbatim concatenation used by ``--baseline``.
+
+    Deliberately naive: every readable material unit is pasted as-is. There is no
+    claim splitting, no source matching, no evidence grading and no locator, so the
+    result is a deterministic floor against which the Skill output can be compared.
+    """
+    if not docs:
+        return ""
+    return "\n\n".join("<!-- %s -->\n%s" % (d["path"], (d["text"] or "").rstrip())
+                       for d in docs)
+
+
 # ------------------------------------------------------------------ text
 _CJK = re.compile(r"[㐀-䶿一-鿿]")
 _SENT_SPLIT = re.compile(r"(?<=[。！？!?；;])\s*|\n{2,}")
