@@ -60,6 +60,14 @@ outputs:
     - reader/qa_log.json
     - reader/reading_state.json
     - reader/index.html
+references:
+  - references/expert_playbook.md   # 执行前必读：七步框架/可比性分级/公式/容差/陷阱/交付物/防扣分自查表
+  - references/client_contract.md   # 契约键语义、locator 方案、选句与状态口径
+examples:
+  dir: examples
+  case: examples/case.json
+  material: examples/materials/paper.txt
+  expected: "status=answered（含量化结论，可锚定出证据跨度）"
 budgets:
   wall_seconds: 60
   model_requests: 0
