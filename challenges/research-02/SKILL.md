@@ -22,6 +22,14 @@ template, and a selfcheck re-reads every quote at its locator to report the hit 
 When the input has no screenable record the run degrades to an honest no-data result
 instead of inventing literature.
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -66,11 +74,8 @@ any other key gets a real derived sentence).
 Run this single command; with no draft it still writes every artifact and a complete
 `result.json`, and exits 0:
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 ## 2. agent-first 增强路径（可选，质量更高）
 
