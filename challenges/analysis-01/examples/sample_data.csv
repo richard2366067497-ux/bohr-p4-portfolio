@@ -1,0 +1,14 @@
+sample_id,visit,glucose_mg/dL,auc_ug_mL,note
+S01,V1,92,12.4,ok
+S02,V1,-999,9.8,
+S03,V1,,11.2,blank glucose
+S04,V1,105,13.1,
+S05,V1,88,abc,text where a number belongs
+S06,V1,410,15.6,above the dictionary ceiling
+S07,V1,95,10.2,ok
+S07,V1,95.0,10200 ug/L,duplicate key written in a different unit
+S08,V1,100,11.9,
+S09,V1,87,9.4,
+S10,V1,92,12.0,
+S11,V1,93,11.1,
+S12,V1,96,10.9,
