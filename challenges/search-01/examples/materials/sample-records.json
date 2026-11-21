@@ -1,0 +1,36 @@
+{
+  "records": [
+    {
+      "doi": "10.0000/demo.1",
+      "title": "Multi-round query planning improves recall in literature retrieval",
+      "authors": ["A. Demo", "B. Example"],
+      "year": "2023",
+      "venue": "Demo Journal of Retrieval",
+      "abstract": "We study query planning and recall for literature retrieval over a fixed snapshot, showing that multi-round planning raises recall without extra duplicates."
+    },
+    {
+      "doi": "10.0000/demo.1",
+      "title": "Multi-round query planning improves recall in literature retrieval",
+      "authors": ["A. Demo", "B. Example"],
+      "year": "2023",
+      "venue": "Demo Journal of Retrieval",
+      "abstract": "Duplicate entry of the same work, kept here to exercise the dedup step."
+    },
+    {
+      "doi": "10.0000/demo.2",
+      "title": "Deduplication and provenance for candidate sets",
+      "authors": ["C. Sample"],
+      "year": "2022",
+      "venue": "Demo Proceedings",
+      "abstract": "Provenance and deduplication for retrieval candidate sets, with a reproducible locator scheme."
+    },
+    {
+      "doi": "10.0000/demo.3",
+      "title": "Corrosion of magnesium alloys in simulated body fluid",
+      "authors": ["D. Offtopic"],
+      "year": "2021",
+      "venue": "Demo Materials Letters",
+      "abstract": "Unrelated to the research question of this demo case; exercises the excluded branch."
+    }
+  ]
+}
