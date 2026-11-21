@@ -1,457 +1,481 @@
 #!/usr/bin/env python3
-"""main.py -- research-library docket driver (stdlib only).
+# -*- coding: utf-8 -*-
+"""main.py — kb-version-qa command line (library-04 knowledge-base repair + cited QA).
 
-init inventory/extract/families/questions (+ partial result.json) | show registry,
---query [--emit], --template | check draft | build artifacts + result.json | selfcheck.
-Defaults --input /input --output /app/output --work /app/work; exit code always 0.
+  python3 -B scripts/main.py init       # index the library, write a legal partial result.json
+  python3 -B scripts/main.py show       # locator-annotated inventory + retrieval candidates
+  python3 -B scripts/main.py check      # mechanical validation of /app/work/draft.json
+  python3 -B scripts/main.py build      # finalise result.json + artifacts (always exits 0)
+  python3 -B scripts/main.py selfcheck  # re-verify the delivered result.json
+
+Exit code is always 0: a broken draft degrades the delivery, it never kills the run.
 """
+from __future__ import annotations
+
 import argparse
+import csv
 import json
 import os
-import re
 import sys
+import tempfile
 import time
-import traceback
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import lib_index as L
-import lib_check as C
-import lib_contract as K
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import kb  # noqa: E402
+import emit  # noqa: E402
+import parse as P  # noqa: E402
+from parse import human, jdump, jload  # noqa: E402
 
-GEN = "kb-library-docket v1.0.0"
-DOC_FIELDS = ("filename", "rel_path", "path", "kind", "engine", "size", "mode", "sha256", "readable",
-              "n_blocks", "quality", "notes", "family_id", "version_label", "version_rank", "meta_hint")
-
-
-def jwrite(p, o):
-    Path(p).parent.mkdir(parents=True, exist_ok=True)
-    Path(p).write_text(json.dumps(o, ensure_ascii=False, indent=1), encoding="utf-8")
+VERSION = kb.VERSION
+LEVELS = kb.LEVELS
 
 
-def jread(p):
-    return json.loads(Path(p).read_text(encoding="utf-8-sig", errors="replace"))
+# ------------------------------------------------------------------------ paths
+def writable(path):
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+        probe = Path(path) / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except Exception:
+        return False
 
 
-def paths(a):
-    return (Path(a.input or os.environ.get("SKILL_INPUT") or "/input"),
-            Path(a.output or os.environ.get("SKILL_OUTPUT") or "/app/output"),
-            Path(a.work or os.environ.get("SKILL_WORK") or "/app/work"))
+def resolve(args):
+    inp = Path(args.input or os.environ.get("KB_INPUT") or "/input")
+    if not inp.is_dir():
+        inp = Path.cwd() / "input"
+    work = Path(args.work or os.environ.get("KB_WORK") or "/app/work")
+    out = Path(args.out or os.environ.get("KB_OUT") or "/app/output")
+    for cand in (work, Path.cwd() / "work", Path(tempfile.gettempdir()) / "kb_work"):
+        if writable(cand):
+            work = Path(cand)
+            break
+    for cand in (out, Path.cwd() / "output", Path(tempfile.gettempdir()) / "kb_out"):
+        if writable(cand):
+            out = Path(cand)
+            break
+    return inp, work, out
 
 
-# --------------------------------------------------------------------- init
-def cmd_init(a, quiet=False):
-    t0, (inp, out, wk) = time.time(), paths(a)
-    wk.mkdir(parents=True, exist_ok=True)
-    out.mkdir(parents=True, exist_ok=True)
-    errs, degr = [], []
-    case, cpath = L.find_case(inp, errs)
-    cid = str(case.get("case_id") or case.get("id") or case.get("case") or
-              (cpath.parent.name if cpath else "unknown"))
-    jwrite(out / "result.json", K.partial_result(case, cid, errs, GEN))     # legal partial first
-    task_text = ""
-    for cand in (inp / "task.md", inp / "task.txt"):
-        if cand.exists():
-            try:
-                task_text = cand.read_text(encoding="utf-8", errors="replace")
-                break
-            except Exception as e:
-                errs.append({"code": "task_md_unreadable", "detail": repr(e)})
-    mats, skipped = L.scan_input(inp)
-    for s in skipped[:20]:
-        errs.append({"code": "material_skipped", "detail": "%s (%s)" % (s["file"], s["reason"])})
-    docs, paras, texts = {}, {}, {}
-    for i, p in enumerate(mats):
-        did = "D%d" % (i + 1)
-        try:
-            d = L.extract(p)
-        except Exception as e:
-            errs.append({"code": "extract_failed", "detail": "%s: %r" % (p.name, e)})
-            d = {"kind": L.kind_of(p), "engine": "failed", "paras": [], "text": "", "readable": False, "size": 0,
-                 "mode": "", "sha256": "", "n_blocks": 0, "quality": 0.0, "notes": ["extract_failed"]}
-        try:
-            rel = str(p.relative_to(inp))
-        except Exception:
-            rel = p.name
-        d.update(doc_id=did, filename=p.name, rel_path=rel, path=str(p), meta_hint=L.metadata_hints(d))
-        docs[did], paras[did], texts[did] = d, d["paras"], d["text"]
-        degr += ["%s/%s: %s" % (did, p.name, n) for n in d.get("notes") or []]
-    fams, dupes = L.build_families(docs)
-    notes, questions = L.admin_notes(docs), L.find_questions(case, task_text)
-    if questions and all(q.get("derived") for q in questions):
-        degr.append("derived_questions: questions parsed from the instruction, no structured list in case.json")
+def state_path(work):
+    return Path(work) / "index.json"
+
+
+def fingerprint(inp, case_path):
+    """Cheap freshness check so a new/changed input never gets answered from a stale index."""
+    n, newest = 0, 0.0
+    try:
+        for p in Path(inp).rglob("*"):
+            if p.is_file():
+                n += 1
+                newest = max(newest, p.stat().st_mtime)
+    except Exception:
+        pass
+    try:
+        newest = max(newest, Path(case_path).stat().st_mtime if case_path else 0)
+    except Exception:
+        pass
+    return {"files": n, "newest_mtime": round(newest, 1)}
+
+
+# -------------------------------------------------------------------- init stage
+def do_init(args, quiet=False):
+    inp, work, out = resolve(args)
+    degr = []
+    case_path, case_note = kb.find_case(inp, args.case)
+    case = jload(case_path) if case_path else None
+    if not isinstance(case, dict):
+        case = {}
+        degr.append({"stage": "case", "item": "case.json",
+                     "detail": case_note or "case.json missing or not a JSON object",
+                     "impact": "contract/questions/library hints unknown; index still built from the input tree"})
+    roots, root_notes = kb.find_roots(inp, case)
+    raw_q, qkey = kb.find_questions(case)
+    questions = kb.normalise_questions(raw_q)
     if not questions:
-        degr.append("no_questions: inventory and version relations only")
-    if not case:
-        degr.append("case_json_missing_or_invalid: output_contract unknown")
-    if not docs:
-        degr.append("no_materials: no readable material under the input directory")
-    for did, d in docs.items():
-        if d.get("readable") is False:
-            degr.append("%s: unreadable (%s), counted as an evidence gap" % (did, ",".join(d.get("notes") or []) or "read_failed"))
-    idx = {"case_id": cid, "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "case_path": str(cpath or ""),
-           "input_root": str(inp), "docs": {k: dict({f: v.get(f) for f in DOC_FIELDS}, n_paras=len(v["paras"]))
-                                            for k, v in docs.items()},
-           "paras": paras, "texts": texts, "families": fams, "duplicates": dupes, "admin_notes": notes,
-           "questions": questions, "contract_keys": K.contract_keys(case.get("output_contract")),
-           "task_instruction": str(case.get("task_instruction") or "")[:4000]}
-    jwrite(wk / "index.json", idx)
-    res = K.partial_result(case, cid, errs, GEN, stage="init")
-    res.update(degradations=degr,
-               sources=[dict(doc_id=k, file=v["filename"], kind=v["kind"], sha256=v["sha256"], engine=v["engine"],
-                             readable=v["readable"]) for k, v in docs.items()],
-               uncertainty=["evidence not adjudicated yet: read with show, author draft.json, then build"],
-               pending_human=["read the materials, author %s, then run check and build" % (wk / "draft.json")],
-               runtime=dict(skill=GEN, stage="init", seconds=round(time.time() - t0, 2), documents=len(docs),
-                            questions=len(questions), families=len(fams), duplicates=len(dupes)))
-    jwrite(out / "result.json", res)
-    if quiet:
-        return 0
-    print("== registry (%d documents) ==" % len(docs))
-    for k in sorted(docs):
-        d = docs[k]
-        print("%s | %-34s | %-5s | %8d B | sha %s | %s v%s | %s | %d paras%s" % (
-            k, d["filename"][:34], d["kind"], d["size"], (d["sha256"] or "")[:8], d.get("family_id"),
-            d.get("version_rank"), "readable" if d["readable"] else "UNREADABLE", len(d["paras"]),
-            (" | " + ",".join(d["notes"])) if d.get("notes") else ""))
-    print("== families ==")
-    for f in fams:
-        print("%s | members=%s | canonical=%s | %s" % (f["family_id"], ",".join(f["members"]),
-                                                       f["canonical_doc"], f["basis"][:90]))
-    for g in dupes:
-        print("dup | keep %s / drop %s (%s)" % (g["keep"], ",".join(g["drop"]), g["basis"]))
-    if notes:
-        print("== administrative version notes (top %d) ==" % min(len(notes), 8))
-        for n in notes[:8]:
-            print("%s `%s` mentions=%s :: %s" % (n["doc_id"], n["locator"], ",".join(n["mentions"]) or "-",
-                                                 n["quote"][:150]))
-    print("== questions (%d) ==" % len(questions))
-    for q in questions:
-        print("%s | %s%s" % (q["qid"], q["question"][:150], "  [derived]" if q.get("derived") else ""))
-    print("== next == show --doc D1 | show --query '<kw>' --emit | show --template -> draft.json -> check -> build")
-    if degr:
-        print("degradations: " + "; ".join(degr[:6]))
-    return 0
-
-
-# --------------------------------------------------------------------- show
-def cmd_show(a):
-    _, _, wk = paths(a)
-    if not (wk / "index.json").exists():
-        cmd_init(a, quiet=True)
-    idx = jread(wk / "index.json")
-    docs, paras = idx.get("docs") or {}, idx.get("paras") or {}
-    if a.template:
-        tpl = {"case_id": idx.get("case_id"), "library": {
-            "documents": [{"doc_id": k, "family_id": docs[k].get("family_id"), "version": "",
-                           "version_rank": docs[k].get("version_rank"),
-                           "role": "unreadable" if docs[k].get("readable") is False else "",
-                           "title": (docs[k].get("meta_hint") or {}).get("title_hint", "")[:120],
-                           "metadata": {"authors": "", "year": (docs[k].get("meta_hint") or {}).get("year_hint", ""),
-                                        "doi": (docs[k].get("meta_hint") or {}).get("doi_hint", ""), "venue": ""},
-                           "notes": ""} for k in sorted(docs)],
-            "families": [{"family_id": f["family_id"], "canonical_doc": f["canonical_doc"], "members": f["members"],
-                          "basis": f["basis"]} for f in idx.get("families") or []],
-            "duplicates": idx.get("duplicates") or [], "repair_actions": []},
-            "questions": [{"qid": q["qid"], "question": q["question"], "issues": [], "answer_draft": ""}
-                          for q in idx.get("questions") or []],
-            "exhibits": [], "version_witness": [], "search_scope": {}, "conflicts": [],
-            "limitations": [], "uncertainty": []}
-        jwrite(wk / "draft.template.json", tpl)
-        print("draft skeleton -> %s (copy to draft.json, fill verdicts/exhibits/scope)" % (wk / "draft.template.json"))
-        return 0
-    if a.query:
-        hits = L.search({k: {"paras": paras.get(k) or []} for k in paras}, a.query, a.top)
-        if not hits:
-            print("(no match for %r; if the library really lacks this topic, verdict=insufficient + record the scope)" % a.query)
-            return 0
-        if a.emit:
-            arr = [{"exhibit_id": "E%d" % n, "doc_id": h["doc_id"], "version": docs[h["doc_id"]].get("version_label") or "",
-                    "locator": h["locator"],
-                    "quote": L.excerpt(h["text"], h["matched"]), "kind": "fact", "polarity": "support",
-                    "page_printed": "", "section": "",
-                    "note": "candidate; set kind/polarity after reading"}
-                   for n, h in enumerate(hits, 1)]
-            print(json.dumps(arr, ensure_ascii=False, indent=1))
-            return 0
-        for h in hits:
-            print("[%s %s score=%.2f family=%s] %s" % (h["doc_id"], h["locator"], h["score"],
-                                                      docs.get(h["doc_id"], {}).get("family_id"),
-                                                      L.norm(h["text"])[:700]))
-        print("-- %d hit(s); --emit gives ready-to-paste exhibit JSON" % len(hits))
-        return 0
-    if a.doc:
-        if a.doc not in paras:
-            print("unknown doc_id %r; available: %s" % (a.doc, ", ".join(sorted(docs))))
-            return 0
-        ps = paras[a.doc]
-        m = re.match(r"^(\d+)\s*[:,-]\s*(\d+)$", str(a.paras or ""))
-        lo, hi = (int(m.group(1)), int(m.group(2))) if m else (1, len(ps))
-        for p in ps[lo - 1:hi]:
-            print("[%s %s] %s" % (a.doc, p["locator"], p["text"][:1400]))
-        d = docs.get(a.doc, {})
-        print("-- %s (%s) family=%s v=%s readable=%s: %d paragraphs, showed %d..%d" % (
-            a.doc, d.get("filename"), d.get("family_id"), d.get("version_rank"), d.get("readable"),
-            len(ps), lo, min(hi, len(ps))))
-        return 0
-    if a.families:
-        for f in idx.get("families") or []:
-            print("%s | members=%s | canonical=%s | %s" % (f["family_id"], ",".join(f["members"]),
-                                                           f["canonical_doc"], f["basis"]))
-        print("-- duplicates: %s" % json.dumps(idx.get("duplicates") or [], ensure_ascii=False))
-        return 0
-    print("== registry ==")
-    for k in sorted(docs):
-        d = docs[k]
-        print("%s | %-32s | %-5s | %7s B | sha %s | %s v%s | %s | %s paras | %s" % (
-            k, d["filename"][:32], d["kind"], d.get("size"), (d.get("sha256") or "")[:8], d.get("family_id"),
-            d.get("version_rank"), "readable" if d.get("readable") else "UNREADABLE", d.get("n_paras"),
-            ",".join(d.get("notes") or []) or "-"))
-    print("== questions ==")
-    for q in idx.get("questions") or []:
-        print("%s | %s" % (q["qid"], q["question"][:140]))
-    return 0
-
-
-# -------------------------------------------------------------------- check
-def cmd_check(a):
-    _, _, wk = paths(a)
-    if not (wk / "index.json").exists():
-        cmd_init(a, quiet=True)
-    idx = jread(wk / "index.json")
-    dp = Path(a.draft) if a.draft else wk / "draft.json"
-    if not dp.exists():
-        rep = {"ok": False, "counts": {"documents": len(idx.get("docs") or {})}, "warnings": [],
-               "errors": [{"code": "no_draft", "where": str(dp),
-                           "detail": "draft missing: read with show, author it, rerun check"}]}
-        jwrite(wk / "check_report.json", rep)
-        print("FIX [no_draft] %s (tip: show --template writes a skeleton)" % dp)
-        return 0
+        degr.append({"stage": "questions", "item": "questions",
+                     "detail": "no question list recovered from case.json (tried questions/queries/tasks/...)",
+                     "impact": "answers[] stays empty until a question list or draft supplies one"})
+    docs, chunks, relations, errors, skipped, aux = kb.build_index(
+        inp, case_path, case, roots, {"degradations": degr})
+    diffs = []
     try:
-        draft = jread(dp)
-    except Exception as e:
-        rep = {"ok": False, "counts": {}, "warnings": [],
-               "errors": [{"code": "draft_json_invalid", "where": str(dp), "detail": repr(e)}]}
-        jwrite(wk / "check_report.json", rep)
-        print("FIX [draft_json_invalid] %s" % repr(e))
-        return 0
-    rep = C.validate(draft, idx)
-    jwrite(wk / "check_report.json", rep)
-    cn = rep.get("counts") or {}
-    print("ok=%s docs=%s questions=%s issues=%s exhibits=%s quote_pass=%s locator_pass=%s verdicts=%s errors=%d warnings=%d" % (
-        rep.get("ok"), cn.get("documents"), cn.get("questions"), cn.get("issues"), cn.get("exhibits"),
-        cn.get("quote_pass_rate"), cn.get("locator_pass_rate"),
-        json.dumps(cn.get("verdicts") or {}, ensure_ascii=False), len(rep["errors"]), len(rep["warnings"])))
-    for e in rep["errors"][:14]:
-        print("FIX [%s] %s :: %s" % (e.get("code"), e.get("where"), e.get("detail")))
-    for w in rep["warnings"][:8]:
-        print("note [%s] %s :: %s" % (w.get("code"), w.get("where"), w.get("detail")))
-    return 0
-
-
-# -------------------------------------------------------------------- build
-def cmd_build(a):
-    t0, (inp, out, wk) = time.time(), paths(a)
-    out.mkdir(parents=True, exist_ok=True)
-    errs, degr, pend = [], [], []
-    case, cpath = L.find_case(inp, errs)
-    cid0 = str(case.get("case_id") or case.get("id") or (cpath.parent.name if cpath else "unknown"))
-    jwrite(out / "result.json", K.partial_result(case, cid0, errs, GEN))    # legal partial first, always
-    idx = {}
-    if (wk / "index.json").exists():
-        try:
-            idx = jread(wk / "index.json")
-        except Exception as e:
-            errs.append({"code": "index_unreadable", "detail": repr(e)})
-    if not idx.get("docs"):
-        try:
-            cmd_init(a, quiet=True)
-            idx = jread(wk / "index.json")
-            degr.append("index rebuilt during build")
-        except Exception as e:
-            errs.append({"code": "init_failed", "detail": repr(e)})
-            idx = {"case_id": cid0, "docs": {}, "paras": {}, "texts": {}, "families": [], "duplicates": [],
-                   "questions": [], "admin_notes": []}
-    cid = idx.get("case_id") or cid0
-    dp = Path(a.draft) if a.draft else wk / "draft.json"
-    draft, dsrc = {}, ""
-    if dp.exists():
-        try:
-            draft = jread(dp)
-            dsrc = str(dp)
-        except Exception as e:
-            errs.append({"code": "draft_json_invalid", "detail": "%s: %s" % (dp, e)})
-            degr.append("draft unreadable: automatic classification only, no adjudicated evidence")
-    if not draft or not isinstance(draft, dict):
-        draft = K.auto_draft(idx, degr)
-        pend.append("read the materials and author %s" % dp)
-    draft.setdefault("case_id", cid)
-    if not draft.get("search_scope"):
-        chunks = sum(len(v) for v in (idx.get("paras") or {}).values())
-        draft["search_scope"] = {q.get("qid"): {"files": sorted(idx.get("docs") or {}), "keywords": [],
-                                                "synonyms": [], "chunks_scanned": chunks}
-                                 for q in draft.get("questions") or []}
-        if not draft.get("_auto"):
-            degr.append("search_scope absent in draft: filled with the whole scanned scope (judgement pending)")
-    rep = C.validate(draft, idx)
-    files, stats = C.render(idx, draft, out, GEN, "partial", errs, degr)
-    S, cnt = C._draft_sections(draft), rep.get("counts") or {}
-    verdicts = cnt.get("verdicts") or {}
-    answered = len([q for q in S["questions"] if L.norm(q.get("answer_draft"))])
-    blocked = verdicts.get("insufficient", 0) + verdicts.get("out_of_scope", 0)
-    status = "partial" if (draft.get("_auto") or blocked or not answered or rep["errors"] or degr) else "ok"
-    if not (idx.get("docs") or {}):
-        errs.append({"code": "no_materials", "detail": "no readable material under input"})
-        status = "failed" if not case else "partial"
-        pend.append("no readable material under the input directory; the inventory is empty")
-    lib = jread(out / "library_index.json")
-    records = lib.get("documents") or []
-    report_txt = (out / "report.md").read_text(encoding="utf-8") if (out / "report.md").exists() else ""
-    base = {
-        "case_id": cid, "status": status, "library_index": records, "documents": records,
-        "duplicates": S["duplicates"] or idx.get("duplicates") or [],
-        "version_witness": jread(out / "version_witness.json"),
-        "metadata": [{"doc_id": r["doc_id"], "title": r.get("title"), "metadata": r.get("metadata")} for r in records],
-        "permissions": [{"doc_id": r["doc_id"], "path": r.get("rel_path"), "mode": r.get("mode"),
-                         "readable": r.get("readable")} for r in records],
-        "sources": [dict(doc_id=k, file=v.get("filename"), kind=v.get("kind"), sha256=v.get("sha256"),
-                         engine=v.get("engine"), readable=v.get("readable")) for k, v in (idx.get("docs") or {}).items()],
-        "answers": [{"qid": q.get("qid"), "question": q.get("question"),
-                     "answer": C._disp(q.get("answer_draft") or q.get("answer")),
-                     "issues": q.get("issues") or [],
-                     "verdicts": [i.get("verdict") for i in (q.get("issues") or [])]} for q in S["questions"]],
-        "exhibits": K.load_register(out / "exhibits" / "exhibit_register.jsonl"),
-        "conflicts": S["conflicts"],
-        "not_found": [{"qid": str(q.get("qid")), "issue": i.get("issue_text"),
-                       "missing_evidence": C._disp(i.get("missing_evidence")),
-                       "searched_files": (S["scope"].get(str(q.get("qid"))) or {}).get("files") or [],
-                       "searched_keywords": (S["scope"].get(str(q.get("qid"))) or {}).get("keywords") or []}
-                      for q in S["questions"] for i in (q.get("issues") or [])
-                      if L.norm(i.get("verdict")) in ("insufficient", "out_of_scope")],
-        "repair_actions": S["actions"],
-        "coverage": dict(cnt, available_paragraphs=sum(len(v) for v in (idx.get("paras") or {}).values()),
-                         admin_notes=len(idx.get("admin_notes") or [])),
-        "summary": report_txt[:12000],
-        "method": ("init inventories every file (sha256/type/permissions) and extracts locator-bearing paragraphs; "
-                   "duplicates group by hash identity and shingle similarity, version families by those plus filename "
-                   "version tokens and administrative notes; the Agent adjudicates each issue with verbatim exhibits "
-                   "(doc_id + version + locator), registers counter-exhibits and states missing evidence with the searched "
-                   "scope; build verifies quote/locator agreement and numeric anchoring."),
-        "artifacts": files + ["result.json"],
-        "uncertainty": (S["uncertainty"] or []) + [i.get("missing_evidence") for q in S["questions"]
-                                                   for i in (q.get("issues") or []) if L.norm(i.get("missing_evidence"))][:8],
-        "pending_human": pend + ["spot-check 3 exhibits: show --doc <id> --paras <n>:<n>"],
+        diffs = kb.version_diffs(docs, chunks, relations)
+    except Exception as exc:
+        degr.append({"stage": "version_diff", "item": "diff", "detail": f"{type(exc).__name__}: {exc}",
+                     "impact": "no cross-version diff hints"})
+    for d in docs:
+        if not d["readable"]:
+            degr.append({"stage": "parse", "item": d["doc_id"], "doc_id": d["doc_id"], "path": d["path"],
+                         "detail": d.get("note") or "no extractable text",
+                         "impact": "content not searchable; treat as missing evidence, never invent content"})
+    contract = case.get("output_contract") if isinstance(case.get("output_contract"), dict) else {}
+    if not contract:
+        for k in ("contract", "output_schema", "deliverable"):
+            if isinstance(case.get(k), dict):
+                contract = case[k]
+                degr.append({"stage": "contract", "item": k,
+                             "detail": f"output_contract absent; using case.json['{k}']",
+                             "impact": "contract fields filled from an equivalent key"})
+                break
+    task_md = inp / "task.md"
+    state = {
+        "version": VERSION, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "input": str(inp), "work": str(work), "out": str(out),
+        "case_path": str(case_path) if case_path else None,
+        "case_id": case.get("case_id") or case.get("id") or case.get("caseId"),
+        "task_instruction": str(case.get("task_instruction") or case.get("instruction")
+                                or case.get("task") or "")[:4000],
+        "task_md": (P.read_text(task_md) or "")[:3000] if task_md.is_file() else "",
+        "contract": contract, "roots": [str(r) for r in roots], "root_notes": root_notes,
+        "questions": questions, "question_key": qkey,
+        "docs": docs, "chunks": chunks, "relations": relations, "diffs": diffs,
+        "errors": errors, "skipped": skipped,
+        "aux": [{"source": a.get("source"), "key": a.get("key"),
+                 "records": len(a.get("records") or []), "text": (a.get("text") or "")[:1500]} for a in aux],
+        "fingerprint": fingerprint(inp, case_path),
+        "degradations": degr,
+        "sources": [{"doc_id": d["doc_id"], "path": d["path"], "sha256": d["sha256"],
+                     "type": d["type"], "size": d["size"], "permission": d["permission"]} for d in docs],
     }
-    res, missing = K.fill_contract(case, base, errs)
-    res.update(case_id=cid, status=status, sources=base["sources"],
-               errors=errs + ([] if draft.get("_auto") else rep["errors"]),
-               degradations=degr + ([] if not missing else ["contract fields with no matching content: %s" % ", ".join(missing)]),
-               uncertainty=base["uncertainty"], pending_human=base["pending_human"],
-               changes=[dict(step="init", to="work/index.json"),
-                        dict(step="build", source=dsrc or "(auto fallback)", to=files + ["result.json"]),
-                        dict(step="contract", resolved=len(K.contract_keys(case.get("output_contract"))) - len(missing),
-                             total=len(K.contract_keys(case.get("output_contract"))))],
-               runtime=dict(skill=GEN, stage="build", seconds=round(time.time() - t0, 2), documents=stats["documents"],
-                            questions=stats["questions"], exhibits=stats["exhibits"], issues=stats["issues"],
-                            families=stats["families"], duplicates=stats["duplicates"], verdicts=verdicts,
-                            check_ok=rep.get("ok"), auto_fallback=bool(draft.get("_auto"))))
-    jwrite(out / "result.json", res)
-    print("status=%s docs=%d families=%d duplicates=%d questions=%d issues=%d exhibits=%d verdicts=%s check_ok=%s" % (
-        status, stats["documents"], stats["families"], stats["duplicates"], stats["questions"], stats["issues"],
-        stats["exhibits"], json.dumps(verdicts, ensure_ascii=False), rep.get("ok")))
-    print("artifacts:", ", ".join(files + ["result.json"]))
-    print("unfilled contract:", missing or "none")
-    if errs or rep["errors"]:
-        print("errors:", json.dumps(errs[:5] or rep["errors"][:5], ensure_ascii=False))
+    jdump(state_path(work), state)
+    payload = emit.assemble(state, None)
+    jdump(Path(out) / "result.json", payload)
+    jdump(Path(out) / "kb_index.json", index_view(state))
+    write_inventory(out, state)
+    if not quiet:
+        print(f"[kb-version-qa {VERSION}] init: input={inp} work={work} out={out}")
+        print(f"  case={state['case_id']} docs={len(docs)} chunks={len(chunks)} questions={len(questions)} "
+              f"families={len(relations)} contract_keys={len(contract)}")
+        unread = [d["doc_id"] for d in docs if not d["readable"]]
+        print(f"  unreadable={unread or 'none'} duplicates={len([d for d in docs if d['dup_of']])} "
+              f"degradations={len(degr)}")
+        print("  next: python3 -B scripts/main.py show   then write /app/work/draft.json")
+    return state
+
+
+def index_view(state):
+    return {"generated_at": state["generated_at"], "case_id": state["case_id"], "roots": state["roots"],
+            "documents": state["docs"], "version_relations": state["relations"],
+            "version_diff_candidates": state["diffs"], "questions": state["questions"],
+            "sidecars": state["aux"], "duplicates": [d["doc_id"] for d in state["docs"] if d["dup_of"]],
+            "unreadable": [d["doc_id"] for d in state["docs"] if not d["readable"]],
+            "counts": {"documents": len(state["docs"]), "chunks": len(state["chunks"]),
+                       "families": len(state["relations"]), "questions": len(state["questions"])}}
+
+
+def write_inventory(out, state):
+    try:
+        path = Path(out) / "inventory.csv"
+        cols = ["doc_id", "path", "dir", "type", "ext", "size", "sha256", "permission", "readable",
+                "no_text_layer", "pages", "chunks", "chars", "family", "version", "dup_of", "note"]
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
+            w.writeheader()
+            for d in state["docs"]:
+                w.writerow({c: d.get(c) for c in cols})
+        return path
+    except Exception:
+        return None
+
+
+def load_state(args):
+    inp, work, out = resolve(args)
+    p = state_path(work)
+    state = jload(p) if p.is_file() else None
+    if isinstance(state, dict):
+        fp = fingerprint(inp, state.get("case_path"))
+        if state.get("fingerprint") == fp:
+            return state, work, out, False
+        print("(input changed since last init: re-indexing)")
+    return do_init(args, quiet=True), work, out, True
+
+
+# -------------------------------------------------------------------- show stage
+def cmd_show(args):
+    state, work, out, built = load_state(args)
+    if built:
+        print("(index was missing: init ran first)")
+    docs, chunks = state["docs"], state["chunks"]
+    print(f"== LIBRARY: {len(docs)} documents, {len(state['relations'])} version families, {len(chunks)} chunks ==")
+    print("doc_id  type   perm      p  version  family                 size      sha16             path")
+    for d in docs:
+        print(f"{d['doc_id']:<7} {d['type']:<6} {d['permission']:<9} {str(d['pages'] or '-'):<2} "
+              f"{str(d['version'] or '-'):<8} {str(d['family'])[:22]:<22} {human(d['size']):>9} "
+              f"{str(d['sha256'] or '')[:16]:<17} {d['path']}")
+        if d.get("aliases") or d.get("metadata"):
+            extra = dict(d.get("metadata") or {})
+            if d.get("aliases"):
+                extra["aliases"] = d["aliases"]
+            print(f"        metadata: {json.dumps(extra, ensure_ascii=False)[:300]}")
+        if not d["readable"]:
+            print(f"        !! not searchable: {d.get('note')}")
+    if state["relations"]:
+        print("\n== VERSION FAMILIES (ordered old -> new; last = current) ==")
+        for r in state["relations"]:
+            print(f"{r['family']}: " + " -> ".join(f"{v['doc_id']}({v['version']})" for v in r["versions"]))
+    if state["diffs"]:
+        print("\n== CROSS-VERSION NUMERIC DIFF CANDIDATES (quote both sides before use) ==")
+        for d in state["diffs"]:
+            print(f"{d['family']} {d['older']}->{d['newer']}: only_older={d['numbers_only_older']} "
+                  f"only_newer={d['numbers_only_newer']}")
+    if state["aux"]:
+        print("\n== METADATA / ALIAS SIDECARS ==")
+        for a in state["aux"]:
+            print(f"- {a['source']} ({a['key']}, {a['records']} records) {a['text'][:200]}")
+    if args.doc:
+        for ch in chunks:
+            if ch["doc_id"].upper() == args.doc.upper():
+                print(f"\n[{ch['chunk_id']} page={ch['page']} section={ch['section']}]\n{ch['text']}")
+        return 0
+    print("\n== QUESTION CANDIDATES (locator + verbatim excerpt; read before answering) ==")
+    qs = state["questions"]
+    if args.question:
+        qs = [q for q in qs if str(q.get("question_id")).upper() == args.question.upper()]
+    if not qs:
+        print("(no questions recovered: answer what task_instruction asks and record it in draft.json)")
+    for q in qs:
+        print(f"\n{q.get('question_id')}: {q.get('question')}")
+        for hit in kb.search(chunks, q.get("question") or "", topk=args.topk,
+                             dup_ids={d["doc_id"] for d in docs if d.get("dup_of")}):
+            sec = f" §{hit['section']}" if hit.get("section") else ""
+            pg = hit["page"] if hit["page"] is not None else "-"
+            print(f"  [{hit['doc_id']} p{pg}{sec} {hit['chunk_id']} score={hit['score']}]")
+            print(f"    {hit['excerpt'][:args.width]}")
+    if args.full:
+        budget = args.budget
+        print("\n== FULL TEXT (chunk by chunk) ==")
+        for d in docs:
+            if not d["readable"]:
+                continue
+            print(f"\n----- {d['doc_id']} {d['path']} (v{d['version']}) -----")
+            for ch in chunks:
+                if ch["doc_id"] != d["doc_id"]:
+                    continue
+                if budget <= 0:
+                    print("(budget exhausted; use --doc D0x for the rest)")
+                    return 0
+                print(f"[{ch['chunk_id']} p{ch['page'] if ch['page'] is not None else '-'} §{ch['section']}] {ch['text']}")
+                budget -= len(ch["text"])
     return 0
 
 
-# ---------------------------------------------------------------- selfcheck
-def cmd_selfcheck(a):
-    _, out, wk = paths(a)
-    checks = []
-
-    def add(name, ok, detail=""):
-        checks.append({"check": name, "ok": bool(ok), "detail": detail})
-
-    try:
-        res = jread(out / "result.json")
-        add("result_json_parses", True, str(out / "result.json"))
-    except Exception as e:
-        res = {}
-        add("result_json_parses", False, repr(e))
-    try:
-        idx = jread(wk / "index.json")
-        add("index_parses", True, "%d docs" % len(idx.get("docs") or {}))
-    except Exception as e:
-        idx = {}
-        add("index_parses", False, repr(e))
-    missing = [k for k in (idx.get("contract_keys") or []) if k not in res]
-    add("contract_keys_present", not missing, "missing: %s" % (missing or "none"))
-    add("case_id_present", bool(res.get("case_id")), str(res.get("case_id")))
-    add("status_valid", res.get("status") in ("ok", "partial", "failed"), str(res.get("status")))
-    for f in ("report.md", "library_index.json", "repair_log.json", "version_witness.json",
-              "conflicts.json", "search_scope.json", "exhibits/exhibit_register.jsonl"):
-        p = out / f
-        ok = p.exists() and (p.stat().st_size > 0 or f.endswith(".jsonl"))
-        add("artifact:%s" % f, ok, "%d bytes" % (p.stat().st_size if p.exists() else 0))
-    bad_q, bad_l, n = [], [], 0
-    for e in K.load_register(out / "exhibits" / "exhibit_register.jsonl"):
-        n += 1
-        did, q, loc = str(e.get("doc_id") or ""), e.get("quote") or "", str(e.get("locator") or "")
-        hits = C.locate_quote((idx.get("paras") or {}).get(did) or [], q)
-        if not hits:
-            bad_q.append(e.get("exhibit_id"))
-        elif loc not in hits:
-            bad_l.append("%s(%s)" % (e.get("exhibit_id"), loc))
-    add("exhibit_quotes_reverify", not bad_q, "%d exhibits, bad=%s" % (n, bad_q[:5] or "none"))
-    add("exhibit_locators_reverify", not bad_l, "mismatch=%s" % (bad_l[:5] or "none"))
-    dockets = sorted((out / "dockets").glob("*/verdict.md")) if (out / "dockets").exists() else []
-    add("dockets_rendered", bool(dockets) or not (idx.get("questions") or []), "%d verdict.md" % len(dockets))
-    ok = all(c["ok"] for c in checks)
-    jwrite(wk / "selfcheck.json", {"ok": ok, "checks": checks})
-    for c in checks:
-        print("%s %-28s %s" % ("PASS" if c["ok"] else "FAIL", c["check"], c["detail"]))
-    print("selfcheck:", "PASS" if ok else "FAIL (details in %s)" % (wk / "selfcheck.json"))
+# ------------------------------------------------------------------- check stage
+def cmd_check(args):
+    state, work, out, built = load_state(args)
+    if built:
+        print("(index was missing: init ran first)")
+    draft, dpath, err = emit.load_draft(work)
+    items, st = emit.verify_draft(state, draft)
+    counts = {lv: len([i for i in items if i["level"] == lv]) for lv in ("FIX", "WARN", "INFO")}
+    jdump(Path(work) / "check_report.json",
+          {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "draft": str(dpath), "draft_error": err,
+           "stats": st, "counts": counts, "items": items})
+    print(f"== CHECK {dpath} ==")
+    if err:
+        print(f"  [FIX] {err}")
+    for it in items[:args.max_items]:
+        print(f"  [{it['level']}] {it.get('item')}: {it['message']}")
+        if it.get("hint"):
+            print(f"        -> {it['hint']}")
+    if len(items) > args.max_items:
+        print(f"  ... {len(items) - args.max_items} more in {Path(work) / 'check_report.json'}")
+    print(f"  claims={st['claims']} evidence={st['evidence']} quote_ok={st['quote_ok']} "
+          f"quote_miss={st['quote_miss']} answered={st['answered']}/{st['questions_expected']}")
+    print(f"  RESULT: {'PASS' if counts['FIX'] == 0 else 'NEEDS_FIX'}  "
+          f"(FIX={counts['FIX']} WARN={counts['WARN']} INFO={counts['INFO']})")
+    if counts["FIX"]:
+        print("  修完再 build；build 不会因 FIX 项崩溃，但会把这些缺口写进 degradations。")
     return 0
+
+
+# ------------------------------------------------------------------- build stage
+def cmd_build(args):
+    state, work, out, built = load_state(args)
+    draft, dpath, err = emit.load_draft(work)
+    payload = emit.assemble(state, draft)
+    written = write_artifacts(payload, state, out)
+    if write_inventory(out, state):
+        written.append("inventory.csv")
+    jdump(Path(out) / "kb_index.json", index_view(state))
+    if "LIBRARY_REPORT.md" not in written:
+        written.append("LIBRARY_REPORT.md")
+    print(f"[kb-version-qa {VERSION}] build: status={payload['status']} docs={payload['counts']['documents']} "
+          f"answers={len(payload['answers'])} claims={payload['counts']['claims']} "
+          f"evidence={payload['counts']['evidence']} quote_hit={payload['counts']['quote_hit_rate']} "
+          f"conflicts={payload['counts']['conflicts']} not_found={payload['counts']['not_found']}")
+    if err:
+        print(f"  (fallback) {err}: 已输出完整最小交付，缺口见 degradations")
+    print(f"  wrote {len(written)} artifacts in {out}: {', '.join(written)}")
+    if payload["degradations"]:
+        print(f"  degradations={len(payload['degradations'])} (see result.json)")
+    return 0
+
+
+def cmd_selfcheck(args):
+    inp, work, out = resolve(args)
+    res = Path(out) / "result.json"
+    payload = jload(res)
+    print(f"== SELFCHECK {res} ==")
+    if not isinstance(payload, dict):
+        print("  [FIX] result.json 缺失或非法 JSON —— 运行 build 重新生成")
+        return 0
+    checks = emit.verify_payload(payload)
+    for k, v in checks.items():
+        print(f"  {k}: {v}")
+    keys = payload.get("contract_keys") or []
+    missing = [k for k in keys if k not in payload]
+    print(f"  contract: {len(keys)} keys, missing={missing or 'none'}")
+    bad = [e for e in (payload.get("evidence") or []) if not e.get("quote_verified")]
+    if bad:
+        print(f"  [FIX] {len(bad)} 条引文未通过逐字校验：{[e.get('claim_id') for e in bad][:5]}")
+    cov = payload.get("coverage") or {}
+    print(f"  coverage: questions {cov.get('answered_from_draft')}/{cov.get('questions_expected')} "
+          f"docs {cov.get('docs_readable')}/{cov.get('docs_indexed')} quote_hit={cov.get('quote_hit_rate')}")
+    print(f"  VERDICT: {'PASS' if checks.get('pass') and not bad else 'PARTIAL'}"
+          + (f" (degraded: {len(payload.get('degradations') or [])})" if payload.get("degradations") else ""))
+    return 0
+
+
+def write_artifacts(payload, state, out):
+    out = Path(out)
+    written = []
+    for name, obj in (("result.json", payload), ("answers.json", {"case_id": payload.get("case_id"),
+                                                                 "answers": payload["answers"]}),
+                      ("conflicts.json", {"conflicts": payload["conflicts"]}),
+                      ("not_found.json", {"not_found": payload["not_found"]}),
+                      ("operations.json", {"operations": payload["operations"]}),
+                      ("kb_stats.json", payload["coverage"])):
+        if P.jdump(out / name, obj):
+            written.append(name)
+    try:
+        with open(out / "evidence.jsonl", "w", encoding="utf-8") as fh:
+            for e in payload["evidence"]:
+                fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+        written.append("evidence.jsonl")
+    except Exception:
+        pass
+    try:
+        (out / "LIBRARY_REPORT.md").write_text(render_report(payload, state), encoding="utf-8")
+        written.append("LIBRARY_REPORT.md")
+    except Exception:
+        pass
+    return written
+
+
+def render_report(payload, state):
+    L = [f"# 科研资料清单与带证问答报告（{payload.get('case_id')}）", "",
+         f"- 状态：`{payload.get('status')}`　运行：kb-version-qa {VERSION}",
+         f"- 输入根：{', '.join(state['roots'])}", f"- 摘要：{payload['summary']['text']}", "",
+         "## 1. 文件清单（真实解析）", "",
+         "| doc_id | 路径 | 类型 | 大小 | 权限 | 可检索 | 页 | 版本 | 族 | sha256(16) |",
+         "|-|-|-|-|-|-|-|-|-|-|"]
+    for d in payload["documents"]:
+        L.append(f"| {d['doc_id']} | {d['path']} | {d['type']} | {human(d['size'])} | {d['permission']} | "
+                 f"{'是' if d['readable'] else '否'} | {d.get('pages') or '-'} | {d.get('version') or '-'} | "
+                 f"{d.get('family') or '-'} | {str(d.get('sha256') or '')[:16]} |")
+    L += ["", "## 2. 六维度自检（文件类型/元数据/目录/重复/版本/权限）", "", "```json",
+          json.dumps(payload["result"]["library"]["six_dimensions"], ensure_ascii=False, indent=1), "```", ""]
+    if payload["version_relations"]:
+        L += ["## 3. 版本关系", ""]
+        for r in payload["version_relations"]:
+            L.append(f"- **{r['family']}**：" + " → ".join(f"{c['doc_id']}({c['version']})" for c in r["chain"])
+                     + f"　当前版 = `{r['current']}`")
+        L.append("")
+    if payload["duplicates"]:
+        L += ["## 4. 重复副本", ""]
+        for d in payload["duplicates"]:
+            L.append(f"- `{d['path']}` 与 `{d['dup_of']}` 字节相同（{d['sha256_16']}）：保留两者并标注，不删原文件")
+        L.append("")
+    L += ["## 5. 问答与证据回链", ""]
+    for a in payload["answers"]:
+        L += [f"### {a['question_id']}　{a.get('question') or ''}", "", a["answer"] or "（无答案文本）", ""]
+        for c in a["claims"]:
+            L.append(f"- **{c['status']}** {c['claim']}")
+            for e in c["evidence"]:
+                L.append(f"    - {e['locator']} \"{e['quote'][:180]}\" verified={e['quote_verified']}")
+        L.append(f"- 不确定性：`{a['uncertainty_level']}`"
+                 + (f"；缺证说明：{a['missing_evidence']}" if a.get("missing_evidence") else ""))
+        L.append("")
+    for title, key, fmt in (("## 6. 证据冲突（双方原话，不取平均）", "conflicts", None),
+                            ("## 7. 知识库无依据的问题", "not_found", None)):
+        if payload[key]:
+            L += [title, ""]
+            for cf in payload[key]:
+                if key == "conflicts":
+                    L.append(f"- **{cf['topic']}**（{cf.get('reason') or '未说明原因'}）")
+                    for sd in cf["sides"]:
+                        L.append(f"    - {sd['doc_id']} v{sd.get('version')} p{sd.get('page')} "
+                                 f"§{sd.get('section')}：\"{sd['quote'][:150]}\"")
+                else:
+                    L.append(f"- {cf['question_id']}：检索范围 {cf.get('searched_scope')}；"
+                             f"缺 {cf.get('missing_evidence')}")
+            L.append("")
+    L += ["## 8. 操作记录（可复跑）", ""]
+    for op in payload["operations"][:60]:
+        L.append(f"- `{op['op']}` {op.get('target')}：{op.get('detail')}")
+    L += ["", "## 9. 降级与限制", ""]
+    if payload["degradations"]:
+        for d in payload["degradations"]:
+            L.append(f"- [{d.get('stage')}] {d.get('item')}：{d.get('detail')} → 影响：{d.get('impact')}")
+    else:
+        L.append("- 无")
+    L += ["", "## 10. 复跑方式", "", "```bash",
+          "python3 -B scripts/main.py init && python3 -B scripts/main.py show",
+          "# 写完 /app/work/draft.json 后：",
+          "python3 -B scripts/main.py check && python3 -B scripts/main.py build "
+          "&& python3 -B scripts/main.py selfcheck", "```", ""]
+    return "\n".join(L)
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="main.py", description="research-library docket (%s)" % GEN)
-    sub = ap.add_subparsers(dest="cmd")
-    for n, h in (("init", "inventory + extract + families + questions (+partial result.json)"),
-                 ("show", "registry / documents / candidates / draft skeleton"),
-                 ("check", "validate the Agent draft"), ("build", "render dockets + finalize result.json"),
-                 ("selfcheck", "re-verify produced artifacts")):
-        q = sub.add_parser(n, help=h)
-        for f in ("--input", "--output", "--work", "--draft"):
-            q.add_argument(f)
-        if n == "show":
-            for f in ("--doc", "--paras", "--query"):
-                q.add_argument(f)
-            for f in ("--emit", "--template", "--families"):
-                q.add_argument(f, action="store_true")
-            q.add_argument("--top", type=int, default=8)
-    a = ap.parse_args(argv)
-    if not a.cmd:
-        ap.print_help()
-        return 0
+    ap = argparse.ArgumentParser(prog="main.py",
+                                 description="kb-version-qa: research knowledge-base inventory + cited QA")
+    ap.add_argument("command", nargs="?", default="init",
+                    choices=["init", "show", "check", "build", "selfcheck"])
+    ap.add_argument("--input", help="input directory (default /input)")
+    ap.add_argument("--work", help="working directory (default /app/work)")
+    ap.add_argument("--out", help="output directory (default /app/output)")
+    ap.add_argument("--case", help="explicit case.json path")
+    ap.add_argument("--doc", help="show: dump one doc_id fully")
+    ap.add_argument("--question", help="show: only this question_id")
+    ap.add_argument("--topk", type=int, default=6)
+    ap.add_argument("--width", type=int, default=400)
+    ap.add_argument("--full", action="store_true", help="show: also dump readable full text")
+    ap.add_argument("--budget", type=int, default=60000, help="show --full character budget")
+    ap.add_argument("--max-items", type=int, default=40)
+    ap.add_argument("--version", action="version", version=f"kb-version-qa {VERSION}")
+    args = ap.parse_args(argv)
+    handlers = {"init": lambda: do_init(args), "show": lambda: cmd_show(args),
+                "check": lambda: cmd_check(args), "build": lambda: cmd_build(args),
+                "selfcheck": lambda: cmd_selfcheck(args)}
     try:
-        {"init": cmd_init, "show": cmd_show, "check": cmd_check, "build": cmd_build,
-         "selfcheck": cmd_selfcheck}[a.cmd](a)
-    except Exception as e:
+        handlers[args.command]()
+    except Exception as exc:  # never fail the harness
+        print(f"[kb-version-qa {VERSION}] {args.command} degraded: {type(exc).__name__}: {exc}")
         try:
-            inp, out, _ = paths(a)
-            out.mkdir(parents=True, exist_ok=True)
-            jwrite(out / "result.json", K.partial_result(
-                L.find_case(inp, [])[0], "unknown",
-                [{"code": "unhandled_exception", "detail": "%s: %s" % (type(e).__name__, e),
-                  "trace": traceback.format_exc()[-800:]}], GEN))
+            _, work, out = resolve(args)
+            p = Path(out) / "result.json"
+            if not p.is_file():
+                jdump(p, {"case_id": None, "status": "failed", "answers": [], "documents": [],
+                          "errors": [{"stage": args.command, "error": f"{type(exc).__name__}: {exc}"}],
+                          "degradations": [{"stage": args.command, "item": "runtime", "detail": str(exc),
+                                            "impact": "minimal envelope only"}],
+                          "coverage": {}, "runtime": {"version": VERSION}})
         except Exception:
             pass
-        print("ERROR %s: %s" % (type(e).__name__, e), file=sys.stderr)
+
+    try:
+        import finalize
+        finalize.run(resolve(args)[2])
+    except Exception:
+        pass
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
