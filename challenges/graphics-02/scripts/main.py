@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """main.py - entry, contract and envelope for graphics-02.
 
-    run | init | check | build | show   (`run` is the single-command entry, see SKILL.md)
+    run | init | show | check | build | selfcheck   (`run` is the single-command entry, see SKILL.md)
 
 One pass discovers the case and its tables (chart.py), binds columns, builds the
 data-to-mark model, paints one canvas and serialises it three ways (draw.py),
@@ -330,12 +330,20 @@ def cmd_show(inp, out, work, style):
     return 0
 
 
+def cmd_selfcheck(work):
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    rep = self_check(work)
+    print("selfcheck: %s" % ("ok" if rep["ok"] else "see work/self_check.json"))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="source-value-chart",
                                  description="Source-bound editable chart: table -> model -> "
                                              "layered SVG + vector PDF + PNG -> result.json.")
     ap.add_argument("cmd", nargs="?", default="run",
-                    choices=["run", "init", "show", "check", "build"],
+                    choices=["run", "init", "show", "check", "build", "selfcheck"],
                     help="run (default) = full pipeline")
     ap.add_argument("--input", help="input directory (default /input)")
     ap.add_argument("--output", help="output directory (default /app/output)")
@@ -356,6 +364,8 @@ def main(argv=None):
             return cmd_check(inp, out, work, a.style)
         if a.cmd == "show":
             return cmd_show(inp, out, work, a.style)
+        if a.cmd == "selfcheck":
+            return cmd_selfcheck(work)
         if a.cmd == "build":
             return cmd_build(inp, out, work, a.style)
         S = pipeline(inp, out, work, a.style, print)
