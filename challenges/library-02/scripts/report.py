@@ -1,25 +1,19 @@
-# -*- coding: utf-8 -*-
 """report.py - draft verification (verbatim quotes, locators), candidate fallback, assembly."""
 import re
 import sys
 import time
 from pathlib import Path
-
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import core    # noqa: E402
 import rules   # noqa: E402
 from rules import search  # noqa: E402
-
 VERSION = "1.1.0"
 T0 = time.time()
-
-# ---------------------------------------------------------------- quote location
 QSTAT = ("answered", "partially_answered", "not_found", "blocked_by_filter")
 STATUS_ALIAS = {"ok": "answered", "answer": "answered", "partial": "partially_answered",
                 "blocked": "blocked_by_filter", "empty": "not_found", "none": "not_found",
                 "insufficient": "partially_answered"}
-
 def _norm_map(t):
     out, idx, prev_space = [], [], False
     for i, ch in enumerate(t):
@@ -37,7 +31,6 @@ def _norm_map(t):
         out.append(ch)
         idx.append(i)
     return "".join(out), idx
-
 def _hint(doc, quote):
     q = core.norm_ws(quote)[:200]
     grams = {q[i:i + 6] for i in range(max(0, len(q) - 5))} or {q[:6]}
@@ -52,7 +45,6 @@ def _hint(doc, quote):
     return {"paragraph_id": best.get("pid"), "section": best.get("section"),
             "page_physical": best.get("page_physical"), "page_printed": best.get("page_printed"),
             "snippet": (best.get("text") or "")[:160], "overlap": score}
-
 def locate(doc, quote):
     raw = str(quote or "")
     if len(core.norm_ws(raw)) < 4:
@@ -76,7 +68,6 @@ def locate(doc, quote):
         if nq in n:
             return _hit(ps[0], 0, "spanning_paragraphs", doc)
     return {"ok": False, "reason": "not_found", "suggestion": _hint(doc, raw)}
-
 def _hit(p, pos, match, doc):
     pth = doc.get("path_input") or doc.get("path")
     pg = p.get("page_physical")
@@ -87,8 +78,6 @@ def _hit(p, pos, match, doc):
             "source": p.get("source"), "char_start": pos,
             "locator": "%s#p%s/%s@%s" % (pth, pg if pg is not None else "no-page",
                                          p.get("pid"), pos if pos is not None else "?")}
-
-# ---------------------------------------------------------------- verification
 def verify_payload(payload, index):
     contract = core.contract_keys(index.get("_contract") or {})
     chat = payload.get("contract_keys") or []
@@ -144,8 +133,6 @@ def verify_payload(payload, index):
             "quote_hit_rate": round(ev_total / float(max(1, ev_total + len(bad_quote))), 3) if ev_total else 0.0,
             "verified_at": core.now()}
 EV_KEYS = ("evidence", "citations", "refs", "locators")
-
-# ---------------------------------------------------------------- draft I/O
 def load_draft(args, work):
     path = Path(args.draft) if getattr(args, "draft", None) else Path(work) / "draft.json"
     if not path.is_file():
@@ -154,11 +141,9 @@ def load_draft(args, work):
     if not isinstance(draft, dict):
         return None, path, "工作稿不是合法 JSON 对象"
     return draft, path, None
-
 def draft_rows(draft):
     raw = draft.get("queries") or draft.get("answers") or draft.get("results") or []
     return raw if isinstance(raw, list) else []
-
 def row_evidence(row):
     ev = []
     for k in EV_KEYS:
@@ -166,7 +151,6 @@ def row_evidence(row):
         if isinstance(v, list):
             ev.extend([x for x in v if isinstance(x, dict)])
     return ev
-
 def match_row(queries, rows):
     out, used = [], set()
     byid = {}
@@ -188,17 +172,14 @@ def match_row(queries, rows):
         if hit is not None:
             used.add(hit)
     return out
-
 def global_conds(case):
     return rules.parse_filters(rules.lk(case, ("filters", "filter", "constraints", "conditions",
                                                "过滤", "过滤条件")))
-
 def query_conds(case, q):
     conds = global_conds(case)
     for c in rules.parse_filters(q.get("filters_raw")):
         conds = [x for x in conds if x["key"] != c["key"]] + [c]
     return conds
-
 def extra_syn(case):
     raw = rules.lk(case, ("synonyms", "glossary", "aliases", "terminology", "同义词"))
     out = {}
@@ -213,7 +194,6 @@ def extra_syn(case):
                 if k and vs:
                     out[str(k)] = [str(x) for x in (vs if isinstance(vs, list) else [vs])]
     return out
-
 def verify_row(q, row, index, conds, fill_scope=False):
     docs = index.get("docs") or []
     banned = {x.get("doc_id") for x in (index.get("excluded_evidence") or [])}
@@ -222,15 +202,12 @@ def verify_row(q, row, index, conds, fill_scope=False):
              "status": "not_found", "filters_applied": [rules.filter_text(c) for c in conds],
              "evidence": [], "rejected_evidence": [], "excluded_docs": [],
              "search_scope": "", "notes": "", "locators": []}
-
     def rej(reason, detail, **kw):
         d = {"reason": reason, "detail": detail}
         d.update(kw)
         entry["rejected_evidence"].append(d)
-
     def chg(what, change):
         core.STATE["changes"].append({"item": f"{qid}:{what}", "change": change})
-
     if not isinstance(row, dict):
         entry["search_scope"] = "工作稿未提供该问的条目"
         return entry
@@ -306,8 +283,45 @@ def verify_row(q, row, index, conds, fill_scope=False):
                                      % (len(allowed), len(docs)))
             core.degrade(f"{qid}:search_scope", "not_found_without_scope", "空范围已回填默认统计")
     return entry
+def best_hit(index, hits):
+    if not hits:
+        return None, None
+    top = hits[0]
+    for p in (core.doc_by_path(index, top.get("path")) or {}).get("paragraphs") or []:
+        if p.get("pid") == top.get("paragraph_id"):
+            return top, p
+    return top, None
 
-# ---------------------------------------------------------------- assemble / build
+
+def candidate_entry(q, conds, index, extra, n_par):
+    hits, _b, _o = search(index, q["question"], conds, extra)
+    cands = [{k: h.get(k) for k in ("doc_id", "path", "section", "paragraph_id",
+                                    "page_physical", "page_printed", "score")} for h in hits[:3]]
+    top, para = best_hit(index, hits)
+    n_docs = len(index.get("docs") or [])
+    if para is None:
+        core.degrade("%s:answer" % q["query_id"], "draft_row_missing",
+                     "该问无工作稿条目，且脚本未找到可核验段落")
+        return {"query_id": q["query_id"], "question": q["question"], "answer": "",
+                "status": "partially_answered",
+                "filters_applied": [rules.filter_text(c) for c in conds],
+                "evidence": [], "rejected_evidence": [], "candidates": cands,
+                "search_scope": ("脚本候选检索：检索了 %d 个文档、%d 个段落，"
+                                 "未检索到可核验段落，也未收到工作稿裁决" % (n_docs, n_par)),
+                "notes": "candidate_only"}, hits
+    auto = {"query_id": q["query_id"], "status": "partially_answered", "answer": "",
+            "filters_applied": [rules.filter_text(c) for c in conds],
+            "search_scope": ("脚本兜底：过滤后检索 %d 个文档、%d 个段落，"
+                             "取最高分候选段原文作为待核引文；未经 Agent 裁决" % (n_docs, n_par)),
+            "notes": "candidate_evidence_only",
+            "evidence": [{"path": top.get("path"), "quote": para.get("text")}]}
+    core.degrade("%s:answer" % q["query_id"], "draft_row_missing",
+                 "该问无工作稿条目：已给出经逐字校验的候选引文，结论仍需 Agent 裁决")
+    entry = verify_row(q, auto, index, conds, fill_scope=True)
+    entry["candidates"] = cands
+    return entry, hits
+
+
 def assemble(ctx, draft, draft_err):
     index, case, meta = ctx["index"], ctx["case"], ctx["meta"]
     queries = core.find_queries(case)
@@ -315,49 +329,14 @@ def assemble(ctx, draft, draft_err):
     pairs = match_row(queries, rows)
     entries, hits_all = [], []
     extra = extra_syn(case)
+    n_par = sum(len(d.get("paragraphs") or []) for d in (index.get("docs") or []))
     for q, row in pairs:
         conds = query_conds(case, q)
         if row is None:
-            script_hits, _blocked, _ok = search(index, q["question"], conds, extra)
-            hits_all.extend([dict(h, query_id=q["query_id"]) for h in script_hits[:5]])
-            n_par = sum(len(d.get("paragraphs") or []) for d in (index.get("docs") or []))
-            cands = [{k: h.get(k) for k in ("doc_id", "path", "section", "paragraph_id",
-                                            "page_physical", "page_printed", "score")}
-                     for h in script_hits[:3]]
-            auto = None
-            if script_hits:
-                para = None
-                doc0 = core.doc_by_path(index, script_hits[0].get("path"))
-                for p in (doc0 or {}).get("paragraphs") or []:
-                    if p.get("pid") == script_hits[0].get("paragraph_id"):
-                        para = p
-                        break
-                if para is not None:
-                    auto = {"query_id": q["query_id"], "status": "partially_answered", "answer": "",
-                            "filters_applied": [rules.filter_text(c) for c in conds],
-                            "search_scope": ("脚本兜底：过滤后检索 %d 个文档、%d 个段落，"
-                                             "取最高分候选段原文作为待核引文；未经 Agent 裁决"
-                                             % (len(index.get("docs") or []), n_par)),
-                            "notes": "candidate_evidence_only",
-                            "evidence": [{"path": script_hits[0].get("path"),
-                                          "quote": para.get("text")}]}
-            if auto is not None:
-                entry = verify_row(q, auto, index, conds, fill_scope=True)
-                entry["candidates"] = cands
-                core.degrade(f"{q['query_id']}:answer", "draft_row_missing",
-                             "该问无工作稿条目：已给出经逐字校验的候选引文，结论仍需 Agent 裁决")
-                entries.append(entry)
-            else:
-                entries.append({"query_id": q["query_id"], "question": q["question"], "answer": "",
-                                "status": "partially_answered",
-                                "filters_applied": [rules.filter_text(c) for c in conds],
-                                "evidence": [], "rejected_evidence": [], "candidates": cands,
-                                "search_scope": ("脚本候选检索：检索了 %d 个文档、%d 个段落，"
-                                                 "未检索到可核验段落，也未收到工作稿裁决"
-                                                 % (len(index.get("docs") or []), n_par)),
-                                "notes": "candidate_only"})
-                core.degrade(f"{q['query_id']}:answer", "draft_row_missing",
-                             "该问无工作稿条目，且脚本未找到可核验段落")
+            entry, hits = candidate_entry(q, conds, index, extra, n_par)
+            hits_all.extend([dict(h, query_id=q["query_id"], origin="script_candidate")
+                             for h in hits[:5]])
+            entries.append(entry)
             continue
         entry = verify_row(q, row, index, conds, fill_scope=True)
         for h in search(index, q["question"], conds, extra)[0][:3]:
@@ -366,114 +345,110 @@ def assemble(ctx, draft, draft_err):
             hits_all.append({"query_id": q["query_id"], "doc_id": ev["doc_id"], "path": ev["path"],
                              "version": ev["version"], "section_id": ev.get("section_id"),
                              "section": ev.get("section"), "paragraph_id": ev["paragraph_id"],
-                             "page_physical": ev.get("page_physical"), "page_printed": ev.get("page_printed"),
+                             "page_physical": ev.get("page_physical"),
+                             "page_printed": ev.get("page_printed"),
                              "score": None, "origin": "agent", "locator": ev.get("locator")})
         entries.append(entry)
     docs = index.get("docs") or []
     ledger = rules.filter_ledger(global_conds(case), docs)
-    per_query_ledger = [{"query_id": q["query_id"],
-                         "filters": [rules.filter_text(c) for c in query_conds(case, q)],
-                         "allowed_docs": [d.get("doc_id") for d in rules.apply_all(query_conds(case, q), docs)[0]]}
-                        for q in queries]
+    pq = [{"query_id": q["query_id"],
+           "filters": [rules.filter_text(c) for c in query_conds(case, q)],
+           "allowed_docs": [d.get("doc_id") for d in rules.apply_all(query_conds(case, q), docs)[0]]}
+          for q in queries]
     excluded = list(index.get("excluded_evidence") or [])
-    if isinstance(draft, dict):
-        for x in (draft.get("excluded_evidence") or []):
-            if isinstance(x, dict) and x.get("path"):
-                excluded.append({"path": x["path"], "reason": x.get("reason") or "agent_reported",
-                                 "detail": x.get("detail") or "来自工作稿的排除记录"})
+    for x in ((draft or {}).get("excluded_evidence") or []):
+        if isinstance(x, dict) and x.get("path"):
+            excluded.append({"path": x["path"], "reason": x.get("reason") or "agent_reported",
+                             "detail": x.get("detail") or "来自工作稿的排除记录"})
     evidence = [e for en in entries for e in (en.get("evidence") or [])]
     rejected = [r for en in entries for r in (en.get("rejected_evidence") or [])]
-    cnt = {"queries": len(entries),
-           "answered": sum(1 for e in entries if e["status"] == "answered"),
-           "partially_answered": sum(1 for e in entries if e["status"] == "partially_answered"),
-           "not_found": sum(1 for e in entries if e["status"] == "not_found"),
-           "blocked_by_filter": sum(1 for e in entries if e["status"] == "blocked_by_filter"),
-           "evidence": len(evidence), "evidence_rejected": len(rejected),
+    cnt = {"queries": len(entries), "evidence": len(evidence), "evidence_rejected": len(rejected),
            "docs_total": len(docs), "docs_indexed": sum(1 for d in docs if d.get("status") == "ok"),
            "docs_failed": sum(1 for d in docs if d.get("status") != "ok"),
            "sections": sum(len(d.get("sections") or []) for d in docs),
            "paragraphs": sum(len(d.get("paragraphs") or []) for d in docs),
            "duplicates_excluded": len(index.get("excluded_evidence") or []),
-           "quote_hit_rate": round(len(evidence) / float(max(1, len(evidence) + len(rejected))), 3) if evidence or rejected else 0.0,
-           "pages_mapped": sum(1 for d in docs if (d.get("pages") or {}).get("label_source") not in
-                               (None, "not_applicable", "assumed_equal"))}
-    cov = {"docs_expected": index.get("scan_stats", {}).get("files_on_disk"),
-           "docs_declared": index.get("scan_stats", {}).get("declared"),
+           "pages_mapped": sum(1 for d in docs if (d.get("pages") or {}).get("label_source")
+                               not in (None, "not_applicable", "assumed_equal")),
+           "quote_hit_rate": round(len(evidence) / float(max(1, len(evidence) + len(rejected))), 3)}
+    for st in QSTAT:
+        cnt[st] = sum(1 for e in entries if e["status"] == st)
+    st_stats = index.get("scan_stats") or {}
+    cov = {"docs_expected": st_stats.get("files_on_disk"), "docs_declared": st_stats.get("declared"),
            "docs_indexed": cnt["docs_indexed"], "docs_failed": cnt["docs_failed"],
            "queries_expected": len(queries), "queries_answered": cnt["answered"],
            "queries_partial": cnt["partially_answered"], "queries_not_found": cnt["not_found"],
-           "queries_blocked": cnt["blocked_by_filter"],
-           "sections_indexed": cnt["sections"], "paragraphs_indexed": cnt["paragraphs"],
-           "docs_with_page_mapping": cnt["pages_mapped"],
-           "failures": [f"{f.get('doc_id') or '-'}:{f.get('reason')}" for f in (index.get("failures") or [])][:20]}
+           "queries_blocked": cnt["blocked_by_filter"], "sections_indexed": cnt["sections"],
+           "paragraphs_indexed": cnt["paragraphs"], "docs_with_page_mapping": cnt["pages_mapped"],
+           "failures": ["%s:%s" % (f.get("doc_id") or "-", f.get("reason"))
+                        for f in (index.get("failures") or [])][:20]}
+    notes = (draft or {}).get("method_notes") or {}
+    ddup = index.get("dedupe") or {}
+    res = {"queries": entries, "hits": hits_all, "filters": ledger, "per_query_filters": pq,
+           "excluded_evidence": excluded, "coverage": cov, "evidence": evidence,
+           "failures": index.get("failures") or [],
+           "index_summary": {"digest": index.get("index_digest"), "library_root": index.get("library_root"),
+                             "root_source": index.get("root_source"), "scan_stats": st_stats,
+                             "dedupe_groups": ddup.get("groups"), "conflicts": ddup.get("conflicts")},
+           "method_notes": notes}
+    pg = lambda d, k: (d.get("pages") or {}).get(k)
     payload = {
-        "case_id": meta.get("case_id"),
-        "status": "partial",
-        "summary": (f"{cnt['queries']} 问：answered {cnt['answered']}、partially_answered "
-                    f"{cnt['partially_answered']}、not_found {cnt['not_found']}、blocked_by_filter "
-                    f"{cnt['blocked_by_filter']}；索引 {cnt['docs_indexed']}/{cnt['docs_total']} 文档、"
-                    f"{cnt['sections']} 节、{cnt['paragraphs']} 段；引文 {len(evidence)} 条"
-                    f"（拒收 {len(rejected)}）；副本/旧版排除 "
-                    f"{cnt['duplicates_excluded']} 条"),
-        "result": {"queries": entries, "hits": hits_all, "filters": ledger,
-                   "per_query_filters": per_query_ledger, "excluded_evidence": excluded,
-                   "coverage": cov, "failures": index.get("failures") or [],
-                   "index_summary": {"digest": index.get("index_digest"),
-                                     "library_root": index.get("library_root"),
-                                     "root_source": index.get("root_source"),
-                                     "scan_stats": index.get("scan_stats"),
-                                     "dedupe_groups": (index.get("dedupe") or {}).get("groups"),
-                                     "conflicts": (index.get("dedupe") or {}).get("conflicts")},
-                   "method_notes": (draft or {}).get("method_notes") or {}},
-        "queries": entries, "hits": hits_all, "filters": ledger, "excluded_evidence": excluded,
-        "coverage": cov, "evidence": evidence,
+        "case_id": meta.get("case_id"), "status": "partial",
+        "summary": ("%d 问：answered %d、partially_answered %d、not_found %d、blocked_by_filter %d；"
+                    "索引 %d/%d 文档、%d 节、%d 段；引文 %d 条（拒收 %d）；副本/旧版排除 %d 条"
+                    % (cnt["queries"], cnt["answered"], cnt["partially_answered"], cnt["not_found"],
+                       cnt["blocked_by_filter"], cnt["docs_indexed"], cnt["docs_total"], cnt["sections"],
+                       cnt["paragraphs"], len(evidence), len(rejected), cnt["duplicates_excluded"])),
+        "result": res,
         "sources": [{"type": d.get("type"), "path": d.get("path"), "sha256_16": d.get("sha256_16"),
-                     "bytes": d.get("bytes"), "version": d.get("version"),
-                     "pages": (d.get("pages") or {}).get("count"),
-                     "label_source": (d.get("pages") or {}).get("label_source"),
-                     "status": d.get("status"), "representative": d.get("representative")}
-                    for d in docs],
+                     "bytes": d.get("bytes"), "version": d.get("version"), "pages": pg(d, "count"),
+                     "label_source": pg(d, "label_source"), "status": d.get("status"),
+                     "representative": d.get("representative")} for d in docs],
         "uncertainties": uncertainties_of(index, entries, draft),
         "errors": core.STATE["errors"], "degradations": core.STATE["degradations"],
-        "changes": core.STATE["changes"], "counts": cnt,
-        "method_notes": (draft or {}).get("method_notes") or {},
-        "primary_result": "result.json",
-        "extra_terms": extra,
+        "changes": core.STATE["changes"], "counts": cnt, "method_notes": notes,
+        "primary_result": "result.json", "extra_terms": extra,
         "contract_keys": core.contract_keys(meta.get("output_contract")),
         "runtime": {"version": VERSION, "script_seconds": round(time.time() - T0, 2),
                     "model_requests_by_script": 0, "python": sys.version.split()[0],
                     "draft_present": draft is not None, "draft_error": draft_err,
-                    "index_digest": index.get("index_digest"),
-                    "scan_stats": index.get("scan_stats"),
+                    "index_digest": index.get("index_digest"), "scan_stats": st_stats,
                     "budget": {"wall_limit_s": 900, "model_requests_limit": 64,
                                "note": "脚本不发起模型请求，秒级完成"}},
     }
+    for k in ("queries", "hits", "filters", "excluded_evidence", "coverage", "evidence"):
+        payload[k] = res[k]
     if draft is None:
         payload["degradations"] = payload["degradations"] + [
             {"item": "draft", "reason": draft_err or "missing",
              "impact": "仅倒底产物：无 Agent 判断，结论缺失"}]
     payload["status"] = overall_status(payload, draft is not None)
-    payload["result"]["status"] = payload["status"]
+    res["status"] = payload["status"]
     return core.apply_contract(payload, meta.get("output_contract"), index)
+
 
 def uncertainties_of(index, entries, draft):
     out = list(core.STATE["uncertainties"]) + list((draft or {}).get("uncertainties") or [])
     docs = index.get("docs") or []
     assumed = [d.get("path") for d in docs if (d.get("pages") or {}).get("label_source") == "assumed_equal"]
-    if assumed:
-        out.append({"item": "page_labels", "detail": "印刷页码由页脚推定（assumed_equal）的文档 %d 个，引用页码前建议复核" % len(assumed), "paths": assumed[:5]})
     lowq = [d.get("path") for d in docs if d.get("status") == "low_text_quality"]
+    cand = [e.get("query_id") for e in entries if (e.get("notes") or "").startswith("candidate")]
+    if assumed:
+        out.append({"item": "page_labels", "paths": assumed[:5],
+                    "detail": "印刷页码由页脚推定（assumed_equal）的文档 %d 个，引用页码前建议复核" % len(assumed)})
     if lowq:
-        out.append({"item": "text_quality", "detail": "文本层质量过低而未纳入检索的文档 %d 个" % len(lowq), "paths": lowq[:5]})
-    cand = [e.get("query_id") for e in entries if (e.get("notes") or "") .startswith("candidate")]
+        out.append({"item": "text_quality", "paths": lowq[:5],
+                    "detail": "文本层质量过低而未纳入检索的文档 %d 个" % len(lowq)})
     if cand:
-        out.append({"item": "adjudication", "detail": "以下问题只有脚本候选定位、结论未定：%s" % ", ".join(cand[:8])})
+        out.append({"item": "adjudication",
+                    "detail": "以下问题只有脚本候选定位、结论未定：%s" % ", ".join(cand[:8])})
     if not index.get("excluded_evidence"):
-        out.append({"item": "dedupe", "detail": "未发现 sha256 完全相同的副本；人工副本或私下版本须写入工作稿 excluded_evidence"})
+        out.append({"item": "dedupe",
+                    "detail": "未发现 sha256 完全相同的副本；人工副本或私下版本须写入工作稿 excluded_evidence"})
     if not out:
-        out.append({"item": "coverage", "detail": "全部结论均回链到脚本核验过的引文，语义完备性未经人工复核"})
+        out.append({"item": "coverage",
+                    "detail": "全部结论均回链到脚本核验过的引文，语义完备性未经人工复核"})
     return out
-
 def overall_status(payload, draft_present):
     cnt = payload.get("counts") or {}
     if not payload.get("case_id") and not cnt.get("queries"):
