@@ -543,6 +543,22 @@ def read_task(input_dir):
     return ""
 
 
+def clean(o):
+    """Recursively replace JSON nulls with "" so no delivered artifact carries `null` tokens."""
+    if isinstance(o, dict):
+        return {k: clean(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [clean(v) for v in o]
+    if o is None:
+        return ""
+    return o
+
+
+DEFAULT_CONTRACT_KEYS = ("case_id", "deliverable", "evidence_map", "change_log", "coverage", "status")
+PRODUCED_FILES = ("result.json", "index.json", "citation_report.md", "run_manifest.json",
+                  "manuscript.md", "evidence.jsonl")
+
+
 def new_index():
     return {"schema": INDEX_SCHEMA, "input_dir": "", "case_id": None, "case_meta": {},
             "task_excerpt": "", "contract_keys": [], "contract_spec": {}, "contract_from": None,
@@ -558,10 +574,14 @@ def build_index(input_dir):
     idx["errors"].extend(errs)
     idx["case_id"] = case_id_of(case)
     (keys, spec), src = contract_of(case)
-    idx["contract_keys"], idx["contract_spec"], idx["contract_from"] = keys, spec, src
     if not keys:
+        keys = list(DEFAULT_CONTRACT_KEYS)
+        spec = {k: {"type": "path" if k == "deliverable" else "string"} for k in keys}
+        src = "package_default"
+    idx["contract_keys"], idx["contract_spec"], idx["contract_from"] = keys, spec, src
+    if src == "package_default":
         idx["gaps"].append({"code": "contract_missing",
-                            "detail": "case.json 未提供 output_contract；使用内置标准字段集"})
+                            "detail": "case.json 未提供 output_contract；使用包内标准字段集并照常产出全部交付物"})
     for k in ("task_instruction", "instruction", "task", "title", "description"):
         v = case.get(k)
         if isinstance(v, str) and v.strip():
