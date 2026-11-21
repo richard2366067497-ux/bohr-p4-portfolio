@@ -1,7 +1,7 @@
 {
-  "case_id": "example-sample-pdf",
+  "case_id": "example-sample-md",
   "materials_root": "materials",
-  "task": "Read the supplied PDF into structured fields in reading order, keep a locator and a verbatim quote for every item, and report honestly what could not be read.",
+  "task": "Read the supplied text/PDF materials into structured fields in reading order, keep a locator and a verbatim quote for every item, and report honestly what could not be read.",
   "output_contract": {
     "document": "value",
     "blocks": "value",
