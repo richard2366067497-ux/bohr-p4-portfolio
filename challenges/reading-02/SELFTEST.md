@@ -35,7 +35,7 @@
 `contract_echo`、`contract_values`、`deliverables`、`case_id`、`placeholder_sweep`、
 `field:{status,sources,uncertainties,change_records,limits}`。
 
-> rich 用例是一张双系列折线图（`fig1.png`，红=A、蓝=B）+ 几何 sidecar + 表 `T01`：轴标定成功
+> rich 用例是一张双系列折线图（`fig1.md`，红=A、蓝=B）+ 几何 sidecar + 表 `T01`：轴标定成功
 > （x: 0–8 mm，y: 0–100 N），逐列颜色匹配得到 **81** 个数字化点；两条文本引文逐字命中 **2/2**，
 > 视觉引文锚定 `bbox_px`，`status=answered`，`anchor_hit_rate=1.0`。
 > boundary 用例（空文件 + 坏 JSON + 占位文本）无图形几何/表/claim，诚实降级为
