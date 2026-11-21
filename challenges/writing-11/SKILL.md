@@ -60,7 +60,7 @@ version: 2.0.0
 `quote` 必须是该段落的**逐字子串**；校验失败就缩短 quote 或改段，**不得改原文**。草稿不可用时自动回退到
 规则化注记并在 `degradations` 记录，`build` 仍然 finalize 全部产物。
 
-## 1. 单命令入口（single-command entry，一条命令跑完全流程）
+## 1. 单命令入口（single-command entry，一条命令跑完全流程；评测入口，无 draft 时执行）
 
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
@@ -69,7 +69,7 @@ python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/ou
 这一条命令完成：发现 case/workorder/章节 → 解析段落锚点 → 生成源文注记（Agent 草稿存在则优先合并）
 → 生成修订稿（原文逐字 + 注记块）→ 抽取并核对保留事实 → 证据地图 → propose/accept、版本比对、
 回滚/重放验证、非法操作拒绝（状态哈希不变）→ 写全部交付物与 `result.json`（契约逐键回填 + `case_id` 透传）
-→ 占位符净化。**无 draft、空输入、坏 JSON 都 exit 0，并保留合法结果与限制说明。**
+→ 占位符净化。**无 draft、空输入、坏 JSON 都 exit 0，并保留合法结果与限制说明。** **无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ## 2. Agent-first 增强路径（agent 写 draft → check → build）
 
