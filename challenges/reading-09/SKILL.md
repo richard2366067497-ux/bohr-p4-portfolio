@@ -123,3 +123,7 @@ reports whether the notes carry anchors; `compare` writes a base-vs-skill contra
 - A quote that does not match the paper text is reported `verbatim=false` rather than passed
   as grounded.
 - No network, no third-party package, no invented numbers.
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
