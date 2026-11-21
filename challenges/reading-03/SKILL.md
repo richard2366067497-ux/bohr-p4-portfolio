@@ -1,3 +1,9 @@
+---
+name: sci-lit-bilingual-audit
+description: 科研文献段落级中英对照 + 术语锁定 + 机械核验；纯标准库、离线、确定性。
+version: 3.0.0
+---
+
 # sci-lit-bilingual-audit — 科研文献双语对照与机械核验 Skill
 
 把一篇（或一个明确段落区间）的英文科研文献做成**段落级中英对照 + 术语表 + 核验记录**：每段可指回原文页码/段号，
@@ -10,6 +16,21 @@
 | 段落全 | R1–R7 切段 + 跨页续段 + 要素型段落单独成段 | `paragraph_pairs.jsonl`、`elements` |
 | 关系准 | 数字/单位/引用/图表编号/公式号保护性 span；否定与限定逐句核对 | `audit_summary.rates`、`audit_report.json` |
 | 可核验 | 每段 locator + 证据 quote + 依据 basis + 未译/不确定标注 | `result.json.evidence`、`bilingual_review.md` |
+
+---
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按手册的求解框架（含每步冻结产物与门控）推进；前一步未冻结不进入下一步。
+- **口径**：按手册的术语、对齐与公式口径逐项核验；原值与原单位保留，不跨段补译、不擅自改写。
+- **陷阱**：按手册的领域陷阱清单逐条排雷（错误做法 → 正确做法）。
+- **门控**：交付前逐项通过手册 **§9 防扣分自查表**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties`，绝不静默提升为成功。
+
+---
 
 ## 1 输入与边界
 
@@ -146,3 +167,26 @@ python scripts/main.py compare --input /input --output /app/output --work /app/w
 ```bash
 python scripts/main.py all --input /input --output /app/output --work /app/work
 ```
+
+## 12 交付前自查
+
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §9 的防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties`，绝不静默提升为成功。
+
+## 13 文件清单（13 个）
+
+| 文件 | 作用 |
+|-|-|
+| SKILL.md | 主文档：契约、工作稿格式、子命令、降级矩阵、创新点 |
+| README.md | 上手、依赖、输入、约定速查 |
+| SELFTEST.md | 自检记录 + 缺陷注入复现 + 示意输出节选 |
+| GAIN_EVIDENCE.md | 增益证据：基线失败案例、对照指标、效率口径、价值边界 |
+| GITHUB_URL.txt | 公开作品链接（两行） |
+| references/checks_spec.md | 核验项规格 + 术语表模板 + 题集/评分表模板 |
+| references/expert_playbook.md | 专家参考手册：任务本质、求解框架与门控、口径公式、陷阱清单、案例、§9 自查表 |
+| environment/resources.yaml | 运行环境与资源声明：单命令入口、路径约定、预算、依赖、无网络、纯标准库 |
+| examples/case.json | 最小用例（内嵌论文节选 + 5 键契约） |
+| scripts/core.py | 材料发现、PDF/HTML/DOCX 提取、R1–R7 切段、保护性 span、术语候选 |
+| scripts/audit.py | 机械核验引擎（17 类 check）与状态推导 |
+| scripts/report.py | 结果装配、报告渲染、工作稿读写与契约键归一 |
+| scripts/main.py | 命令行入口（all/init/show/check/build/selfcheck/compare） |
