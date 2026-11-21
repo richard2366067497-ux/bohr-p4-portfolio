@@ -1,0 +1,53 @@
+# Resource entry point for the research-frontier-event-timeline skill.
+# The evaluator installs this package at /skills/weekly-skill and runs one documented command.
+schema: resource-entry/v1
+skill: research-frontier-event-timeline
+entry:
+  command: python3 /skills/weekly-skill/scripts/main.py all
+  arguments:
+    - --input /input
+    - --output /app/output
+    - --work /app/work
+  exit_code_expected: 0
+runtime:
+  language: python3
+  version: ">=3.8"
+  third_party: none            # pure standard library; pdftotext is used only if already present
+  network: false
+  model_calls: 0
+budget:
+  max_requests: 64
+  max_seconds: 900
+  max_tokens: 16384
+limits:
+  events_small_sample_threshold: 20
+  sources_small_sample_threshold: 10
+  concurrent_processes: 1
+inputs:
+  - path: /input/case.json
+    required: false
+    note: carries case_id, task_instruction and the output_contract to echo
+  - path: /input/task.md
+    required: false
+    note: the task statement; research question is taken from here when present
+  - path: /input
+    required: true
+    note: material files — pdf/md/txt/jsonl/csv anywhere under /input
+outputs:
+  - /app/output/result.json
+  - /app/output/events/event_ledger.jsonl
+  - /app/output/events/event_sources.json
+  - /app/output/timeline.md
+  - /app/output/trend_report.md
+  - /app/output/derived/
+  - /app/output/figures/timeline.svg
+  - /app/output/figures/figure_specs.json
+workdir: /app/work
+degradation:
+  missing_case_json: falls back to a recursive search, then built-in default contract; status=partial
+  empty_input: valid partial result.json with honest non-empty contract values, status=insufficient_evidence, exit 0
+  missing_draft: rule-based low-confidence candidate ledger, all artifacts still produced, status=partial
+  bad_json_or_timeout: exit 0, existing artifacts preserved
+environment_hints:
+  python: /usr/local/bin/python3 or any python3 on PATH
+  optional: pdftotext (if absent, a built-in stream parser is used)
