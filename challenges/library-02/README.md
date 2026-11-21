@@ -1,9 +1,6 @@
 # research-file-locator（library-02）
 
-在科研文件库（PDF / Word / Excel / PPT / 扫描件 / 重名副本 / 多版本）上做**章节级定位检索**：
-脚本完成切分、编码判定、别名与同义扩展、哈希去重与版本链识别、硬过滤执行与页码映射，并预填
-逐 query 候选引文；Agent 只需复核裁决，脚本再逐字校验引文与 locator，产出可独立复核的引文、
-页码与操作日志，并把 `output_contract` 十键回填进 `result.json` 顶层与嵌套。
+在科研文件库（PDF / Word / Excel / PPT / 扫描件 / 重名副本 / 多版本）上做**章节级定位检索**：脚本完成切分、编码判定、别名与同义扩展、哈希去重与版本链识别、硬过滤执行与页码映射，并预填逐 query 候选引文；Agent 复核裁决后，脚本逐字校验引文与 locator，产出可独立复核的引文、页码与操作日志，并把 `output_contract` 十键回填进 `result.json` 顶层与嵌套。
 
 ## 快速开始
 
@@ -11,10 +8,7 @@
 python3 -B scripts/main.py all --input /input --out /app/output --work /app/work
 ```
 
-- 安装位置 `/skills/weekly-skill/`，入口 `scripts/main.py`；单命令 `all` = `init` + `build` + `selfcheck`，恒 exit 0，先写合法 partial `result.json`。
-- Agent 增强路径：`init` → `show` →（写 `work/draft.json`）→ `check` → `build` → `selfcheck`。
-
-## 命令
+安装位置 `/skills/weekly-skill/`，入口 `scripts/main.py`；单命令 `all` = `init` + `build` + `selfcheck`，恒 exit 0，先写合法 partial `result.json`。Agent 增强路径：`init` → `show` →（写 `work/draft.json`）→ `check` → `build` → `selfcheck`。
 
 | 命令 | 作用 |
 |---|---|
