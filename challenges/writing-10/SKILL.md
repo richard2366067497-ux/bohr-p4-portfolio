@@ -1,7 +1,7 @@
 ---
 name: writing-10-reviewer-response
 description: Reviewer-response and manuscript-revision assistant. Parses reviewer comments (or revision meeting notes), builds a per-comment ledger, decides accept / partial / reject / defer, writes a real, locatable revision into the manuscript for every adopted comment (each edit carries a unique [[Cx]] anchor), and produces a revised manuscript, a point-by-point response letter, a change locator table and an evidence to-do list. Use when a manuscript must be revised in response to review comments or a revision meeting.
-version: 1.2.0
+version: 1.3.0
 ---
 
 # 审稿回复与论文修改 / Reviewer response and manuscript revision
@@ -29,7 +29,7 @@ version: 1.2.0
 python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
 ```
 
-可选参数：`--draft FILE`（Agent 起草的决定/改句，优先采用）、`--case /input/case.json`、`--lang zh|en`（默认按材料自动判断）、`--version`。
+可选参数：`--draft FILE`（Agent 起草的决定/改句，优先采用）、`--case /input/case.json`、`--lang zh|en`（默认按材料自动判断）、`--baseline`（生成无 Skill 基线输出，见下）、`--version`。
 
 ### Agent-first 双路径
 
@@ -61,6 +61,7 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 | `response_letter.md` | 逐条回复：评论、判定、改动编号与 `revised_manuscript.md#Cx` 定位 |
 | `comment_ledger.json` | 评论台账：子要求、类型、锚点、判定、修改编号，含四态计数 |
 | `change_locator.json` | 修改定位表：编号 → 原句 / 改后句 / 锚点 / 是否原地应用 |
+| `change_diff.md` | 逐条修改 diff：每处改动给出原句 → 改后句的 unified diff 与 `[[Cx]]` 锚点，便于独立核对 |
 | `evidence_pending.md` | 待补清单：`partial` / `defer` 项及原因 |
 | `version_notes.md` | 版本记录：基线、评论数、四态计数、修改数、自查结论 |
 | `selfcheck.json` | 一致性自查：回复信 ↔ change_ids ↔ 修改稿锚点 |
@@ -71,6 +72,7 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 顶层固定字段：`case_id`、`status`、`language`、`deliverable`、`deliverable_summary`、`preserved_facts`、`evidence_map`、`change_log`、`outputs`、`metrics`、`selfcheck`、`sources`、`uncertainties`、`change_records`、`limits`、`human_review`、`degradations`、`errors`、`runtime`，以及**逐键回填**的 `output_contract` 对象。
 
 - `status` ∈ `success` / `partial` / `failed`。
+- `metrics` 含 `comment_coverage`（意见覆盖率）、`locator_verifiable_rate`（locator 可核验率）、`evidence_completeness`（证据完整度）、`tone_compliance`、`contract_keys_covered` 与四态计数 `decisions`，均可复算；`selfcheck.ok` 汇总自查（含 `diff_covers_every_change`）。
 - 契约给的键全部出现在 `output_contract`（嵌套），且同样的键也出现在顶层；给文件名的键指向真实文件，描述性键回填为真实值或列表；`case_id` 透传输入值。
 - `preserved_facts`、`evidence_map`、`change_log`、`uncertainties`、`limits` 恒非空；结果中无占位符。
 
@@ -81,7 +83,27 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 3. **分类与判定（四态）**：`clarify_scope`→`narrow`、`add_evidence`→`cite`、`new_material`/伦理审批→`defer`、`out_of_scope`/误读→`reject`；可锚定且不依赖新材料→`accept`；可锚定但依赖新材料→`partial`。
 4. **真实修改**：对 `accept`/`partial` 的锚定句做可见改写（软化过度断言 + 范围限定 / 插入引用位），写回正文并附唯一 `[[Cx]]` 锚点；`revised_locator = revised_manuscript.md#Cx` 可据此核对。
 5. **不采纳与待补**：`reject` 在回复信写明理由、不进入待补；`partial`/`defer` 写入 `evidence_pending.md`；不在回复信里编造已完成的数据或分析。
-6. **自查**：运行自带 `selfcheck`，校验回复信只引用已知改动、每条改动都有锚点、无"判定 accept 却无改动"。交付前还须逐项通过 **`references/expert_playbook.md` §5 专家检查表**（专家检查表逐项通过），并确认 `result.json` 状态与实际完成程度一致、阻塞项写清缺口与替代方案。
+6. **真实修改与 diff**：对 `accept`/`partial` 的锚定句做可见改写（软化过度断言 + 范围限定 / 插入引用位），写回正文并附唯一 `[[Cx]]` 锚点；`revised_locator = revised_manuscript.md#Cx` 可据此核对；同时输出 `change_diff.md`，逐条给出**原句 → 改后句**的 unified diff。
+7. **自查**：运行自带 `selfcheck`，校验回复信只引用已知改动、每条改动都有锚点、无"判定 accept 却无改动"，并校验 **`change_diff.md` 覆盖每一条改动**（`diff_covers_every_change`）。交付前还须逐项通过 **`references/expert_playbook.md` §5 专家检查表**，并确认 `result.json` 状态与实际完成程度一致、阻塞项写清缺口与替代方案。
+
+## 增益验证与对照方法
+
+本 Skill 的增益通过与「无 Skill 基线」在**同一输入**上的确定性对比证明，可逐字复现、可机读比较：
+
+- **基线模式**：`--baseline` 只做**原样拼接**——不解析评论、不匹配锚点、不做四态判定、不改稿、不写 locator/回复信、不写 `result.json`；产物为 `baseline_draft.md` 与 `baseline_metrics.json`（各指标取 0）。确定性、离线、退出码 0。
+- **对比指标**（正常模式写入 `result.json.metrics` 与 `quality_metrics.json`，基线模式写入 `baseline_metrics.json`，同名可比）：
+  `comment_coverage`（意见覆盖率）、`locator_verifiable_rate`（locator 可核验率）、`evidence_completeness`（证据完整度）、`tone_compliance`、`contract_keys_covered`。
+- **一条命令即可对照**（同一 `/input`，两个输出目录）：
+
+```bash
+# 基线（无 Skill）
+python3 /skills/weekly-skill/scripts/main.py --baseline --input /input --output /tmp/base --work /tmp/work
+# Skill 输出
+python3 /skills/weekly-skill/scripts/main.py --input /input --output /tmp/skill --work /tmp/work
+```
+
+运行后直接比较 `/tmp/skill/result.json` 的 `metrics` 与 `/tmp/base/baseline_metrics.json` 的 `metrics`：基线各项为 0，
+Skill 输出给出真实的意见覆盖率、locator 可核验率与证据完整度。这是**本包确定性生成、可复算的本地基线对照**，用于把「增益」变成可核验的数字，**不是官方评测 A/B 数据**。
 
 ## 异常处理
 
@@ -103,6 +125,7 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 ```
 references/expert_playbook.md  专家参考手册：判分要点、七步法、四态判定与量化口径、专家检查表、案例（执行前必读）
 environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
-examples/                    最小可复跑样例（case.json + manuscript.md + comments.md），评审可直接复跑
-GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+examples/                    最小可复跑样例（case.json + manuscript.md + comments.md）
+examples/output/change_diff.md  本包确定性生成的示例输出快照（逐条 原句→改后句 diff；评审可直接检查）
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（可复现的确定性基线对照，非官方评测数据）
 ```
