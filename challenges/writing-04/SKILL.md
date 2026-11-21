@@ -22,6 +22,18 @@ license: MIT
 
 ---
 
+## 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：判分要点与评委维度、错误做法→正确做法、八步求解框架与门控、量化口径与公式（引用
+定位准确率、编号一致性对称差、去重准确率/误合并、字段保留率、来源核验覆盖率、论断匹配率、
+可回溯率、人工修改量）、GB/T 7714 与 APA 领域陷阱、交付物清单与检查表、完整虚构案例。执行顺序
+固定为：先读手册 → 再用 §1 单命令或 §2 agent-first 路径逐阶段落盘 → 交付前逐项勾选手册 §6 检查表。
+手册与 `SKILL.md` 冲突时，契约键名、入口命令与产物文件名以 `SKILL.md` 为准，方法与判分口径以
+手册为准。
+
+---
+
 ## 0. result.json 契约样例（output_contract 逐键回填）
 
 `result.json` 逐键回填用例声明的每一个 `output_contract` 键：既放进顶层同名键，也放进
@@ -157,6 +169,7 @@ pages, doi, url, isbn, eprint, raw, source_format, issues[]`；未知字段一�
 
 ## 9. 交付前自查
 
+- [ ] **`references/expert_playbook.md` §6 专家检查表逐项通过**（未通过项先修复再交付）。
 - [ ] `result.json` 可解析，`case_id` 在，`output_contract` 逐键回填且无类型占位符。
 - [ ] `references.gbt.md` 与 `references.apa.md` 均非空（无记录时给出诚实说明行）。
 - [ ] `verification.csv` / `claim_support.csv` / `changes.csv` 存在且含表头与真实行。
@@ -184,6 +197,7 @@ scripts/cite_engine.py          入口：all / probe / check / build / selftest
 scripts/citelib.py              解析 / 去重 / 引用匹配 / 离线核验（纯函数）
 scripts/citerender.py           GB/T 7714-2015 与 APA 7 渲染 + CSV 写出
 references/contract.md          契约、去重判据、draft.json 交接格式
+references/expert_playbook.md   专家方法论：判分要点、公式、领域陷阱、检查表、虚构案例
 README.md  SELFTEST.md  GITHUB_URL.txt   安装、用法、自测记录、仓库地址
 ```
 
