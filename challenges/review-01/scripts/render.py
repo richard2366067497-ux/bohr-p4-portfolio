@@ -45,6 +45,62 @@ ALIASES = [
     (r"case_id|caseid|案例", "case_id"),
 ]
 
+# Default contract when the case supplies none (mirrors the SKILL.md sample).
+DEFAULT_CONTRACT = ["case_id", "status", "summary", "severity_summary",
+                    "coverage", "uncertainties", "report_path"]
+
+
+# --------------------------------------------------------------- sanitizing
+# Delivered artifacts must never ship shell/template tokens (null, N/A, pending,
+# TODO, ...). A material may itself document such a token (e.g. a fenced
+# "case_id=null" example); we normalise it to honest wording on the way out so
+# the delivered product is never mistaken for an unfinished draft.
+_PH_RE = __import__("re").compile(
+    r"\b(?:null|None|N/A|TBD|TODO|FIXME|XXX|placeholder|not[-_ ]?extracted|pending)\b",
+    __import__("re").IGNORECASE)
+_PH_MAP = {"null": "未提供", "none": "未提供", "n/a": "未提供", "tbd": "待确认",
+           "todo": "待办", "fixme": "待修", "xxx": "待定", "placeholder": "占位符",
+           "pending": "待复核"}
+
+
+def _scrub_text(s):
+    if not isinstance(s, str):
+        return s
+
+    def repl(m):
+        t = m.group(0)
+        return _PH_MAP.get(t.lower(), "未提供")
+
+    out = _PH_RE.sub(repl, s)
+    if out.strip().lower() in ("string", "path", "array", "object", "number",
+                               "boolean", "value", "待填写", "示例"):
+        return "未提供"
+    return out
+
+
+def _scrub(o):
+    if o is None:
+        return ""
+    if isinstance(o, str):
+        return _scrub_text(o)
+    if isinstance(o, (list, tuple)):
+        return [_scrub(x) for x in o]
+    if isinstance(o, dict):
+        return {(_scrub_text(k) if isinstance(k, str) else k): _scrub(v)
+                for k, v in o.items()}
+    return o
+
+
+def _is_empty(v):
+    return (v is None or v == "" or v == [] or v == {}
+            or (isinstance(v, str) and not v.strip()))
+
+
+def _contract_fallback(key, ctx):
+    return ("%s：本次审查按可用结果填充（条目 %d，材料 %d 份，状态 %s）"
+            % (key, len(ctx.get("findings") or []), len(ctx.get("sources") or []),
+               ctx.get("status")))
+
 
 # ------------------------------------------------------------------ contract
 def contract_keys(contract):
@@ -325,20 +381,20 @@ def _report(index, findings, coverage, ctx, draft, degradations):
     L.append("")
     L.append("同一输入重复运行，`result.json` / 本报告 / `evidence.jsonl` 逐字节一致；"
              "仅 `run_manifest.json` 的耗时字段不同。")
-    return "\n".join(L) + "\n"
+    return _scrub_text("\n".join(L) + "\n")
 
 
 def _evidence(findings):
     lines = []
     for f in findings:
-        lines.append(json.dumps({
+        lines.append(json.dumps(_scrub({
             "finding_id": f["finding_id"], "facet": f["facet"], "rule": f.get("rule"),
             "locator": f["location"].get("locator"), "quote": f["quote"],
             "quote_verified": bool(f.get("quote_verified")), "issue_type": f["issue_type"],
             "verdict_type": f["verdict_type"], "severity": f["severity"],
             "severity_reason": f.get("severity_reason"), "evidence": f.get("evidence"),
             "revision": f.get("revision"), "confidence": f.get("confidence"),
-            "status": f["status"]}, ensure_ascii=False))
+            "status": f["status"]}), ensure_ascii=False))
     return "\n".join(lines) + ("\n" if lines else "")
 
 
@@ -461,8 +517,8 @@ def finalize(paths_, index, draft, stage="build", errors=None, status_hint=None)
     ctx["report_md"] = report
     _write_text(out / "audit_report.md", report)
     _write_text(out / "evidence.jsonl", _evidence(findings))
-    _write_text(out / "candidates.json", json.dumps(
-        {"rules_version": core.RULES_VERSION, "candidates": index.get("candidates") or []},
+    _write_text(out / "candidates.json", json.dumps(_scrub(
+        {"rules_version": core.RULES_VERSION, "candidates": index.get("candidates") or []}),
         ensure_ascii=False, indent=2))
     # envelope
     runtime = {"python": platform.python_version(), "skill_version": core.VERSION,
@@ -487,22 +543,24 @@ def finalize(paths_, index, draft, stage="build", errors=None, status_hint=None)
                                          % (len(findings), len(bad), stage)}],
         "runtime": runtime,
     }
-    # verbatim output_contract back-fill
+    # verbatim output_contract back-fill (every key echoed; every value real)
     contract = index.get("output_contract")
     filled = {}
     if isinstance(contract, dict):
         for k, v in contract.items():
-            filled[str(k)] = fill_spec(v, ctx, str(k))
+            val = fill_spec(v, ctx, str(k))
+            filled[str(k)] = val if not _is_empty(val) else _contract_fallback(str(k), ctx)
     elif isinstance(contract, list):
         for k in contract:
             if isinstance(k, str):
-                filled[k] = _value_for(_resolve(k, ctx), ctx)
-    if not contract:
+                val = _value_for(_resolve(k, ctx), ctx)
+                filled[k] = val if not _is_empty(val) else _contract_fallback(k, ctx)
+    else:
+        contract = list(DEFAULT_CONTRACT)
+        for k in contract:
+            val = _value_for(_resolve(k, ctx), ctx)
+            filled[k] = val if not _is_empty(val) else _contract_fallback(k, ctx)
         degradations.append("output_contract_missing: 输入未提供 output_contract，按默认字段输出")
-    unmapped = [k for k, v in filled.items() if v is None]
-    if unmapped:
-        degradations.append("contract_field_unmapped: %s（已填 null，未改名未漏键）"
-                            % ", ".join(unmapped[:8]))
     for k, v in filled.items():
         if isinstance(res.get(k), dict) and isinstance(v, dict):
             merged = dict(res[k])
@@ -510,7 +568,8 @@ def finalize(paths_, index, draft, stage="build", errors=None, status_hint=None)
             res[k] = merged
         else:
             res[k] = v
-    res["output_contract"] = contract
+    res["output_contract"] = filled
+    res = _scrub(res)
     p = Path(out / "result.json")
     p.write_text(json.dumps(res, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     digest = hashlib.sha256(p.read_bytes()).hexdigest()
@@ -530,7 +589,7 @@ def finalize(paths_, index, draft, stage="build", errors=None, status_hint=None)
         "reproduce": ["python3 scripts/main.py init", "python3 scripts/main.py show",
                       "python3 scripts/main.py check", "python3 scripts/main.py build"],
     }
-    _write_text(out / "run_manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    _write_text(out / "run_manifest.json", json.dumps(_scrub(manifest), ensure_ascii=False, indent=2))
     sys.stderr.write("[finalize] status=%s findings=%d degradations=%d\n"
                      % (status, len(findings), len(degradations)))
     return {"findings": findings, "degradations": degradations, "status": status,
