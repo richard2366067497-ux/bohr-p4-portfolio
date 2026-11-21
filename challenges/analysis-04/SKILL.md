@@ -7,9 +7,15 @@ tags: [codegen, execution, verification, reproducibility]
 
 # 科研代码生成与执行 → 可复核结果（codegen-execute 契约驱动）
 
-本包是 `analysis-04` 的 v6 形态：**单命令即可跑完整条"生成代码 → 执行 → 核对"链路**，无需先初始化
+本包是 `analysis-04` 的 v10 形态：**单命令即可跑完整条"生成代码 → 执行 → 核对"链路**，无需先初始化
 再手写工作稿；Agent 仍可读证据后补充判断（写入 `draft.json`，`all` 会自动合并），但评测器只跑
 第一条命令也能拿到全部关键产物与完整契约回填。
+
+## 随包方法论（执行前必读）
+
+执行任何命令前**先完整阅读 `references/expert_playbook.md`**，并按它组织全部产出：按其 §2 八步流程推进
+（输入→环境→加载→清洗→统计→验证→异常→打包），按其 §4 公式核算统计量与容差，按其 §5 逐条排雷，
+按其 §7 自查表交付。
 
 ## 0. result.json 契约样例（output_contract 逐键回填）
 
@@ -41,10 +47,11 @@ tags: [codegen, execution, verification, reproducibility]
 
 ## 1. 单命令全流程（single-command entry）
 
-一条命令跑完：发现输入 → 解析数据字典与规格（draft 字段 / 校验项 / 降级矩阵 / 契约语义）
-→ **生成** `code/analysis.py`（自足、纯标准库）→ **执行**（子进程，300s 超时，捕获 stdout/stderr/退出码）
-→ 读回 `results/summary.json` → **独立重算**每个关键数字并逐条校验 → 渲染图表 → 写全部交付物
-→ 回填全部 `output_contract` 键 → 写 `result.json`：
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。一条命令跑完：
+发现输入 → 解析数据字典与规格（draft 字段 / 校验项 / 降级矩阵 / 契约语义）→ **生成** `code/analysis.py`
+（自足、纯标准库）→ **执行**（子进程，300s 超时，捕获 stdout/stderr/退出码）→ 读回 `results/summary.json`
+→ **独立重算**每个关键数字并逐条校验 → 渲染图表 → 写全部交付物 → 回填全部 `output_contract` 键 →
+写 `result.json`：
 
 ```bash
 python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
@@ -105,3 +112,6 @@ Agent 的 `column_map / cleaning_policy / claims / verification`，找不到就�
 只做代码生成、执行、结果核对、图表渲染与证据留痕；不做实验方案设计、机理解释、论文写作，
 不安装第三方库、不访问网络、不编造基准分。纯标准库、无时钟读取：重复运行同一输入，交付物
 字节稳定；运行中断时保留已写部分 `result.json`，异常写入 `errors[]`，退出码仍为 0。
+
+交付前须**逐项通过 `references/expert_playbook.md` §7 的专家检查表**（字段映射/快照/缺失与重复/检验前提/
+随机种子/图表单位/校验与异常说明/locator 与复算命令）；任一未过记 `partial` 并写入不确定性。
