@@ -1,6 +1,6 @@
 [
   {"query_id": "Q1", "query": "\"photocatalytic water splitting\" AND \"TiO2\" AND \"visible light\"",
-   "field": "title", "source": "Crossref", "window": "2012-01-01 to 2021-12-31", "records": 84},
+   "field": "title/abstract", "source": "Crossref", "window": "2012-01-01 to 2021-12-31", "records": 84},
   {"query_id": "Q2", "query": "\"hydrogen evolution\" AND \"metal oxide\" AND doping",
    "field": "title/abstract", "source": "Crossref", "window": "2012-01-01 to 2021-12-31", "records": 211},
   {"query_id": "Q3", "query": "\"BiVO4\" AND \"water oxidation\"",
