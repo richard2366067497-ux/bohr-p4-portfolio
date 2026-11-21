@@ -19,6 +19,14 @@ version: 1.0.0
 
 ---
 
+单命令评测入口：
+
+```bash
+python3 -B /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -37,10 +45,6 @@ version: 1.0.0
 ---
 
 ## 1. 单命令（single command，等价入口，评测入口）
-
-```
-python3 -B /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
-```
 
 该命令等价于 `all`：扫描材料 → 识别文献记录与引用标记 → 建节点 / 边 → 从种子追踪路径 →
 缺口 → 报告 + `result.json`（契约逐键回填 + `case_id` 透传）→ 占位符净化 → exit 0。
