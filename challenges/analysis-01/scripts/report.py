@@ -16,6 +16,8 @@ serialized with a JSON escape, so the decoded value is unchanged.
 """
 import csv
 import json
+import re
+import zipfile
 from pathlib import Path
 
 import cleanlib as L
@@ -29,6 +31,85 @@ LIMITS = [
     "a unit that is absent from the registry is not converted; it is flagged instead",
     "the delivered table keeps every source row: duplicates are quarantined, not deleted",
 ]
+
+
+def _unesc(s):
+    return (str(s).replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+            .replace("&quot;", '"').replace("&#39;", "'"))
+
+
+def _col_idx(ref):
+    n = 0
+    for ch in ref:
+        if not ch.isalpha():
+            break
+        n = n * 26 + (ord(ch.upper()) - 64)
+    return max(0, n - 1)
+
+
+def _serial_date(val, style, datestyles):
+    if style not in datestyles:
+        return val
+    try:
+        x = float(val)
+        if x < 1 or x > 80000:
+            return val
+        import datetime
+        d = datetime.datetime(1899, 12, 30) + datetime.timedelta(days=x)
+        return d.isoformat()[:10] if abs(x - int(x)) < 1e-9 else d.isoformat()
+    except Exception:
+        return val
+
+
+def read_xlsx(path):
+    """Minimal zip+XML reader for the first worksheet (shared strings + date styles).
+
+    Lives here rather than in the material layer so that the byte budget of the
+    core module stays small; cleanlib.load_table imports this lazily, only when it
+    actually meets an .xlsx/.xlsm material.
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            shared = []
+            if "xl/sharedStrings.xml" in names:
+                rt = z.read("xl/sharedStrings.xml").decode("utf-8", "replace")
+                shared = ["".join(re.findall(r"<t[^>]*>(.*?)</t>", si, re.S))
+                          for si in re.findall(r"<si>(.*?)</si>", rt, re.S)]
+            dsty = set()
+            if "xl/styles.xml" in names:
+                st = z.read("xl/styles.xml").decode("utf-8", "replace")
+                fmt = dict(re.findall(r'<numFmt[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"', st))
+                for i, sid in enumerate(re.findall(r'<xf[^>]*numFmtId="(\d+)"', st)):
+                    if sid in ("14", "15", "16", "17", "22", "45", "46", "47") or \
+                            re.search(r"(?<![a-z])[ymd]{1,4}(?![a-z])", fmt.get(sid, ""), re.I):
+                        dsty.add(i)
+            sheets = sorted(n for n in names if re.match(r"xl/worksheets/sheet\d+\.xml$", n))
+            if not sheets:
+                return []
+            xml = z.read(sheets[0]).decode("utf-8", "replace")
+            rows = []
+            for rowxml in re.findall(r"<row[^>]*>(.*?)</row>", xml, re.S):
+                cells = {}
+                for cm in re.finditer(r"<c\b([^>]*?)(?:/>|>(.*?)</c>)", rowxml, re.S):
+                    attrs, inner = cm.group(1) or "", cm.group(2) or ""
+                    ref, tt = re.search(r'r="([A-Z]+)\d+"', attrs), re.search(r't="([^"]+)"', attrs)
+                    sm = re.search(r's="(\d+)"', attrs)
+                    idx = _col_idx(ref.group(1)) if ref else len(cells)
+                    tt = tt.group(1) if tt else ""
+                    v = re.search(r"<v>(.*?)</v>", inner, re.S)
+                    raw = v.group(1) if v else ""
+                    if tt == "s" and raw.isdigit() and int(raw) < len(shared):
+                        val = shared[int(raw)]
+                    elif tt == "inlineStr":
+                        val = "".join(re.findall(r"<t[^>]*>(.*?)</t>", inner, re.S))
+                    else:
+                        val = _serial_date(raw, int(sm.group(1)) if sm else -1, dsty)
+                    cells[idx] = _unesc(val)
+                rows.append([cells.get(i, "") for i in range(max(cells) + 1 if cells else 0)])
+            return [r for r in rows if any(L.norm(x) for x in r)]
+    except Exception:
+        return []
 
 # field-level columns of the contract record; a contract key equal to one of these is
 # projected from the effective field_contract.json
