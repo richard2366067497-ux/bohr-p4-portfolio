@@ -1,0 +1,44 @@
+# Resource entry point for the statistical-analysis skill.
+schema: resource-entry/v1
+skill: stats-decision-ledger
+entry:
+  command: python3 /skills/weekly-skill/scripts/main.py all
+  arguments: ["--input /input", "--output /app/output", "--work /app/work"]
+  exit_code_expected: 0
+  alternatives: [init, build, selfcheck, compare, show, check]  # the agent path, same engine
+runtime:
+  language: python3
+  version: ">=3.8"
+  third_party: none            # csv json os re sys io math random hashlib sqlite3 zlib argparse
+  network: false
+  clock: false                 # no timestamp is read; the seed is the fixed 20240517
+  model_calls: 0
+budget: {max_requests: 64, max_seconds: 900, max_tokens: 16384}
+limits:
+  files_per_material_scan: 60  # further files are indexed in input_manifest.json and left unread
+  bytes_per_file: 500000       # a larger file is read up to the cap and the truncation is reported
+  normality_min_n: 8           # below eight per group only rank and descriptive methods run
+  bootstrap_draws: 1000
+  concurrent_processes: 1
+inputs:
+  - path: /input/case.json     # challenge.json is accepted too
+    required: false
+    note: case_id, language, materials_root and output_contract; the contract keys are authoritative
+  - path: /input
+    required: true
+    note: csv, tsv, json, jsonl, sqlite, md or txt; anything else is snapshotted and named
+  - path: /app/work/draft.json
+    required: false
+    note: data_plan and items; the recomputed gates always win over a draft value
+outputs:                       # all eleven are written whether or not the input carried data
+  [result.json, cleaned_data.csv, statistics_table.csv, results_ledger.json, evidence.json,
+   decision_log.json, input_manifest.json, reproducibility.json, report.md, report.pdf, self_check.json]
+workdir: /app/work
+degradation:
+  missing_input: status=insufficient_evidence, every contract key computed=false with a reason, exit 0
+  unreadable_material: snapshotted, named in the manifest with the reason, nothing guessed
+  no_analysable_data: empty ledger, triggers recorded, all eleven artifacts still written
+  bad_draft: rejected field by field into change_records, documented defaults applied instead
+environment_hints:
+  python: /usr/local/bin/python3 or any python3 on PATH
+  optional: none
