@@ -2,7 +2,7 @@
   "case_id": "example-reading-02",
   "language": "en",
   "materials_root": ".",
-  "notes": "Bundled demo case: one two-series figure (fig1.png) plus one table, with the figure-geometry sidecar.",
+  "notes": "Bundled demo case: one two-series figure (fig1.md, text transcription) plus one table, with the figure-geometry sidecar.",
   "output_contract": {
     "case_id": "string",
     "status": "string",
