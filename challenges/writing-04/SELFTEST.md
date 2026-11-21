@@ -1,8 +1,9 @@
-# SELFTEST — 自测记录（writing-04 v9）
+# SELFTEST — 自测记录（writing-04 v10）
 
-包：`work/p4/v9/writing-04` · 引擎 `citation-ledger-sync/3.0.0` · 纯标准库、离线、确定性。
+包：`work/p4/v10/writing-04` · 引擎 `citation-ledger-sync/3.1.0` · 纯标准库、离线、确定性。
 评测模拟器：`scripts/eval_sim.py`。
 解释器：`D:\tool\DSH\resources\runtime\primary-runtime\dependencies\python\python.exe`（Python 3.12.14）。
+随包新增专家方法论 `references/expert_playbook.md`，SKILL.md「执行前必读」要求按其检查表产出。
 
 ## 一、eval_sim（rich/boundary × single/agent，本地门禁）
 
@@ -67,20 +68,39 @@ python work/p4/v9/writing-04/scripts/cite_engine.py check --input ... --output <
 - 纯标准库、无网络、无时钟读取；`result.json.runtime={mode:offline-deterministic, network:false}`。
 - 同一输入重复运行，交付物字节稳定。
 
-## 五、包清单
+## 五、包清单（v10）
 
 ```
-SKILL.md                 11358 B
-references/contract.md    5646 B
-scripts/citelib.py       24926 B
-scripts/citerender.py     6837 B
-scripts/cite_engine.py   30333 B
-README.md                 2877 B
-GITHUB_URL.txt             108 B
-SELFTEST.md               <this file>
+SKILL.md                      12841 B
+README.md                      3376 B
+SELFTEST.md                   <this file>
+GITHUB_URL.txt                  112 B
+GAIN_EVIDENCE.md               5252 B
+environment/resources.yaml     2922 B
+examples/case.json              314 B
+examples/lib.bib                760 B
+references/contract.md         5646 B
+references/expert_playbook.md 15991 B
+scripts/cite_engine.py        29904 B   （整理模块 docstring 后 < 30000 B）
+scripts/citelib.py            24926 B
+scripts/citerender.py          6837 B
 ```
 
-8 个文件，总量 ≪ 150KB，单文件 < 30KiB，纯标准库。相对 v6 的设计差异见下。
+13 个文件、合计 116,448 B（≤14 文件、≤150KB、单文件 ≤30000 B、纯标准库）。
+
+## 五之二、v10 复跑结果
+
+`eval_sim.py` 四组组合（`work/p4/v10/writing-04` × {rich,boundary} × {single,agent}）全 **PASS**，
+`failures=[] warnings=[]`；契约来源：rich `case.json:output_contract`（8 键）、boundary
+`SKILL.md (json sample)`（同 8 键）。
+
+单命令实跑（输入 `examples/`）：`exit 0`，`status=success`，17 个产物，契约 8/8 回填。
+`__pycache__` 已清理。
+
+相对 v9 的差异：新增 `references/expert_playbook.md`（判分要点/公式/GB·T 陷阱/检查表/虚构案例）；
+`cite_engine.py` 由 30,333 B 压到 29,904 B；版本 3.0.0 → 3.1.0。
+
+相对 v6 的设计差异见下。
 
 ## 六、相对 v6 的设计差异
 
