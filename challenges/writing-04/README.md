@@ -13,8 +13,14 @@
   SKILL.md
   scripts/{cite_engine.py,citelib.py,citerender.py}
   references/contract.md
+  references/expert_playbook.md  专家方法论（执行前必读：判分要点/公式/陷阱/检查表/案例）
+  environment/resources.yaml     运行环境、入口命令、预算与依赖声明
+  examples/                      最小可复跑样例（case.json + lib.bib）
+  GAIN_EVIDENCE.md               基线对照与使用增益说明（含确定性 baseline_sim）
   README.md  SELFTEST.md  GITHUB_URL.txt
 ```
+
+执行前先读 `references/expert_playbook.md`，按其八步框架推进，交付前逐项通过其 §6 检查表。
 
 ## 用法
 
@@ -60,6 +66,6 @@ python3 /skills/weekly-skill/scripts/cite_engine.py all --input /input --output 
 
 ## 维护与版本策略
 
-- 版本 3.0.0；语义化版本：契约键名冻结，主版本才改；新增判据/渲染 → 次版本；文案与阈值 → 修订号。
+- 版本 3.1.0；语义化版本：契约键名冻结，主版本才改；新增判据/渲染 → 次版本；文案与阈值 → 修订号。
 - 判据集中在 `references/contract.md`，脚本按此执行；改动后跑 `selftest` 与 `scripts/eval_sim.py`
   （rich/boundary × single/agent）见 `SELFTEST.md`。
