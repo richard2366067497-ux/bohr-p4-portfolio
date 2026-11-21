@@ -390,8 +390,13 @@ def contract_blocks(contract, payload, contracts):
 
 def write_result(out, case_id, contract, payload, stage, skill, nowf, contracts=None):
     res = {"case_id": case_id}
-    res["output_contract"] = contract_blocks(contract, payload, contracts or [])
+    blocks = contract_blocks(contract, payload, contracts or [])
+    res["output_contract"] = blocks
     res.update({k: v for k, v in payload.items() if k not in res})
+    # every declared contract key is also mirrored at the top level (same value as the
+    # nested echo); an explicit payload field of the same name wins and is identical anyway
+    for k, v in blocks.items():
+        res.setdefault(k, v)
     res["skill"] = skill
     res["stage"] = stage
     res["runtime"] = {"version": L.VERSION, "elapsed_s": nowf()}
