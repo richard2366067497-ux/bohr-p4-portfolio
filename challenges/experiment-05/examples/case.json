@@ -1,0 +1,19 @@
+{
+  "case_id": "example-experiment-interpretation-dossier",
+  "title": "Cat-X 催化降解苯酚：读数解释与异常定位",
+  "task_instruction": "读入随包 notes.md（筛检规则 R1–R9、单位与量纲字典、判据阈值常量）与 readout.csv（空白组与 Cat-X 组的时间序列读数），产出一份可核验的解释档案：五段结论（趋势 / 异常定位 / 原因候选 / 复核步骤 / 后续实验）每条挂 locator 与逐字引文，异常点绑定到具体通道与时间点，并复算修正 z、IQR 栅栏与相对偏差等定义。",
+  "output_contract": {
+    "id": "example-experiment-interpretation-dossier",
+    "case_id": "example-experiment-interpretation-dossier",
+    "time_course": "string",
+    "deviation": "string",
+    "mechanism": "string",
+    "dataset": "string",
+    "parameter": "string",
+    "limitation": "string",
+    "answered": "string",
+    "partial": "string",
+    "insufficient_evidence": "string",
+    "input_error": "string"
+  }
+}
