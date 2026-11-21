@@ -12,6 +12,14 @@ description: 术语表驱动的跨语种 known-item 检索：概念→各语种�
 - 材料没有的概念写 `not-in-glossary` 并进 `pending_human`，**绝不臆造译法**；
 - 同一 work 的原文 / 全译 / 摘要版 / 副本**去重后**才计数，`abstract_only` 不作为正文命中证据。
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -45,10 +53,6 @@ description: 术语表驱动的跨语种 known-item 检索：概念→各语种�
 ```
 
 ## 单命令（one-shot，评测入口）
-
-```bash
-python3 scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 - 一条命令走完：扫描材料 → 解析内置术语表 → 检出材料**实际陈述**的概念锚点 → 生成逐语种查询式
   → 跨语种术语对齐 → 视图台账与去重 → 命中卡 / misses → 增益指标 → 落盘。
