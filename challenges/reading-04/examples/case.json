@@ -1,0 +1,29 @@
+{
+  "case_id": "example-reading-04",
+  "language": "en",
+  "materials_root": "corpus",
+  "notes": "Minimal runnable example for multi-doc-comparison. Two tiny corpus documents share one pollutant under different catalysts.",
+  "output_contract": {
+    "case_id": "example-reading-04",
+    "status": "ok",
+    "result": {"note": "common-field comparison matrix over examples/corpus"},
+    "claims": [{"claim_id": "c01", "note": "per-field comparison claim set"}],
+    "uncertainties": [{"item": "scope", "detail": "only examples/corpus and the listed fields are compared"}]
+  },
+  "workorder": {
+    "research_question": "同一染料在不同光催化剂下的去除率与平衡浓度如何比较？",
+    "documents": [
+      {"document_id": "D1", "title": "Example A 2021", "file": "corpus/D1.txt"},
+      {"document_id": "D2", "title": "Example B 2023", "file": "corpus/D2.txt"}
+    ],
+    "fields": [
+      {"name": "material", "definition": "光催化剂", "unit": "", "value_rule": "原文命名"},
+      {"name": "pollutant", "definition": "目标染料", "unit": "", "value_rule": "原文命名"},
+      {"name": "ph", "definition": "实验 pH", "unit": "pH", "value_rule": "取报告条件对应值"},
+      {"name": "removal", "definition": "平衡去除率", "unit": "%", "value_rule": "取作者报告值"},
+      {"name": "initial_concentration", "definition": "染料初始浓度", "unit": "mg/L", "value_rule": "取 Methods 报告值"}
+    ],
+    "comparison_dimensions": ["task", "metric", "units", "material", "pollutant", "budget"],
+    "forbidden_pooling": ["different dyes", "different catalysts"]
+  }
+}
