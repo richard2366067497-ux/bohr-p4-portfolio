@@ -1,0 +1,90 @@
+{
+  "questions": [
+    {
+      "question_id": "Q1",
+      "source_lang": "pt",
+      "target_langs": ["pt", "en"],
+      "refined": "原文（葡萄牙语）关于「老年人生活质量量表的跨文化适应」的研究论文",
+      "target_view_hypothesis": "V1_pt_original"
+    }
+  ],
+  "view_labels": [
+    {
+      "view_id": "V1_pt_original",
+      "language": "pt",
+      "version": "original",
+      "doc_type": "full_body",
+      "duplicate_of": null,
+      "basis": "文件名含 original，正文有 versão original 措辞，属原文正文"
+    },
+    {
+      "view_id": "V2_en_publisher_translation",
+      "language": "en",
+      "version": "publisher_translation",
+      "doc_type": "full_body",
+      "duplicate_of": null,
+      "basis": "正文有 official translation 措辞，与原文同 DOI，计同一 work"
+    },
+    {
+      "view_id": "V4_en_duplicate",
+      "language": "en",
+      "version": "duplicate",
+      "doc_type": "full_body",
+      "duplicate_of": "V2_en_publisher_translation",
+      "basis": "正文与 V2 内容指纹相同，属副本，只入台账不计数"
+    }
+  ],
+  "matches": [
+    {
+      "question_id": "Q1",
+      "work_id": "V1",
+      "view_id": "V1_pt_original",
+      "confidence": "high",
+      "basis": "题面锚点 adaptação transcultural / qualidade de vida / idosos 在主视图逐字出现",
+      "evidence": {
+        "quote": "A adaptação transcultural do instrumento de qualidade de vida para idosos",
+        "locator": "materials/V1_pt_original.md#L15",
+        "term_pairs": [
+          {
+            "concept": "cross-cultural adaptation",
+            "concept_id": "G30",
+            "source_lang": "pt",
+            "source": "adaptação transcultural",
+            "source_quote": "A adaptação transcultural do instrumento de qualidade de vida para idosos",
+            "source_locator": "materials/V1_pt_original.md#L15",
+            "target_lang": "en",
+            "target": "cross-cultural adaptation",
+            "target_quote": "This study describes the cross-cultural adaptation of a quality of life instrument for older adults",
+            "target_locator": "materials/V2_en_publisher_translation.md#L13",
+            "glossary": "builtin:G30"
+          }
+        ]
+      },
+      "false_positive": {
+        "method": "back_translation",
+        "verdict": "pass",
+        "basis": "en 写法与术语表 G30 回译一致，未出现词面对应但语义错配"
+      }
+    }
+  ],
+  "false_positive_checks": [
+    {
+      "method": "back_translation",
+      "verdict": "pass",
+      "basis": "G30 双向回译一致"
+    },
+    {
+      "method": "glossary_membership",
+      "verdict": "review",
+      "basis": "个案专名不在术语表内，改用 DOI/作者/年份锚点，避免把无关文献拉进来"
+    }
+  ],
+  "dedup_note": {
+    "distinct_works": 1,
+    "counted_hits": 1,
+    "views_total": 3,
+    "duplicates": ["V4_en_duplicate"]
+  },
+  "misses": [],
+  "status_note": "题面 1 题命中；副本已去重，不计入命中数"
+}
