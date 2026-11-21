@@ -110,6 +110,26 @@ def assemble(idx, draft, draft_error, version, stamp=False):
     if unverified:
         gaps.append({"code": "quote_unverified", "count": len(unverified),
                      "detail": "%d 条 quote 未逐字命中，已降级 pending_review" % len(unverified)})
+    if not unc:
+        unc = [{"topic": "外部核验", "detail": "完整原文与发表状态不在包内，引用支持度最高只能到人工可核验",
+                "human_check_needed": "按 source_locator 打开原文核对，并补来源版本与撤稿状态"}]
+    evidence_map = [{"check_id": c["check_id"], "verdict": c["verdict"], "status": c["status"],
+                     "claim_locator": (c.get("locators") or {}).get("claim_loc"),
+                     "source_locator": (c.get("locators") or {}).get("source_loc"),
+                     "quote_verified": c["quote_verified"]} for c in cks]
+    evidence_map += [{"finding_id": f["finding_id"], "facet": f["facet"], "severity": f["severity"],
+                      "locator": (f.get("location") or {}).get("locator"),
+                      "quote_verified": f["quote_verified"]} for f in fnds]
+    if not evidence_map:
+        evidence_map = [{"kind": "no_verified_unit",
+                         "detail": "输入未提供可核验的论断单元；本结果只登记降级与人工复核路径"}]
+    change_log = changes or [{"scope": "draft", "field": "citation_checks", "from": "absent",
+                              "to": "fallback",
+                              "rule": "无工作稿：按候选论断做机械核验，语义判定记为 pending_review 待人工复核"}]
+    limits = {"full_text_access": False, "external_databases": False,
+              "semantic_judgement": "由工作稿提供；无工作稿时只做机械核验",
+              "quoting": "NFKC + 去空白后须落在单个段落单元内，跨段拼接不算命中",
+              "case_scope": "只核验输入材料内可定位的论断，不评价稿件整体学术价值"}
     status = "input_error" if not idx.get("units") else (
         "completed" if isinstance(draft, dict) and
         (any(c["verdict"] != "undetermined" for c in cks) or
@@ -137,7 +157,10 @@ def assemble(idx, draft, draft_error, version, stamp=False):
         "severity_summary": sev,
         "revisions": [{"finding_id": f["finding_id"], "revision": f["revision"]} for f in fnds],
         "metrics": metrics, "report": "citation_report.md",
-        "artifacts": ["citation_report.md", "evidence.jsonl", "run_manifest.json"],
+        "artifacts": ["citation_report.md", "evidence.jsonl", "run_manifest.json", "index.json",
+                      "manuscript.md"],
+        "deliverable": "citation_report.md", "evidence_map": evidence_map,
+        "change_log": change_log, "change_records": change_log, "limits": limits,
         "method_notes": {"rules_version": B.RULES_VERSION, "verdict_levels": list(B.VERDICTS),
                          "three_elements": list(B.SEM),
                          "fallback": "无工作稿时全部判定为 undetermined 并标 pending_review",
@@ -170,6 +193,7 @@ def assemble(idx, draft, draft_error, version, stamp=False):
         "runtime": {"skill_version": version, "rules_version": B.RULES_VERSION,
                     "index_schema": A.INDEX_SCHEMA, "wall_seconds": None,
                     "finished_at": None, "deterministic": True}})
+    result["output_contract"] = {k: result.get(k) for k in keys}
     if stamp:
         result["runtime"]["wall_seconds"] = round(time.time() - T0, 3)
         result["runtime"]["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -182,7 +206,7 @@ def cmd_init(args):
     idx, _ = ensure_index(inp, work, force=not args.reuse)
     idx.setdefault("gaps", []).extend(notes)
     res = R.envelope(idx, VERSION)
-    ok = dump_any(out / "result.json", res)
+    ok = dump_any(out / "result.json", A.clean(res))
     tpl = B.draft_template(idx)
     dump_any(work / "draft.template.json", tpl)
     st = idx.get("stats") or {}
@@ -295,6 +319,7 @@ def cmd_build(args):
     draft_path = Path(args.draft) if args.draft else work / "draft.json"
     draft, err = A.load_json(draft_path)
     result, rep = assemble(idx, draft, err, VERSION, stamp=args.stamp)
+    result = A.clean(result)
     ok = dump_any(out / "result.json", result)
     written = ["result.json" if ok else "result.json(failed)"]
     try:
@@ -308,7 +333,18 @@ def cmd_build(args):
     except Exception:
         pass
     try:
-        A.dump_json(out / "run_manifest.json", R.manifest(idx, result, "build", time.time() - T0, VERSION))
+        (out / "manuscript.md").write_text(R.render_manuscript(result), "utf-8")
+        written.append("manuscript.md")
+    except Exception:
+        pass
+    try:
+        A.dump_json(out / "index.json", A.clean(R.index_snapshot(idx)))
+        written.append("index.json")
+    except Exception:
+        pass
+    try:
+        A.dump_json(out / "run_manifest.json", A.clean(R.manifest(idx, result, "build",
+                                                                time.time() - T0, VERSION)))
         written.append("run_manifest.json")
     except Exception:
         pass
@@ -343,6 +379,13 @@ def cmd_selfcheck(args):
     return 0
 
 
+def cmd_all(args):
+    """Single entry: index + finalize + self-check in one command, no draft needed."""
+    cmd_build(args)
+    cmd_selfcheck(args)
+    return 0
+
+
 def last_resort(args, exc):
     try:
         inp, work, out, notes = resolve_dirs(args)
@@ -350,7 +393,7 @@ def last_resort(args, exc):
         idx["input_dir"] = str(inp)
         idx["gaps"] = notes + [{"code": "internal_error", "detail": "%s: %s" % (type(exc).__name__, exc)}]
         idx["errors"] = [str(exc)]
-        dump_any(out / "result.json", R.envelope(idx, VERSION))
+        dump_any(out / "result.json", A.clean(R.envelope(idx, VERSION)))
         print("FALLBACK: 已写出最小合法 result.json（%s）" % exc)
     except Exception:
         pass
@@ -358,7 +401,7 @@ def last_resort(args, exc):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="main.py", description="citation-fact-audit (review-02)")
-    ap.add_argument("command", choices=["init", "show", "check", "build", "selfcheck"])
+    ap.add_argument("command", choices=["all", "init", "show", "check", "build", "selfcheck"])
     ap.add_argument("--input", help="input dir (default /input)")
     ap.add_argument("--work", help="work dir (default /app/work)")
     ap.add_argument("--output", help="output dir (default /app/output)")
@@ -378,10 +421,10 @@ def main(argv=None):
     except SystemExit as e:
         if e.code in (0, None):
             raise
-        print("usage: main.py {init|show|check|build|selfcheck} [--input DIR] [--work DIR] [--output DIR]")
+        print("usage: main.py {all|init|show|check|build|selfcheck} [--input DIR] [--work DIR] [--output DIR]")
         return 0
     try:
-        return {"init": cmd_init, "show": cmd_show, "check": cmd_check,
+        return {"all": cmd_all, "init": cmd_init, "show": cmd_show, "check": cmd_check,
                 "build": cmd_build, "selfcheck": cmd_selfcheck}[args.command](args)
     except SystemExit:
         raise
