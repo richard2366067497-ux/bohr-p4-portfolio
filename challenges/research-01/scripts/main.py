@@ -459,8 +459,9 @@ def main(argv=None):
              ("selfcheck", "re-verify written artifacts"))
     for name, hlp in specs:
         p = sub.add_parser(name, help=hlp)
-        for f in ("--input", "--output", "--work"):
-            p.add_argument(f)
+        p.add_argument("--input")
+        p.add_argument("--output")
+        p.add_argument("--work")
         if name == "show":
             p.add_argument("--doc")
             p.add_argument("--paras")
