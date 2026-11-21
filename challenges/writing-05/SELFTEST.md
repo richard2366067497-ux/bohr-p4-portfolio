@@ -53,6 +53,7 @@ pending_human_count:1, overclaim_flags:1}`；契约 5/5；占位符 0。过度�
 SKILL.md
 scripts/main.py
 scripts/kit.py
+references/expert_playbook.md
 references/method.md
 environment/resources.yaml
 examples/case.json
@@ -64,4 +65,4 @@ GITHUB_URL.txt
 GAIN_EVIDENCE.md
 ```
 
-12 个文件，总量 < 150KB，单文件 < 30KB，纯标准库。
+13 个文件，总量 < 150KB，单文件 < 30KB，纯标准库。
