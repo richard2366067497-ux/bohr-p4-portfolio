@@ -1,0 +1,70 @@
+# Runtime contract for screening-dedup-conflict-auditor (search-08)
+# Declares the execution surface the evaluator relies on. Pure stdlib, offline,
+# deterministic: no network, no third-party packages, no clock-dependent output.
+
+skill:
+  name: screening-dedup-conflict-auditor
+  version: "1.0.0"
+  entry: scripts/main.py
+  language: python3
+
+paths:
+  input: /input          # case.json, task.md and the materials tree
+  output: /app/output    # every deliverable listed below
+  work: /app/work        # index, draft skeleton and check report
+
+entry:
+  single_command: "python3 scripts/main.py all --input /input --output /app/output --work /app/work"
+  commands: [all, init, show, check, build, selfcheck, compare]
+  default_command: all
+  exits:
+    success: 0
+    usage_error: 2       # argparse usage error only
+
+runtime:
+  python: ">=3.8"
+  libraries: [argparse, csv, hashlib, io, json, re, sys, pathlib]  # standard library only
+  network: none
+  translation_service: none
+  deterministic: true    # timestamps are excluded from every judgement
+
+budget:
+  requests: 64
+  seconds: 900
+  tokens_per_response: 16384
+
+inputs:
+  - case.json            # optional: case_id, research_question, criteria, time_window, output_contract
+  - task.md              # optional: the research question and criteria in prose
+  - materials/           # title/abstract records, supplied judgements, a reason-code book (json/jsonl/csv/md)
+
+outputs:
+  required:
+    - result.json
+    - screening_table.csv
+    - dedup_report.json
+    - conflict_report.json
+    - audit_log.jsonl
+    - criteria.json
+    - search_protocol.json
+    - count_closure.md
+    - self_check.json
+  optional:
+    - gain_report.md
+    - gain_report.json
+    - run_log.txt
+
+contract:
+  source_order: [case.json:output_contract, task.md, challenges/search-08.json, SKILL.md json sample]
+  echo: "every key is written into result.json.output_contract and copied to the top level"
+  builtin_keys: [case_id, deliverable, evidence_map, change_log, coverage, status]
+  deliverable: screening_table.csv
+
+criteria:
+  reason_code_dictionary: config/reason_codes.json   # fallback; a material code book takes precedence
+  standard_version: "criteria-<sha1[:12]> frozen per run; every judgement records standard_version"
+
+failure_policy:
+  empty_input: "exit 0 with status=input_error and a valid result.json"
+  broken_json: "recorded in degradations, still exit 0"
+  no_records: "status=insufficient_evidence; count closure reported honestly as empty"
