@@ -1,6 +1,4 @@
 def render_manuscript(draft, index=None, meta=None):
-    """Render the ten-section blueprint; sections the material cannot support keep
-    their heading and state the gap explicitly."""
     meta = meta or {}
     draft = draft or {}
     lang = _lang_of(draft, meta)
@@ -25,7 +23,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.append(t["convention"] % (ph % t["field"]))
     L.append("")
 
-    # 1 scope
     L.append("## %s" % heading["scope"])
     L.append("")
     tu = draft.get("task_understanding") or {}
@@ -44,7 +41,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "scope", t))
     L.append("")
 
-    # 2 data
     L.append("## %s" % heading["data"])
     L.append("")
     rows = _list(draft, "datasets")
@@ -75,7 +71,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "data", t))
     L.append("")
 
-    # 3 steps
     L.append("## %s" % heading["steps"])
     L.append("")
     rows = _list(draft, "steps")
@@ -102,7 +97,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "steps", t))
     L.append("")
 
-    # 4 settings
     L.append("## %s" % heading["settings"])
     L.append("")
     rows = _list(draft, "settings")
@@ -125,7 +119,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "settings", t))
     L.append("")
 
-    # 5 parameters
     L.append("## %s" % heading["params"])
     L.append("")
     rows = _list(draft, "parameters")
@@ -164,7 +157,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "param", t))
     L.append("")
 
-    # 6 baselines
     L.append("## %s" % heading["baseline"])
     L.append("")
     rows = _list(draft, "baselines")
@@ -193,7 +185,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "baseline", t))
     L.append("")
 
-    # 7 metrics
     L.append("## %s" % heading["metric"])
     L.append("")
     rows = _list(draft, "evaluation")
@@ -214,7 +205,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "metric", t))
     L.append("")
 
-    # 8 repro
     L.append("## %s" % heading["repro"])
     L.append("")
     rows = _list(draft, "repro")
@@ -239,7 +229,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "repro", t))
     L.append("")
 
-    # 9 limitations
     L.append("## %s" % heading["limits"])
     L.append("")
     rows = _list(draft, "limitations")
@@ -258,7 +247,6 @@ def render_manuscript(draft, index=None, meta=None):
     L.extend(_gap_lines(draft, "limit", t))
     L.append("")
 
-    # 10 gaps
     L.append("## %s" % heading["gaps"])
     L.append("")
     gaps = [g for g in _list(draft, "gaps") if isinstance(g, dict)]
@@ -292,8 +280,6 @@ def fact_ledger_csv(draft, verified_map=None):
     return buf.getvalue()
 
 def parameter_ledger_csv(draft, index=None):
-    """Parameter ledger; from column 3 on it is mechanical fact. conflict_flag
-    separates a draft-level decision from an auto-detected but unresolved conflict."""
     detected = {}
     for g in (index or {}).get("groups", []):
         if g.get("status") == "conflict":
@@ -403,7 +389,6 @@ def conflicts_md(draft, index=None):
     return "\n".join(L).rstrip() + "\n"
 
 def _has_content(item):
-    """An empty shell (key names but no value) does not count towards coverage."""
     if isinstance(item, str):
         return bool(item.strip())
     if not isinstance(item, dict):
@@ -439,7 +424,7 @@ def coverage(draft):
         if items == 0:
             status = "missing"
         elif gap_items == items:
-            status = "gap"          # 材料未提供：显式登记，但不算已覆盖
+            status = "gap"
         elif cited == 0:
             status = "unsourced"
         elif cited < items or gap_items:
