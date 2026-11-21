@@ -14,10 +14,18 @@ description: 把散落在配置、日志、代码、论文片段里的实验材�
 无网络、无第三方包；`python3 >= 3.8`。**语言自适应**：`case.json.language` 优先，否则按
 材料/任务文本的 CJK 占比检测，中英文分别渲染（同一份逻辑，不写死语言）。
 
-## 单命令入口（一次性全流程）
+## 执行前必读（专家方法论）
+
+开工前完整阅读 `references/expert_playbook.md`，按其六步框架（输入解析 → 事实抽取 → 要素映射 →
+章节成稿 → 对齐校验 → 缺口标注与打包）推进，并**按 §5 专家检查表逐项产出**。判分口径、指标公式、
+领域陷阱、案例与门控以该手册为准；契约键名与入口命令以本文件为准。
+
+## 单命令入口（一次性全流程；评测入口，无 draft 时执行）
+
+**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ```bash
-python3 scripts/main.py run --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py run --input /input --output /app/output --work /app/work
 ```
 
 `run` = `init`（材料盘点 + 来源编号 + 候选抽取 + 冲突分组）→ `build`（工作稿校验/兜底抽取、
@@ -25,12 +33,10 @@ python3 scripts/main.py run --input /input --output /app/output --work /app/work
 
 ## Agent-first 双路径
 
-- **Agent 路径（推荐）**：先 `init` 看台账，读原文，再把判断写入 `${WORK}/draft.json`
-  （要素取舍、数值裁决、章节措辞都在这里），随后 `check` → `build`。工作稿形状见
-  `references/guide.md`。
-- **无 draft 兜底路径**：`build` 会由 init 台账确定性抽取生成实质工作稿（逐字 quote +
-  locator，步骤按材料顺序重建），并如实把 `AUTO_EXTRACT` 记入 `gaps` 与 `degradations`。
-  两条路径产出同一套产物与同一份 `result.json` 契约。
+- **Agent 路径（推荐）**：先 `init` 看台账，读原文，把判断写入 `${WORK}/draft.json`（要素取舍、数值
+  裁决、章节措辞），随后 `check` → `build`。工作稿形状见 `references/guide.md`。
+- **无 draft 兜底路径**：`build` 由 init 台账确定性抽取生成实质工作稿（逐字 quote + locator），并如实把
+  `AUTO_EXTRACT` 记入 `gaps` 与 `degradations`；两条路径产出同一套产物与同一份 `result.json` 契约。
 
 ## 分步子命令
 
@@ -52,16 +58,15 @@ python3 scripts/main.py selfcheck --output /app/output
 
 ## 输出（/app/output）
 
-| 产物 | 内容 |
-|---|---|
-| `manuscript.md` | 十节章节稿：任务与范围、数据与预处理、方法步骤、实验设置、参数与来源、基线对照、指标与统计、复现清单、限制条件、缺口清单 |
-| `fact_ledger.csv` | 事实：statement/value/unit/source_id/locator/quote/status |
-| `parameter_ledger.csv` | 参数：取值/单位/作用对象/来源/冲突标记（含自动检测到的未裁决冲突） |
-| `evidence_matrix.csv` | 六类要素覆盖矩阵：items/cited/status/locators |
-| `gaps.md` | 缺口清单：缺什么、影响、需谁确认、涉及小节、追问句 |
-| `conflicts.md` | 跨材料冲突登记（并列保留，不做静默统一） |
-| `coverage.json` | 覆盖率与逐要素状态 |
-| `result.json` | 契约字段逐键回填（**顶层 + 嵌套 `output_contract`**）+ `case_id` 透传 + 诚实信封（`status` / `sources` / `uncertainties` / `change_records` / `limits` / `errors` / `degradations` / `pending_human`） |
+- `manuscript.md`：十节章节稿（任务与范围、数据与预处理、方法步骤、实验设置、参数与来源、基线对照、
+  指标与统计、复现清单、限制条件、缺口清单）。
+- `fact_ledger.csv`：事实 statement/value/unit/source_id/locator/quote/status。
+- `parameter_ledger.csv`：参数 取值/单位/作用对象/来源/冲突标记。
+- `evidence_matrix.csv`：六类要素覆盖矩阵 items/cited/status/locators。
+- `gaps.md` / `conflicts.md`：缺口（缺什么/影响/需谁确认/涉及小节/追问）与冲突登记（并列保留）。
+- `coverage.json`：覆盖率与逐要素状态。
+- `result.json`：契约键**顶层 + 嵌套 `output_contract`** 双回填 + `case_id` 透传 + 信封字段
+  `status/sources/uncertainties/change_records/limits/errors/degradations/pending_human`。
 
 ## result.json 契约字段
 
@@ -79,23 +84,32 @@ python3 scripts/main.py selfcheck --output /app/output
 
 ## 处理规则
 
-1. **六类要素**（步骤 / 实验设置 / 参数 / 数据集与划分 / 基线对照 / 复现与限制）逐类处理：
-   材料支持则带源写入；不支持则登记缺口并在章节中显式标出，绝不补造。
-2. **参数对齐**：正文数值与 `parameter_ledger.csv` 一致；多来源取值不同 → 并列保留 +
-   `conflicts.md` + `gaps`，不择一取整。
-3. **基线可比性**：`comparable=false` 时正文禁止出现“优于基线”一类断言。
+1. **六类要素**（步骤 / 实验设置 / 参数 / 数据集与划分 / 基线对照 / 复现与限制）逐类处理：材料支持则
+   带源写入；不支持则登记缺口并在章节显式标出，绝不补造。
+2. **参数对齐**：正文数值与 `parameter_ledger.csv` 一致；多来源取值不同 → 并列保留 + `conflicts.md` +
+   `gaps`，不择一取整。
+3. **基线可比性**：`comparable=false` 时正文禁止“优于基线”一类断言。
 4. **引文门控**：`facts[].quote` 必须能在来源文件中逐字命中，否则该事实不得进入正文。
 5. **语言**：`zh` / `en` 分别渲染标题、标签与套语。
 
 ## 异常处理
 
-- 空/坏输入、`case.json` 不可解析：`status=input_error` 或 `insufficient_evidence`，仍写出
-  合法 `result.json`，退出码 0。
-- 不可读/二进制/超限材料：登记 `degradations` 与缺口，运行继续。
-- 输出目录不可写：回退到 `./output`。
-- 命令异常：兜底写出最小合法 `result.json`（含契约键），退出码 0。
+- 空/坏输入、`case.json` 不可解析：`status=input_error` 或 `insufficient_evidence`，仍写合法
+  `result.json`，退出码 0。
+- 不可读/二进制/超限材料：登记 `degradations` 与缺口，继续运行。
+- 输出目录不可写：回退 `./output`；命令异常：兜底写最小合法 `result.json`（含契约键），退出码 0。
+
+## 自检清单（交付前逐项）
+
+- [ ] `references/expert_playbook.md §5` 专家检查表逐项通过（要素覆盖 / 参数准确 / 可追溯 / 缺口标注 /
+      条件一致 / 无补造）。
+- [ ] 单命令入口实跑退出码 0，`/app/output` 内 `result.json` 与全部产物齐备、非空。
+- [ ] 契约键在**顶层**与**嵌套 `output_contract`** 同时回填，无 null / 空壳。
+- [ ] `case_id` 与输入一致；声明路径均指向真实文件；无 TODO / 待补充 / 示例值等占位符。
+- [ ] 材料缺口、冲突、降级与待确认项已显式登记，未静默统一或补造。
 
 ## 资源与参考
 
-- `references/guide.md`：工作稿 schema、要素清单、参数表模板、追问模板、契约样例。
+- `references/expert_playbook.md`：专家方法论（判分要点、六步框架、公式、领域知识、检查表、案例）。
+- `references/guide.md`：工作稿 schema、要素清单、参数表模板、追问模板。
 - `environment/resources.yaml`：入口、运行时目录、预算、必需产物与契约约定。
