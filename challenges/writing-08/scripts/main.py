@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""main.py — provenance-gated-methods-writer CLI（入口）。
-
-子命令：run（单命令全流程 = init → build → selfcheck）/ init / show / check /
-        build / selfcheck
-输入契约：/input/case.json（output_contract）+ /input/task.md + 材料文件
-输出契约：/app/output/result.json 逐键回填 output_contract 全部字段（顶层 + 嵌套
-          output_contract 对象）+ case_id + 诚实信封字段
-分工：脚本做确定性盘点与校验；要素取舍、数值裁决、章节措辞由 Agent 写进
-      /app/work/draft.json；无 draft 时 build 自动兜底生成实质工作稿，且必须成功。
-语言：case.json.language 优先，否则按材料/任务文本的 CJK 占比检测，中英双语渲染。
-退出码恒为 0。
-"""
 
 import datetime
 import json
@@ -30,8 +18,6 @@ import engine as render  # noqa: E402
 STATUS = ("answered", "partial", "insufficient_evidence", "input_error")
 DRAFT_NAME = "draft.json"
 
-# case.json 未声明 output_contract 时使用的默认契约（与 references/guide.md 的
-# json 样例、SKILL.md 的字段表保持完全一致；不含任何占位符）。
 DEFAULT_CONTRACT = {
     "case_id": "输入 case.json 的 case_id 原样回填",
     "deliverable": "可编辑的方法与实验章节稿（manuscript.md）",
@@ -40,11 +26,8 @@ DEFAULT_CONTRACT = {
     "change_log": "逐条修改动作、原因与需人工确认项",
 }
 
-
-# ---------------------------------------------------------------- 基础工具
 def now():
     return datetime.datetime.now().replace(microsecond=0).isoformat()
-
 
 def ensure_dir(path):
     try:
@@ -53,9 +36,7 @@ def ensure_dir(path):
     except OSError:
         return None
 
-
 def pick_dir(explicit, env_name, default, fallbacks):
-    """按 参数 → 环境变量 → 默认 → 回退 的顺序定位目录，必要时创建。"""
     cand = explicit or os.environ.get(env_name) or default
     for path in [cand] + [p for p in fallbacks if p]:
         if path and os.path.isdir(path) and os.access(path, os.R_OK):
@@ -65,14 +46,12 @@ def pick_dir(explicit, env_name, default, fallbacks):
             return path
     return cand
 
-
 def read_file(path, limit=2 * 1024 * 1024):
     try:
         with open(path, "rb") as fh:
             return fh.read(limit).decode("utf-8", "ignore")
     except OSError:
         return None
-
 
 def load_json(path):
     text = read_file(path)
@@ -83,9 +62,7 @@ def load_json(path):
     except ValueError as exc:
         return None, "invalid_json:%s (%s)" % (path, exc)
 
-
 def salvage_case(text):
-    """case.json 轻度损坏时尽力抢救 case_id 与 output_contract 键名。"""
     out = {}
     m = re.search(r'"case_id"\s*:\s*"([^"]{1,120})"', text or "")
     if m:
@@ -115,7 +92,6 @@ def salvage_case(text):
                                               re.findall(r'"([A-Za-z0-9_.\-]{1,60})"', body)[:40]]
     return out
 
-
 def safe_write(path, text):
     try:
         ensure_dir(os.path.dirname(path) or ".")
@@ -132,10 +108,7 @@ def safe_write(path, text):
         except OSError:
             return False
 
-
-# ---------------------------------------------------------------- 契约
 def contract_items(contract):
-    """把 output_contract 归一成 [(字段名, 规格)]；支持 dict / list[str] / list[dict]。"""
     items = []
     if isinstance(contract, dict):
         for key, spec in contract.items():
@@ -150,13 +123,10 @@ def contract_items(contract):
                     items.append((str(name), spec))
     return items
 
-
 def _kw(name):
     return re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", str(name).lower())
 
-
 def material_inventory(ctx):
-    """材料清单（含来源编号、定位与校验和）：无要素可抽时作为可回溯的兜底事实。"""
     out = []
     for m in (ctx.get("index") or {}).get("materials", []):
         out.append({"source_id": m.get("source_id"), "rel": m.get("rel"),
@@ -171,9 +141,7 @@ def material_inventory(ctx):
                             "不给出无来源的取值"})
     return out
 
-
 def _change_records(ctx, draft=None):
-    """修改/运行记录：逐条动作 + 原因 + 人工确认项（非空、可回溯）。"""
     recs = []
     for entry in ctx.get("change_log", []):
         rec = dict(entry)
@@ -189,9 +157,7 @@ def _change_records(ctx, draft=None):
                      "reason": "输入未提供可执行修改记录，按兜底流程产出"})
     return recs
 
-
 def infer_value(name, ctx):
-    """按字段名语义把已有产物/工作稿映射到契约字段，返回 (值, 是否可信填充)。"""
     k = _kw(name)
     if not k:
         return None, False
@@ -253,9 +219,7 @@ def infer_value(name, ctx):
         return art.get("manuscript"), bool(art.get("manuscript"))
     return None, False
 
-
 def fill_contract(items, ctx):
-    """逐字段回填；不存在的键也要出现且不得为 null/空壳（记入 missing_hard 供自检）。"""
     filled, missing = {}, []
     exported = ctx.get("result_fields") or {}
     for name, spec in items:
@@ -279,7 +243,6 @@ def fill_contract(items, ctx):
             filled[name] = val if val else []
             missing.append(name)
             continue
-        # 未映射字段：给出可核验的落点说明，而不是 null/空壳
         filled[name] = {
             "field": str(name),
             "declared": spec if isinstance(spec, str) else "",
@@ -289,8 +252,6 @@ def fill_contract(items, ctx):
         missing.append(name)
     return filled, missing
 
-
-# ---------------------------------------------------------------- 上下文
 def build_context(args):
     input_dir = pick_dir(args.input, "PW_INPUT_DIR", "/input",
                          [os.path.join(os.getcwd(), "input"), os.path.join(PKG, "input")])
@@ -340,9 +301,7 @@ def build_context(args):
     ctx["language"] = detect_language(case, task_txt)
     return ctx
 
-
 def detect_language(case, task_txt):
-    """语言检测：case.json.language 优先，其次按任务文本与材料文本的 CJK 占比判定。"""
     declared = str((case or {}).get("language") or "").strip().lower()
     if declared in ("zh", "zh-cn", "zh-hans", "chinese", "cn", "中文"):
         return "zh"
@@ -357,16 +316,13 @@ def detect_language(case, task_txt):
         return "en"
     return "zh" if cjk > latin else "en"
 
-
 def load_index(ctx):
     data, err = load_json(os.path.join(ctx["work_dir"], "index.json"))
     return data if isinstance(data, dict) else None
 
-
 def save_index(ctx, index):
     safe_write(os.path.join(ctx["work_dir"], "index.json"),
                json.dumps(index, ensure_ascii=False, indent=1))
-
 
 def load_draft(ctx):
     data, err = load_json(os.path.join(ctx["work_dir"], DRAFT_NAME))
@@ -376,8 +332,6 @@ def load_draft(ctx):
         return None, "draft_not_object"
     return data, None
 
-
-# ---------------------------------------------------------------- result.json
 def artifact_list(ctx):
     out = []
     for key in ("manuscript", "fact_ledger", "parameter_ledger", "evidence_matrix",
@@ -391,9 +345,7 @@ def artifact_list(ctx):
             out.append({"key": key, "path": path, "bytes": size})
     return out
 
-
 def write_result(ctx, status, reason, draft=None):
-    """无条件写出合法 result.json：契约字段原样回填 + 诚实信封。"""
     if status not in STATUS:
         status = "partial"
     ctx["status"] = status
@@ -405,7 +357,6 @@ def write_result(ctx, status, reason, draft=None):
                "language": ctx.get("language", "zh")}
     for name, val in contract_vals.items():
         payload[name] = val
-    # 嵌套回填：result.json.output_contract 与顶层逐键一致（评测器按此判定契约）
     payload["output_contract"] = {name: contract_vals.get(name) for name, _ in ctx["contract"]}
     payload["coverage"] = {"covered": cov.get("covered"), "total": cov.get("total"),
                            "ratio": cov.get("ratio"),
@@ -420,7 +371,6 @@ def write_result(ctx, status, reason, draft=None):
                            for c in (ctx.get("index") or {}).get("candidates", [])[:60]]
     payload["errors"] = ctx.get("errors", [])
     payload["degradations"] = ctx.get("degradations", [])
-    # 诚实信封：status / sources / uncertainties / change_records / limits 均非空
     src_list = [{"source_id": m.get("source_id"), "rel": m.get("rel"), "kind": m.get("kind"),
                  "bytes": m.get("bytes"), "sha1": m.get("sha1"),
                  "status": "readable" if m.get("readable") else "unreadable"}
@@ -466,8 +416,6 @@ def write_result(ctx, status, reason, draft=None):
         sys.stderr.write("WARN: cannot write %s\n" % path)
     return payload
 
-
-# ---------------------------------------------------------------- init
 def cmd_init(ctx, args):
     materials, unreadable = ledger.scan(ctx["input_dir"])
     cands = ledger.extract_candidates(materials, ctx["input_dir"])
@@ -508,8 +456,6 @@ def cmd_init(ctx, args):
     print("[init] partial result.json 已写入；下一步: python3 scripts/main.py show")
     return 0
 
-
-# ---------------------------------------------------------------- show
 def cmd_show(ctx, args):
     index = load_index(ctx) or {}
     if not index:
@@ -581,8 +527,6 @@ def cmd_show(ctx, args):
           "3) check；4) build；或直接 python3 scripts/main.py run 一步到底" % os.path.join(ctx["work_dir"], DRAFT_NAME))
     return 0
 
-
-# ---------------------------------------------------------------- CLI
 def parse_args(argv):
     import argparse
     ap = argparse.ArgumentParser(
@@ -597,7 +541,6 @@ def parse_args(argv):
     ap.add_argument("--grep", default=None, help="show: 只显示命中关键词的候选")
     ap.add_argument("--lines", type=int, default=40, help="show: 最多显示多少条/行")
     return ap.parse_args(argv)
-
 
 def main(argv):
     args = parse_args(argv)
@@ -638,7 +581,6 @@ def main(argv):
             safe_write(os.path.join(ctx["output_dir"], "result.json"),
                        json.dumps(fallback, ensure_ascii=False, indent=1, default=str))
         return 0
-
 
 if __name__ == "__main__":
     try:
