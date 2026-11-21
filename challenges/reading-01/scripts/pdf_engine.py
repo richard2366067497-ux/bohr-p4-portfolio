@@ -506,42 +506,33 @@ def _cluster_rows(words, height):
 
 
 def _find_gutters(rows, W, H):
-    """A gutter is a wide inter-word gap shared by many rows (survives spanning titles)."""
-    if len(rows) < 6:
-        return []
-    n = int(W) + 2
-    gap_cov = [0] * n
+    """A second column is found by its left edge: many lines start at the same x, far to the right of
+    the main text edge. The gutter is the band between the end of the left column and that edge.
+    Widening the column with a wider table cell does not move a left edge, so a table cannot fake it.
+    """
+    hist = {}
     for r in rows:
-        ws = sorted(r, key=lambda w: w["x0"])
-        for a, b in zip(ws, ws[1:]):
-            if b["x0"] - a["x1"] < 6:
-                continue
-            for x in range(max(0, int(a["x1"])), min(n - 1, int(b["x0"])) + 1):
-                gap_cov[x] += 1
-    thr = max(4, int(0.15 * len(rows)))
-    runs, run = [], None
-    for x in range(n):
-        if gap_cov[x] >= thr and run is None:
-            run = x
-        elif gap_cov[x] < thr and run is not None:
-            runs.append((run, x))
-            run = None
-    if run is not None:
-        runs.append((run, n - 1))
-    keep = []
-    for a, b in runs:
-        if b - a < max(9.0, 0.015 * W) or a < 0.04 * W or b > 0.96 * W:
-            continue
-        strad = [r for r in rows if any(w["x1"] <= a + 5 for w in r) and any(w["x0"] >= b - 5 for w in r)]
-        if len(strad) < 3:
-            continue
-        y0 = min(min(w["y0"] for w in r) for r in strad)
-        y1 = max(max(w["y1"] for w in r) for r in strad)
-        if (y1 - y0) < max(120.0, 0.15 * H):
-            continue
-        keep.append((a, b))
-    keep.sort(key=lambda g: g[1] - g[0], reverse=True)
-    return sorted(keep[:2])
+        for w in r:
+            key = round(w["x0"] / 4.0) * 4.0
+            hist[key] = hist.get(key, 0) + 1
+    cand = sorted([(k, v) for k, v in hist.items() if v >= 3], key=lambda kv: (-kv[1], kv[0]))
+    if not cand:
+        return []
+    xl = cand[0][0]
+    xr = None
+    for k, v in cand[1:]:
+        if k - xl > 0.22 * W and v >= 3:
+            xr = k
+            break
+    if xr is None:
+        return []
+    ends = sorted(w["x1"] for r in rows for w in r if w["x1"] <= xr - 8 and w["x0"] < xr - 20)
+    if len(ends) < 3:
+        return []
+    left_end = ends[int(0.98 * (len(ends) - 1))]
+    if xr - left_end < 9.0:
+        left_end = xr - 12.0
+    return [(max(0.0, left_end), xr)][:2]
 
 
 def finalize_page(page):
@@ -551,16 +542,12 @@ def finalize_page(page):
     rows = _cluster_rows(words, height)
     gutters = _find_gutters(rows, W, H)
     lines = []
-    right_start = {}
-    for a, b in gutters:
-        starts = [w["x0"] for w in words if w["x0"] > b]
-        right_start[(a, b)] = min(starts) if starts else b
     for row in rows:
         row.sort(key=lambda w: w["x0"])
         segs, cur = [], [row[0]]
         for w in row[1:]:
-            cut = any(cur[-1]["x1"] < a and w["x0"] > b and (w["x0"] - cur[-1]["x1"]) > 8
-                      and w["x0"] >= right_start[(a, b)] - 6 for a, b in gutters)
+            cut = any((w["x0"] - cur[-1]["x1"]) >= max(9.0, 0.4 * w["size"]) and w["x0"] >= b - 6
+                      and cur[-1]["x1"] <= b - 8 for a, b in gutters)
             if cut:
                 segs.append(cur)
                 cur = [w]
@@ -590,13 +577,13 @@ def _sig(t):
 
 
 def mark_running_matter(pages):
-    norm = {}
+    norm, minrep = {}, (2 if len(pages) <= 3 else 3)
     for p in pages:
         H = p["height"] or 792
         for ln in p["lines"]:
             if ln["y1"] < 0.085 * H or ln["y0"] > 0.925 * H:
                 norm.setdefault(_sig(ln["text"]), set()).add(p["page"])
-    repeated = {k for k, v in norm.items() if len(v) >= 3}
+    repeated = {k for k, v in norm.items() if len(v) >= minrep}
     for p in pages:
         H = p["height"] or 792
         for ln in p["lines"]:
