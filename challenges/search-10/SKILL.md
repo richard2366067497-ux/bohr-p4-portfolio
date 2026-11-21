@@ -7,6 +7,20 @@
 - 材料没有的概念写 `not-in-glossary` 并进 `pending_human`，**绝不臆造译法**；
 - 同一 work 的原文 / 全译 / 摘要版 / 副本**去重后**才计数，`abstract_only` 不作为正文命中证据。
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 十步框架（含门控）** 推进——读输入 → 语言需求 → 术语表 → 查询生成 →
+  执行检索 → 筛选排序 → 语言识别 → 版本识别 → 去重归并 → 证据对齐与输出；前一步未冻结不进入下一步。
+- **口径**：按其 **§3 量化口径** 计算跨语言召回率、术语对齐准确率、版本标注准确率、
+  可核验性比例与翻译调用次数；分母必须写清评价范围，不得用自述替代可核验记录。
+- **陷阱**：按其 **§4 领域陷阱清单** 逐条排雷（错误做法 → 正确做法）；不猜译法、不把摘要当全文、
+  不把多语种版本重复计数。
+- **门控**：交付前逐项通过其 **§7 防扣分自查表**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties` / `pending_human`，绝不静默提升为完整成功。
+
 ## 契约（output_contract）
 
 `case.json` 给出 `output_contract` 时以它为准；否则用下列内建键（边界用例同样输出这套键）。
@@ -95,6 +109,17 @@ python3 scripts/main.py selfcheck --output /app/output --work /app/work
 | 原文与译文版本冲突 | `preprint`/`erratum` 与正式版冲突写 `uncertainties` |
 | 材料无题面 / 无视图 | 如实 `partial` / `insufficient_evidence`，不伪造命中卡 |
 | 坏 JSON / 空文件 | 登记 `degradations`，仍写合法 `result.json`，`exit 0` |
+
+## 交付前自查（逐项通过）
+
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键回填、无空壳值。
+- [ ] 每条结果带语言、版本、locator 与逐字引文；缺失字段标 `unknown`。
+- [ ] 术语表未覆盖的概念进入 `pending_human`，未臆造译法。
+- [ ] 同 work 多版本已归并，计数使用 `distinct_works`。
+- [ ] 空输入 / 坏 JSON / 无视图三条路径各跑过一次，均 `exit 0` 且有缺口说明。
+- [ ] 两次运行结果一致，时间戳不参与判等。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §7 的 22 项防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties`，绝不静默提升为完整成功。
 
 ## top_fix → 实现
 
