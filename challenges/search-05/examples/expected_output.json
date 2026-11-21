@@ -1,0 +1,15 @@
+{
+  "note": "FICTIONAL illustrative output for the packaged example only; field shape matches the packaged engine, values are abridged.",
+  "case_id": "demo-search-05",
+  "status": "answered",
+  "output_contract": {
+    "case_id": "demo-search-05",
+    "deliverable": "report.md",
+    "evidence_map": [{"subquestion_id": "SQ1", "subquestion": "CRISPR off-target detection by whole-genome sequencing", "records": [{"rid": "R001", "locator": "D01#r1", "source_db": "crossref", "quote": "CRISPR off-target detection by whole-genome sequencing"}], "basis": "include decisions linked to this sub-question"}],
+    "change_log": [{"at": "1970-01-01T00:00:00+00:00", "step": "parse", "note": "read 2 database material(s); question resolved"}],
+    "coverage": {"n_raw": 4, "n_unique": 3, "n_databases": 2, "dedup_rate": 0.25, "single_source_rate": 0.667, "field_coverage": {"doi": 1.0, "year": 1.0, "title": 1.0}, "coverage_rate": 1.0},
+    "status": "answered"
+  },
+  "sources": [{"database": "crossref", "material": "D01", "name": "crossref.md", "chars": 300}],
+  "limits": ["coverage counts only include decisions with a verified locator", "results reproduce from the snapshot only"]
+}
