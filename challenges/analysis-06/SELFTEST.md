@@ -1,4 +1,4 @@
-# SELFTEST — analysis-06 (db-query-workbook)
+# SELFTEST — analysis-06 / db-query-workbook（v10）
 
 按顺序执行即可复核本包。全部步骤纯离线、确定；重复执行同一快照字节稳定。
 
@@ -74,7 +74,8 @@ for c in init show check build selfcheck; do
 done
 ```
 
-期望：6 个子命令都退出 0，最后一个命令之后 `result.json` 仍完整。
+期望：6 个子命令都退出 0，最后一个命令之后 `result.json` 仍完整；`selfcheck` 额外打印
+`[selfcheck] expert-checklist ok (references/expert_playbook.md present; DC-01..DC-17 to pass)`。
 
 ## 7. 契约回填逐键检查
 
@@ -89,3 +90,27 @@ for k,v in r['output_contract'].items():
 print('contract ok:', sorted(r['output_contract']))
 PY
 ```
+
+## 8. v10 随包样例实测（examples/）
+
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：exit 0，`status=ok`，**26 件产物**；
+快照由表材料在 `work/snapshot.db` 内建立（SHA-256 `fde1cedaa46d6370…`）；
+`tables=2 / fields=9`；**16 条语句真实执行、0 失败**，导出 16 份 `results/Q_*.csv`；
+对账 **7/7**；连接 `Q_join_batches_samples` left 4×4 / right 6×12 → joined **10**，膨胀比 **2.5**
+（`no_inflation=true`）；`data_quality` 记 `samples.batch_id` 缺 1、`batches.plant` 重复 2、
+`samples.batch_id` 重复 6；契约键 **10/10**；规范化哈希 **`6ddb955ed0cfd49e`**。
+
+## 9. v10 交付状态（专家手册嵌入）
+
+- **新增 `references/expert_playbook.md`**（S0–S6 六步流水线与门控 / §3 量化口径（缺失率、重复行、IQR
+  与 3σ、JOIN 膨胀比、聚合交叉验证、编码解码）/ §4 领域知识与单位陷阱 K1–K6 / §5 交付物与自查表
+  DC-01…DC-17 / §6 完整案例 / §7 决策树 / §8 专家注意点）；`SKILL.md` 明确"执行前先读
+  references/expert_playbook.md，按其框架/检查表/成本口径产出交付物"，并在 §7 自检清单加入
+  "专家检查表逐项通过"。
+- **单命令入口未受影响**：无 draft 下仍跑完整条查询流水线，产出全部 11 类产物 + `result.json`
+  契约逐键回填，exit 0。
+- `selfcheck` 额外报告 `expert-checklist ok`；`eval_sim.py` 四项全 PASS。
