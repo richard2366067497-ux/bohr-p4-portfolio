@@ -138,8 +138,8 @@ python3 scripts/main.py build
 python3 scripts/main.py selfcheck
 ```
 
-示意输出（示例）：`[build 1.1.0] case=demo status=partial queries=3 evidence=1 quote_hit_rate=1.0 fails=[]`；`result.json` 含 `answers[].status`、`evidence[].quote` 与 `output_contract` 十键。
+示意输出（示例）：`[build 1.1.0] case=demo status=partial queries=3 evidence=1 quote_hit_rate=1.0 fails=[]`。
 
 ## 10. 评估、自查与边界
 
-同库同问同权限下基础 Agent 与本 Skill 的命中率、定位准确率、回链可靠性与耗时对照见 `references/eval.md`；`verify_report.json` 记录独立复核数（引文逐字命中率、locator 一致率、过滤执行率），`runtime.budget` 记录调用预算。`selfcheck` 自动核对契约十键（顶层+嵌套）、产物齐全、引文可回链、异常路径（加密/扫描件/损坏/空/legacy/权限/重名副本，见 `work/fixtures_report.json`，`all_expected` 与 `duplicate_ok` 均为真）。边界：超大二进制只登记不读取；页码不可得时声明 `not_applicable`；重复运行 `index_digest` 稳定。维护见 `SELFTEST.md`、`README.md`、`GAIN_EVIDENCE.md`。
+同库同问同权限下基础 Agent 与本 Skill 的命中率、定位准确率、回链可靠性与耗时对照见 `references/eval.md`；`verify_report.json` 记录独立复核数（引文逐字率、locator 一致率、过滤执行率），`runtime.budget` 记录调用预算。`selfcheck` 自动核对契约十键（顶层+嵌套）、产物齐全、引文可回链、异常路径（加密/扫描件/损坏/空/legacy/权限/重名副本，见 `work/fixtures_report.json`，`all_expected` 与 `duplicate_ok` 均为真）。边界：超大二进制只登记不读取；页码不可得时声明 `not_applicable`；重复运行 `index_digest` 稳定。维护见 `SELFTEST.md`、`README.md`、`GAIN_EVIDENCE.md`。
