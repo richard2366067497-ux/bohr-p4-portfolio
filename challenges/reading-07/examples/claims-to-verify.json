@@ -1,0 +1,16 @@
+{
+  "claims": [
+    {
+      "claim_id": "C1",
+      "claim_text": "After annealing at 350 °C the Co/Al2O3 catalyst reached a CO conversion of 78% (p = 0.02)."
+    },
+    {
+      "claim_id": "C2",
+      "claim_text": "The 450 °C sample reached a higher CO conversion than the 350 °C sample."
+    },
+    {
+      "claim_id": "C3",
+      "claim_text": "Thermal analysis indicated no phase transformation below 800 °C."
+    }
+  ]
+}
