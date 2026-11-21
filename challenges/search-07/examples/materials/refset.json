@@ -1,0 +1,14 @@
+[
+  {"ref_id_hint": "from review_2019", "title": "Photocatalytic water splitting on TiO2 under visible light",
+   "doi": "10.1016/j.apcatb.2015.120001", "year": 2015, "author": "Nakamura H.", "venue": "Applied Catalysis B"},
+  {"title": "Visible-light-driven hydrogen evolution over doped metal oxides",
+   "doi": "10.1039/c6ee01234a", "year": 2016, "author": "Silva R.", "venue": "Energy and Environmental Science"},
+  {"title": "Band-gap engineering of BiVO4 for solar water oxidation",
+   "doi": "10.1021/jacs.7b01234", "year": 2017, "author": "Okafor C.", "venue": "Journal of the American Chemical Society"},
+  {"title": "Oxygen vacancies and charge separation in WO3 photoanodes",
+   "doi": "10.1016/j.nanoen.2018.05.011", "year": 2018, "author": "Dubois M.", "venue": "Nano Energy"},
+  {"title": "Cocatalyst loading on SrTiO3 for overall water splitting",
+   "doi": "10.1002/anie.201904567", "year": 2019, "author": "Yamada K.", "venue": "Angewandte Chemie"},
+  {"title": "A 2022 benchmark of oxide photocatalysts in near-infrared light",
+   "doi": "10.1000/bench.2022.0001", "year": 2022, "author": "Petrov A.", "venue": "Solar Fuels Letters"}
+]
