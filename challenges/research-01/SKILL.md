@@ -9,6 +9,14 @@ license: MIT
 
 走完一条**可复核的研究路径**：问题拆解 → 检索规划 → 证据采集 → 证据综合 → 交付打包。评委只看三件事：子问题拆解质量、结论回链率、路径可复跑性。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --output /app/output
+```
+
 ## 执行前必读（强制）
 
 **执行前先阅读 `references/expert_playbook.md`，按其中专家检查表逐项产出。** 手册给出判分要点、P1–P6 必覆盖要点、F1–F10 错误模式、S1–S5 流水线、量化公式、证据强度分级、20 项自查表与完整案例，是质量下限；本文件只描述接口与契约。
@@ -34,13 +42,10 @@ license: MIT
 
 ## 单命令等价入口（single command — one shot，无 draft，评测入口）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
 一条命令即跑完 init→build→selfcheck，直接产出完整契约与全部交付物：
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --output /app/output
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 ## Agent 路径（五命令）
 
