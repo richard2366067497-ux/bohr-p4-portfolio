@@ -18,6 +18,14 @@ The task has four questions and this skill answers each with an artifact, not an
 | 合得对 | merging duplicate records and synonyms uses a defensible judgement key; different materials are never merged | duplicate detection on the judgement key |
 | 追得回 | every changed value walks back along a rule id to the input row and the original source | change_log.json + evidence/ |
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -91,10 +99,6 @@ This is the single-command equivalent and the evaluation entry point. With **no*
 still produces the complete contract, every deliverable and `result.json`, and exits 0:
 
 无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 Optional arguments: `--input` (default `/input`), `--output` (default `/app/output`),
 `--work` (default `/app/work`). The command is deterministic, offline and standard-library only.
