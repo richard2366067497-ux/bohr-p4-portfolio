@@ -1,0 +1,19 @@
+{
+  "_note": "可复用页级大纲模板 + 证据映射字段。复制本文件到工作区，把每个字段替换为材料里逐字出现的真实内容即可作为 work/draft.json 的 sections 使用；本文件是模板，不是任何正式案例的答案。",
+  "sections": [
+    {
+      "index": 2,
+      "role": "background",
+      "title": "研究问题 / 背景",
+      "quote": "REPLACE_WITH_A_SENTENCE_COPIED_VERBATIM_FROM_THE_MATERIAL",
+      "locator": "M01#s1",
+      "bullets": [
+        "REPLACE_WITH_A_SECOND_VERBATIM_SENTENCE",
+        "REPLACE_WITH_A_THIRD_VERBATIM_SENTENCE"
+      ],
+      "notes": "讲解备注：说明本页强调点与指向的材料 span，措辞与页面文字不同"
+    }
+  ],
+  "evidence_map_columns": ["page_index", "role", "claim", "source_locator", "evidence_quote", "figure_refs", "origin", "verified"],
+  "roles": ["title", "outline", "question", "background", "methods", "results", "discussion", "limitations", "conclusion", "thanks"]
+}
