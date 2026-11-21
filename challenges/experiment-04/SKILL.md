@@ -6,6 +6,22 @@ version: 2.6.0
 
 # plan-choice-sensitivity
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **可比性优先**：先按其 **§2.1 统一比较矩阵的 7 类字段**定义字段表与单位，再逐候选填行，否则
+  无法横比；字段带来源 ID（如 `[设备手册-S4]`、`[Ref-3]`），写进 `criteria_matrix.json`。
+- **量化口径**：按其 **§3** 逐条复算——成本 `耗材+机时+人力+外测+返工预期`（统一 CNY）、
+  时间用 `准备/排期/执行/表征/分析` 五段且可并行取 max、风险 `概率×后果`，写进 `cost_ledger.json`
+  并做算术自检。
+- **评分与敏感性**：按其 **§3.4 六维权重评分**（目标 20% / 成本 20% / 时间 15% / 可行性 20% /
+  风险 15% / 证据 10%）算加权总分，再按权重 ±20% 扰动做敏感性；推荐不翻转记 `稳健决策`，
+  翻转则标 `边界决策` 并写翻转条件，写进 `flip_report.json`。
+- **硬约束优先**：违反硬约束的方案直接淘汰，不进入评分排序（见其 §1 F8、§7 第 5 条）。
+- **门控**：交付前逐项通过其 **§5 自查表（15 项）**，并用其 **§7 专家注意点**逐条排雷。
+
 ## 0. result.json contract
 
 `result.json` carries every key of the case's `output_contract`, both at the top level and
@@ -110,3 +126,23 @@ Standard library only, offline, no third-party dependency. Expressions are evalu
 restricted AST walker — no `eval` of arbitrary code. No significance testing. Missing budget,
 candidate, ledger or assumption is preserved as an open item with a reason — never guessed.
 Nothing is fetched or installed.
+
+## 8. 交付前自检清单
+
+- [ ] 研究目标与硬约束逐条写出，与输入一致；比较矩阵使用 ≥7 类统一字段
+- [ ] 每个参数/数值标注来源类型（设备手册 / 文献 / 预实验 / 经验），不编造 DOI
+- [ ] 成本含 5 项（耗材+机时+人力+外测+返工预期）、单位统一 CNY；时间含 5 段
+- [ ] 每个候选挂证据 ID；被弃方案给出 ≥1 条致命缺陷；硬约束违反者直接淘汰
+- [ ] 做了敏感性分析（权重 ±20% 或假设区间扫描），并写明翻转条件
+- [ ] **专家检查表逐项通过**：交付前逐项通过 `references/expert_playbook.md` §5 的 15 项
+  自查表，并用 §7 专家注意点逐条排雷；任一项未通过则修正后重出，不得静默提升 status
+- [ ] 数字自洽（分项加总=总计，误差 <5%）；纯标准库、离线、无时钟读取
+
+## 随包文件（v10 新增）
+
+```
+references/expert_playbook.md  专家参考手册（Step 0–5/统一矩阵 7 类字段/成本时间风险口径/敏感性/15 项自查表/完整案例）
+environment/resources.yaml     运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                      最小可复跑样例（case.json + params.json + notes.md），评审可直接复跑
+GAIN_EVIDENCE.md               使用增益证据（无 Skill 基线对照 + 真实运行数字）
+```
