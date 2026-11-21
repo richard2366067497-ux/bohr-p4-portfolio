@@ -9,6 +9,14 @@ license: MIT
 
 把一批科研文件变成**可问答、可回链、可复核**的知识库：盘点 → 元数据 → 版本/去重 → 检索问答 → 证据回链 → 不确定性分级 → 打包。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --out /app/output
+```
+
 ## 执行前必读（强制）
 
 **执行前先阅读 `references/expert_playbook.md`，按其中专家检查表逐项产出。** 手册给出五维判分、错误做法→正确做法、量化公式、locator 五元组与 24 项自查表，是质量下限；本文件只描述接口与契约。
@@ -34,13 +42,10 @@ license: MIT
 
 ## 单命令等价入口（single command — one shot，无 draft，评测入口）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
 一条命令即跑完 init→build→selfcheck，直接产出完整契约与全部交付物：
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --out /app/output
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 ## Agent 路径（五命令，注意输出参数是 `--out`）
 
