@@ -1,0 +1,75 @@
+{
+  "candidates": [
+    {"candidate_id": "plan_A", "name": "CVD direct growth",
+     "params": {"growth_temp_c": 850, "growth_time_min": 15, "ar_sccm": 50},
+     "values": {
+       "objective_fit": {"display": 9, "unit": "score_1_10", "evidence": {"locator": "notes.md#criteria", "quote": "route A: uniform coverage reported"}},
+       "total_cost": {"display": 11000, "unit": "CNY"},
+       "total_time": {"display": 20, "unit": "day"},
+       "feasibility": {"display": 10, "unit": "score_1_10"},
+       "risk": {"display": 1000, "unit": "CNY"},
+       "evidence": {"display": 5, "unit": "count"}
+     }},
+    {"candidate_id": "plan_B", "name": "sputter plus post-anneal sulphurisation",
+     "params": {"sputter_power_w": 100, "anneal_temp_c": 700, "h2s_pct": 5},
+     "values": {
+       "objective_fit": {"display": 8, "unit": "score_1_10"},
+       "total_cost": {"display": 11800, "unit": "CNY"},
+       "total_time": {"display": 39, "unit": "day"},
+       "feasibility": {"display": 7, "unit": "score_1_10"},
+       "risk": {"display": 2000, "unit": "CNY"},
+       "evidence": {"display": 5, "unit": "count"}
+     }},
+    {"candidate_id": "plan_C", "name": "solution spin-coat plus pyrolysis",
+     "params": {"spin_rpm": 3000, "spin_time_s": 30, "pyrolysis_temp_c": 600, "hold_h": 2},
+     "values": {
+       "objective_fit": {"display": 7, "unit": "score_1_10"},
+       "total_cost": {"display": 8900, "unit": "CNY"},
+       "total_time": {"display": 18.5, "unit": "day"},
+       "feasibility": {"display": 10, "unit": "score_1_10"},
+       "risk": {"display": 2400, "unit": "CNY"},
+       "evidence": {"display": 1, "unit": "count"}
+     }}
+  ],
+  "constraints": [
+    {"id": "K1", "criterion": "total_time", "op": "<=", "value": 30, "severity": "hard"},
+    {"id": "K2", "criterion": "total_cost", "op": "<=", "value": 15000, "severity": "hard"}
+  ],
+  "cost_time": {
+    "currency": "CNY",
+    "runs": 1,
+    "cost_rows": [
+      {"candidate": "plan_A", "item": "CVD machine time", "class": "per_run", "expr": "4000"},
+      {"candidate": "plan_A", "item": "precursors and substrate", "class": "per_run", "expr": "2500"},
+      {"candidate": "plan_A", "item": "labour", "class": "per_run", "expr": "1500"},
+      {"candidate": "plan_A", "item": "external characterisation", "class": "per_run", "expr": "2000"},
+      {"candidate": "plan_A", "item": "expected rework", "class": "per_run", "expr": "1000"},
+      {"candidate": "plan_B", "item": "sputter and anneal time", "class": "per_run", "expr": "2600"},
+      {"candidate": "plan_B", "item": "Mo target and H2S", "class": "per_run", "expr": "3200"},
+      {"candidate": "plan_B", "item": "labour", "class": "per_run", "expr": "2000"},
+      {"candidate": "plan_B", "item": "external characterisation", "class": "per_run", "expr": "2000"},
+      {"candidate": "plan_B", "item": "expected rework", "class": "per_run", "expr": "2000"},
+      {"candidate": "plan_C", "item": "furnace time", "class": "per_run", "expr": "1200"},
+      {"candidate": "plan_C", "item": "precursor solution", "class": "per_run", "expr": "1800"},
+      {"candidate": "plan_C", "item": "labour", "class": "per_run", "expr": "1000"},
+      {"candidate": "plan_C", "item": "external characterisation", "class": "per_run", "expr": "2500"},
+      {"candidate": "plan_C", "item": "expected rework", "class": "per_run", "expr": "2400"}
+    ],
+    "duration_rows": [
+      {"candidate": "plan_A", "item": "total calendar days", "hours": "480"},
+      {"candidate": "plan_B", "item": "total calendar days", "hours": "936"},
+      {"candidate": "plan_C", "item": "total calendar days", "hours": "444"}
+    ]
+  },
+  "assumptions": [
+    {"id": "A1", "name": "hidden performance gain of the solution route", "range": [0, 10], "base": 0,
+     "effect": {"type": "delta", "criterion": "objective_fit", "candidate": "plan_C", "multiplier": 1}},
+    {"id": "A2", "name": "solution route time overrun", "range": [1.0, 3.0], "base": 1.0,
+     "effect": {"type": "scale", "criterion": "total_time", "candidate": "plan_C"}}
+  ],
+  "risks": [
+    {"id": "R1", "risk": "H2S needs an extra safety approval", "severity": "high", "action": "submit the approval before ordering the Mo target"},
+    {"id": "R2", "risk": "solution route film uniformity unproven at wafer scale", "severity": "medium", "action": "add a uniformity check after the first run"}
+  ],
+  "selected": "plan_A"
+}
