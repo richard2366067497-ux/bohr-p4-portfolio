@@ -21,8 +21,14 @@
 /skills/weekly-skill/
   SKILL.md
   scripts/main.py     scripts/extract.py   scripts/optimize.py   scripts/render.py
+  references/expert_playbook.md
+  environment/resources.yaml   examples/   GAIN_EVIDENCE.md
   README.md  SELFTEST.md  GITHUB_URL.txt
 ```
+
+> **执行前必读**：`references/expert_playbook.md` 是本 Skill 的专家参考手册（七步法、可行域
+> 抽取检查表、响应/成本口径、搜索策略决策树、风险矩阵、完整案例、9 项交付自查表）。产出交付物时
+> 按其框架/检查表/成本口径执行，交付前逐项通过其 §7 自查表并用 §8 排雷。
 
 ## 用法
 
