@@ -1,4 +1,4 @@
-# analysis-04 · analysis-codegen-execute（v6 重建包）
+# analysis-04 · analysis-codegen-execute（v10 包）
 
 从数据字典与规格**生成**一段自足的科研分析代码，在隔离子进程里**真实执行**，逐条**独立重算**
 每个关键数字、渲染图表、留下命令与退出码，交付代码/结果/校验/日志/环境/复现六类证据的离线
@@ -40,9 +40,13 @@ SKILL.md                          题面式技能说明（第一条即单命令�
 README.md                         本文件
 SELFTEST.md                       自测记录（eval_sim rich/boundary × single/agent）
 GITHUB_URL.txt                    仓库地址
+GAIN_EVIDENCE.md                  增益证据：可复现实测对比表
+environment/resources.yaml        资源入口：入口命令、限额、降级矩阵
+examples/sample_data.csv          随包示例数据（30 行 5 列）
 scripts/engine.py                 单命令入口 + 代码生成 / 执行 / 重算校验 / 契约回填
 scripts/codelib.py                解析与统计助手（inventory / table / spec / 片段中和）
 references/analysis_spec.md       可编辑规格表 / 校验项 / 降级矩阵 / 契约键语义
+references/expert_playbook.md     随包方法论：八步流程 / 公式与容差 / 静默错误 / 自查表
 ```
 
 修复点见 `SELFTEST.md`。
