@@ -9,6 +9,14 @@ version: 1.2.0
 把「脏汇总表 + 数据字典 + 每指标单位/QC 规则 + 清洗工单」变成互相咬合的东西——清洗表、变换账本、
 字段级质量报告、契约与对账，再加一个把数字回算到文件的 `result.json`。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 执行任何命令前**先完整阅读 `references/expert_playbook.md`**，并按它组织全部产出：按其 §2 六步流程推进，
@@ -32,11 +40,8 @@ version: 1.2.0
 
 ## 单命令入口（评测单命令，先跑这一条）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 `all` 依次做 `init`（建索引 + 先写合法 partial `result.json`）与 `build`（执行契约 → 清洗表 / 账本 /
 报告 / 对账 / `result.json`），恒 exit 0；工作稿缺失时自动走兜底链，产出「完整但降级」，绝不产出空目录。
