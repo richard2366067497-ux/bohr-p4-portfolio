@@ -90,6 +90,8 @@ build step fills what is missing and records what it used:
 This is the single-command equivalent and the evaluation entry point. With **no** draft present it
 still produces the complete contract, every deliverable and `result.json`, and exits 0:
 
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
