@@ -21,8 +21,14 @@
 /skills/weekly-skill/
   SKILL.md
   scripts/main.py   scripts/extract.py   scripts/engine.py   scripts/render.py
+  references/expert_playbook.md
+  environment/resources.yaml   examples/   GAIN_EVIDENCE.md
   README.md  SELFTEST.md  GITHUB_URL.txt
 ```
+
+> **执行前必读**：`references/expert_playbook.md` 是本 Skill 的专家参考手册（七类审查框架、
+> 时间/样本量量化口径、设备匹配判据、风险分级、伦理周期表、定位符格式、18 项专家检查表、完整案例）。
+> 产出交付物时按其框架与口径执行，交付前逐项通过其 §6 检查表（S01–S18）。
 
 ## 用法
 
