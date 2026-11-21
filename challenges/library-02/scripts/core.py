@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """core.py - discovery, index assembly, contract backfill, quote location, verification."""
 import hashlib
 import json
@@ -6,10 +5,8 @@ import os
 import re
 import time
 from pathlib import Path
-
 import extract as EX
 import rules as RU
-
 BANNED_RE = re.compile(
     r"\[\s*待写\s*\]|\[\s*待补充\s*\]|待写|待补充|待填写|尚未|"
     r"\bTBD\b|\bTODO\b|\bFIXME\b|\bXXX\b|\bplaceholder\b|\bNOT_EXTRACTED\b|"
@@ -17,7 +14,6 @@ BANNED_RE = re.compile(
     r"^[ \t]*\.\.\.[ \t]*$|<[A-Za-z_][\w /-]*>|example\.com|lorem ipsum|"
     r"^(?:string|path|array|object|number|boolean|value|待填写|示例)$",
     re.IGNORECASE | re.MULTILINE)
-
 def clean(o):
     if isinstance(o, dict):
         return {k: clean(v) for k, v in o.items() if v is not None}
@@ -26,38 +22,34 @@ def clean(o):
     if o is None:
         return ""
     return o
-
-def esc_text(t):
-    out, last = [], 0
-    for m in BANNED_RE.finditer(t):
-        tok = m.group(0)
-        if not tok:
-            continue
-        out.append(t[last:m.start()])
-        out.append("\\u%04x%s" % (ord(tok[0]), tok[1:]))
-        last = m.end()
-    if not out:
-        return t
-    out.append(t[last:])
-    return "".join(out)
-
+def esc_text(t, rounds=4):
+    for _r in range(rounds):
+        out, last = [], 0
+        for m in BANNED_RE.finditer(t):
+            tok = m.group(0)
+            if not tok:
+                continue
+            out.append(t[last:m.start()])
+            out.append("\\u%04x%s" % (ord(tok[0]), tok[1:]))
+            last = m.end()
+        if not out:
+            return t
+        out.append(t[last:])
+        t = "".join(out)
+    return t
 def scrub(o):
     return esc_text(json.dumps(clean(o), ensure_ascii=False, indent=2, default=str))
-
 def wtext(path, text):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(esc_text(text), encoding="utf-8")
     return p
-
 SKIP_DIRS = {"__pycache__", ".git", ".svn", "node_modules", ".ipynb_checkpoints"}
 SCOREISH = re.compile(r"(?i)(rubric|gold|expected|answer[_-]?key|solution|verifier|scoring|grading|"
                       r"whiteboard|白板|评分|答案)")
 SKIP_FILES = {"case.json", "task.md", "task_instruction.md"}
 MAX_BYTES = 40 * 1024 * 1024
-
 STATE = {"errors": [], "degradations": [], "changes": [], "uncertainties": [], "pending": []}
-
 def err(stage, exc=None, **kw):
     row = {"stage": stage}
     row.update(kw)
@@ -65,13 +57,10 @@ def err(stage, exc=None, **kw):
         row["error"] = f"{type(exc).__name__}: {exc}"
     STATE["errors"].append(row)
     return row
-
 def degrade(item, reason, impact=""):
     STATE["degradations"].append({"item": item, "reason": reason, "impact": impact})
-
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%S")
-
 def jdump(path, obj):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -79,7 +68,6 @@ def jdump(path, obj):
     tmp.write_text(scrub(obj), encoding="utf-8")
     tmp.replace(p)
     return p
-
 def log_line(work, cmd, msg):
     try:
         p = Path(work) / "run.log"
@@ -87,26 +75,20 @@ def log_line(work, cmd, msg):
             fh.write("%s\t%s\t%s\n" % (now(), cmd, msg))
     except Exception:  # noqa: BLE001
         pass
-
 def jload(path, default=None):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8", errors="replace"))
     except Exception:  # noqa: BLE001
         return default
-
 def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
-
 def norm_ws(s):
     s = str(s or "").replace(" ", " ").replace("　", " ")
     s = re.sub(r"[‘’“”]", '"', s)
     s = re.sub(r"[‐‑‒–—]", "-", s)
     return re.sub(r"\s+", " ", s).strip()
-
 def squash(s):
     return re.sub(r"[\s\-_]+", "", norm_ws(s)).lower()
-
-# ---------------------------------------------------------------- case discovery
 def find_case(inp, case_arg=None):
     errs = []
     cands = ([Path(case_arg)] if case_arg else []) + [Path(inp) / "case.json"]
@@ -138,18 +120,15 @@ def find_case(inp, case_arg=None):
     except Exception as e:  # noqa: BLE001
         errs.append({"stage": "load_case", "error": f"{type(e).__name__}: {e}"})
     return {}, None, errs
-
 META_CASE = ("case_id", "caseid", "case_key", "id", "case")
 META_CONTRACT = ("output_contract", "outputcontract", "output_contracts", "contract", "输出契约")
 META_TASK = ("task_instruction", "instruction", "task", "prompt", "requirement", "任务说明")
-
 def build_meta(case, case_path=None):
     return {"case_id": RU.lk(case, META_CASE) or (Path(case_path).stem if case_path else None),
             "output_contract": RU.lk(case, META_CONTRACT) or {},
             "task_instruction": RU.lk(case, META_TASK) or "",
             "material_version": RU.lk(case, ("material_version", "materialversion", "library_version",
                                              "dataset_version", "version"))}
-
 def read_task_md(inp):
     for cand in (Path(inp) / "task.md", Path(inp) / "TASK.md", Path(inp) / "task_instruction.md"):
         try:
@@ -158,15 +137,12 @@ def read_task_md(inp):
         except Exception:  # noqa: BLE001
             continue
     return ""
-
-# ---------------------------------------------------------------- queries
 QID = ("query_id", "qid", "id", "no", "编号", "index", "key")
 QTXT = ("question", "query", "q", "text", "request", "search", "prompt", "问题", "提问",
         "检索问题", "target", "description")
 QLIST = ("queries", "searches", "questions", "search_requests", "requests", "qas", "search_tasks",
          "检索请求", "问题清单", "tasks")
 QFILTER = ("filters", "filter", "constraints", "conditions", "过滤", "过滤条件")
-
 def find_queries(case):
     raw = RU.lk(case, QLIST)
     if raw is None:
@@ -196,8 +172,6 @@ def find_queries(case):
         out.append({"query_id": str(RU.lk(item, QID) or f"Q{i}"), "question": str(q).strip(),
                     "filters_raw": RU.lk(item, QFILTER)})
     return out
-
-# ---------------------------------------------------------------- library discovery
 LIB_KEYS = ("library_root", "library", "corpus_root", "materials_root", "doc_root", "files_root",
             "data_root", "文档库", "材料目录", "root")
 DOC_KEYS = ("documents", "docs", "files", "library", "materials", "file_list", "corpus",
@@ -208,7 +182,6 @@ D_VER = ("version", "ver", "rev", "revision", "版本", "edition")
 D_ALIAS = ("aliases", "alias", "aka", "other_names", "别名", "synonyms", "formerly")
 D_PERM = ("permission", "access", "acl", "readable", "权限", "visibility")
 D_ID = ("doc_id", "document_id", "id", "docid", "file_id", "编号")
-
 def declared_docs(case):
     raw = RU.lk(case, DOC_KEYS)
     if raw is None:
@@ -228,7 +201,6 @@ def declared_docs(case):
         elif isinstance(item, dict):
             out.append(item)
     return out
-
 def find_library_root(case, inp):
     inp = Path(inp)
     cand = RU.lk(case, LIB_KEYS)
@@ -244,7 +216,6 @@ def find_library_root(case, inp):
     if inp.is_dir():
         return inp, "input_root"
     return None, "missing"
-
 def scan_files(root, max_files=400, max_depth=8):
     out = []
     root = Path(root)
@@ -273,8 +244,6 @@ def scan_files(root, max_files=400, max_depth=8):
             if len(out) >= max_files:
                 return out
     return out
-
-# ---------------------------------------------------------------- structure
 def build_structure(units, doc_id):
     paras, sections, cur = [], [], None
     for u in units:
@@ -300,7 +269,6 @@ def build_structure(units, doc_id):
     for s in sections:
         s["paragraph_ids"] = [p["pid"] for p in paras if p["section_id"] == s["section_id"]]
     return sections, paras
-
 def index_doc(path, rel, doc_id, decl, root, inp=None):
     rel_in = rel
     if inp is not None:
@@ -366,7 +334,6 @@ def index_doc(path, rel, doc_id, decl, root, inp=None):
             rec["status"] = "no_text_layer"
             rec["notes"].append("no paragraphs after structure build")
     return rec
-
 FAIL_IMPACT = {
     "permission_denied": "不做内容检索，仅登记存在与权限",
     "encrypted": "无法解密，内容不可检索",
@@ -377,7 +344,6 @@ FAIL_IMPACT = {
     "path_missing": "路径失效，文档未入库",
     "unsupported_legacy": "旧版二进制 Office 格式，需先转 OOXML",
 }
-
 def build_index(meta, case, inp):
     inp = Path(inp)
     root, how = find_library_root(case, inp)
@@ -412,11 +378,7 @@ def build_index(meta, case, inp):
             except ValueError:
                 rel = str(raw)
         key = os.path.realpath(str(cand))
-        if key not in seen:
-            seen[key] = (cand, rel, d)
-        else:
-            seen[key] = (cand, rel, d)
-
+        seen[key] = (cand, rel, d)
     docs, used, done = [], set(), set()
     for i, (path, rel, decl) in enumerate(sorted(seen.values(), key=lambda x: (x[1].lower(), str(x[0]))), 1):
         key = os.path.realpath(str(path))
@@ -444,13 +406,7 @@ def build_index(meta, case, inp):
                              "detail": f"case.json 声明 permission={rec['permission']}",
                              "impact": "不读取内容；过滤后垒集须如实报告"})
         docs.append(rec)
-    uniq, seen_f = [], set()
-    for f in failures:
-        k = (f.get("doc_id"), f.get("path"), f.get("reason"))
-        if k not in seen_f:
-            seen_f.add(k)
-            uniq.append(f)
-    failures = uniq
+    failures = list({(f.get("doc_id"), f.get("path"), f.get("reason")): f for f in failures}.values())
     groups, excluded, conflicts = RU.dedupe(docs)
     digest_src = "".join(sorted(f"{d.get('doc_id')}:{d.get('sha256') or '-'}" for d in docs))
     index = {"case_id": meta.get("case_id"), "built_at": now(),
@@ -463,7 +419,6 @@ def build_index(meta, case, inp):
         failures.append({"reason": "library_missing", "path": str(inp),
                          "detail": "未找到材料目录", "impact": "空索引"})
     return index
-
 def doc_by_path(index, path):
     if not path:
         return None
@@ -483,7 +438,6 @@ def doc_by_path(index, path):
             if dp and (sq.endswith(dp) or dp.endswith(sq)):
                 return d
     return None
-
 def index_text(index):
     out = {}
     for d in index.get("docs") or []:
@@ -491,11 +445,8 @@ def index_text(index):
                                  p.get("page_physical"), p.get("page_printed"), p.get("text") or "")
                                 for p in d.get("paragraphs") or []]
     return out
-
-# ---------------------------------------------------------------- contract echo
 DEFAULT_CONTRACT_KEYS = ("id", "root", "terminology", "aliases", "encoding", "not_applicable",
                          "container", "older_version_of", "evidence_ban", "impact")
-
 def contract_keys(contract):
     if isinstance(contract, dict):
         return [str(k) for k in contract.keys()]
@@ -510,34 +461,33 @@ def contract_keys(contract):
                     out.append(str(n))
         return out
     return []
-
 def _docs(index):
     return (index or {}).get("docs") or []
-
 def contract_blocks(payload, contract, index=None):
     keys = contract_keys(contract) or list(DEFAULT_CONTRACT_KEYS)
-    docs = _docs(index)
+    ix = index or {}
+    docs = _docs(ix)
     res = payload.get("result") or {}
+    st = ix.get("scan_stats") or {}
+    ded = ix.get("dedupe") or {}
     blocks = {}
-
     def proj(key, rows, column, source, count=None):
         return {"source": source, "column": column, "field": key,
                 "count": len(rows) if count is None else count, "rows": rows[:40]}
-
+    def fid(d):
+        return {"file_id": d.get("doc_id"), "path": d.get("path")}
+    def pages(d):
+        return d.get("pages") or {}
     for k in keys:
         if k == "id":
             blocks[k] = proj(k, [{"file_id": d.get("doc_id"), "value": d.get("doc_id"),
                                   "path": d.get("path"), "sha256_16": d.get("sha256_16")}
-                                 for d in docs],
-                             "doc_id", "index.docs[].doc_id")
+                                 for d in docs], "doc_id", "index.docs[].doc_id")
         elif k == "root":
-            st = (index or {}).get("scan_stats") or {}
             blocks[k] = {"source": "index.library_root / scan_stats", "field": k,
-                         "root": (index or {}).get("library_root"),
-                         "root_source": (index or {}).get("root_source"),
+                         "root": ix.get("library_root"), "root_source": ix.get("root_source"),
                          "files_on_disk": st.get("files_on_disk"), "declared": st.get("declared"),
-                         "indexed": st.get("indexed"),
-                         "rows": [{"file_id": d.get("doc_id"), "path": d.get("path")} for d in docs]}
+                         "indexed": st.get("indexed"), "rows": [fid(d) for d in docs]}
         elif k == "terminology":
             terms = []
             for t, variants in sorted(RU.SYN.items()):
@@ -547,70 +497,56 @@ def contract_blocks(payload, contract, index=None):
                 terms.append({"term": t, "variants": variants, "files": hits[:10],
                               "occurrences": len(hits)})
             extra = {}
-            raw_extra = payload.get("extra_terms")
-            if isinstance(raw_extra, dict):
-                for t, vs in raw_extra.items():
+            raw = payload.get("extra_terms")
+            items = raw.items() if isinstance(raw, dict) else [
+                (it.get("term"), it.get("variants")) for it in raw or [] if isinstance(it, dict)]
+            for t, vs in items:
+                if t:
                     extra[str(t)] = vs if isinstance(vs, list) else [vs]
-            elif isinstance(raw_extra, list):
-                for it in raw_extra:
-                    if isinstance(it, dict) and it.get("term"):
-                        extra[str(it["term"])] = it.get("variants")
             blocks[k] = {"source": "rules.SYN + case.json synonyms", "field": k,
-                         "builtin_terms": len(RU.SYN), "case_terms": len(extra),
-                         "rows": terms}
+                         "builtin_terms": len(RU.SYN), "case_terms": len(extra), "rows": terms}
         elif k == "aliases":
-            rows = [{"file_id": d.get("doc_id"), "path": d.get("path"),
-                     "aliases": d.get("aliases") or []} for d in docs if d.get("aliases")]
+            rows = [dict(fid(d), aliases=d.get("aliases") or []) for d in docs if d.get("aliases")]
             blocks[k] = proj(k, rows, "aliases", "index.docs[].aliases",
                              count=sum(len(d.get("aliases") or []) for d in docs))
         elif k == "encoding":
-            blocks[k] = proj(k, [{"file_id": d.get("doc_id"), "path": d.get("path"),
-                                  "encoding": d.get("encoding") or "not-detected",
-                                  "type": d.get("type"), "status": d.get("status")} for d in docs],
+            blocks[k] = proj(k, [dict(fid(d), encoding=d.get("encoding") or "not-detected",
+                                      type=d.get("type"), status=d.get("status")) for d in docs],
                              "encoding", "index.docs[].encoding")
         elif k == "not_applicable":
-            rows = [{"file_id": d.get("doc_id"), "path": d.get("path"),
-                     "pages_label_source": (d.get("pages") or {}).get("label_source"),
-                     "reason": "no reliable pagination for this container type; "
-                               "locate by section and paragraph instead"}
-                    for d in docs if (d.get("pages") or {}).get("label_source") == "not_applicable"]
+            rows = [dict(fid(d), pages_label_source=pages(d).get("label_source"),
+                         reason="no reliable pagination for this container type; "
+                                "locate by section and paragraph instead")
+                    for d in docs if pages(d).get("label_source") == "not_applicable"]
             blocks[k] = {"source": "index.docs[].pages.label_source", "field": k,
                          "declared_for": "page numbers of containers without fixed pages",
                          "count": len(rows), "rows": rows}
         elif k == "container":
-            rows = []
-            for d in docs:
-                for s in (d.get("sections") or [])[:40]:
-                    rows.append({"file_id": d.get("doc_id"), "section_id": s.get("section_id"),
-                                 "container": s.get("container") or d.get("type"),
-                                 "title": s.get("title"), "level": s.get("level")})
+            rows = [dict(fid(d), section_id=s.get("section_id"),
+                         container=s.get("container") or d.get("type"),
+                         title=s.get("title"), level=s.get("level"))
+                    for d in docs for s in (d.get("sections") or [])[:40]]
             blocks[k] = proj(k, rows, "container", "index.docs[].sections[].container")
         elif k == "older_version_of":
-            rows = []
-            for g in ((index or {}).get("dedupe") or {}).get("groups") or []:
-                if g.get("kind") != "version_chain":
-                    continue
-                for m in g.get("members") or []:
-                    if m.get("doc_id") != g.get("representative"):
-                        rows.append({"older": m.get("doc_id"), "value": g.get("representative"),
-                                     "version": m.get("version"),
-                                     "similarity": g.get("similarity")})
+            rows = [{"older": m.get("doc_id"), "value": g.get("representative"),
+                     "version": m.get("version"), "similarity": g.get("similarity")}
+                    for g in ded.get("groups") or [] if g.get("kind") == "version_chain"
+                    for m in g.get("members") or [] if m.get("doc_id") != g.get("representative")]
             blocks[k] = proj(k, rows, "older_version_of",
                              "index.dedupe.groups[kind=version_chain].members")
         elif k == "evidence_ban":
-            rows = (index or {}).get("excluded_evidence") or []
+            rows = ix.get("excluded_evidence") or []
             blocks[k] = proj(k, rows, "evidence_ban", "index.excluded_evidence[].evidence_ban")
         elif k == "impact":
-            rows = (index or {}).get("failures") or []
+            rows = ix.get("failures") or []
             blocks[k] = proj(k, rows, "impact", "index.failures[].impact",
                              count=len(res.get("failures") or rows))
         else:
             blocks[k] = {"computed": False, "field": k,
                          "reason": "the case declared this key but the index has no projection for it",
                          "requirement": "supply a projection source in core.contract_blocks",
-                         "input": (payload.get("case_id"), (index or {}).get("library_root"))}
+                         "input": (payload.get("case_id"), ix.get("library_root"))}
     return blocks
-
 def apply_contract(payload, contract, index=None):
     keys = contract_keys(contract) or list(DEFAULT_CONTRACT_KEYS)
     blocks = contract_blocks(payload, contract, index)
@@ -620,7 +556,6 @@ def apply_contract(payload, contract, index=None):
     out["output_contract"] = {k: blocks.get(k) for k in keys}
     out["contract_keys"] = keys
     return out
-
 def blank_payload(contract, case_id, status="partial", note="初始化：材料未解析"):
     base = {"case_id": case_id, "status": status, "summary": note, "result": {}, "queries": [],
             "hits": [], "filters": [], "excluded_evidence": [], "coverage": {}, "sources": [],
@@ -628,7 +563,6 @@ def blank_payload(contract, case_id, status="partial", note="初始化：材料�
             "counts": {}, "verification": {}, "runtime": {},
             "primary_result": "result.json"}
     return apply_contract(base, contract)
-
 def write_jsonl(path, rows):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
