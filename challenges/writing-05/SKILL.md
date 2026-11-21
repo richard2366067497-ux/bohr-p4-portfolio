@@ -21,15 +21,9 @@ version: 1.2.0
 - **领域红线**：按其 **§4** 检查温度、浓度、百分数、工艺指标、归一化、表征与统计边界。
 - **门控**：交付前逐项通过其 **§5 专家检查表**，并按其 **§7** 做交付前门控。
 
-## 单命令入口（single command，一次跑完）
+## 单命令入口 / 评测入口（single command，一次跑完；无 draft 时执行）
 
-下面这一条命令就是完整流程：读取材料 → 切分论断 → 匹配来源 → 判定强度 → 生成成稿与证据产物 → 写出 result.json。**不需要任何草稿或前置步骤**，缺材料时也会退出码 0 并写出合法的降级结果。
-
-```bash
-python3 scripts/main.py --input /input --output /app/output --work /app/work
-```
-
-等价的绝对路径写法（由平台安装到搜索路径时）：
+下面这一条命令就是完整流程：读取材料 → 切分论断 → 匹配来源 → 判定强度 → 生成成稿与证据产物 → 写出 result.json。**不需要任何草稿或前置步骤**，缺材料时也会退出码 0 并写出合法的降级结果。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ```bash
 python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
