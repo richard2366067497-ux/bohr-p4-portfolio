@@ -23,7 +23,7 @@ echo $?                                           # 期望 0；status=insufficie
 
 printf '{bad json' > /tmp/e/in/x.json             # 只有坏 JSON
 python3 scripts/main.py all --input /tmp/e/in --output /tmp/e/out --work /tmp/e/work
-echo $?                                           # 期望 0；status=insufficient_evidence，降级含 "did not parse"
+echo $?                                           # 期望 0；status=insufficient_evidence（坏文件只影响自身盘点记录）
 ```
 
 ## 3. 定义性复算台账（可手算核对）
