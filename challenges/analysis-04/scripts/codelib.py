@@ -445,14 +445,17 @@ def main():
         if not cols:
             continue
         rel = os.path.relpath(path, inp).replace("\\\\", "/")
-        tables.append({"table": rel, "columns": cols, "n": len(rows)})
         n_in += len(rows)
-        seen, dedup = set(), 0
+        seen, dedup, uniq = set(), 0, []
         for r in rows:
             t = tuple(sv(r.get(c)) for c in cols)
             if t in seen:
                 dedup += 1
+            else:
+                uniq.append(r)
             seen.add(t)
+        rows = uniq
+        tables.append({"table": rel, "columns": cols, "n": len(rows)})
         num, cat = {}, []
         for c in cols:
             vals = [to_num(r.get(c)) for r in rows]
@@ -508,8 +511,10 @@ def main():
                     pass
         if len(num) >= 2:
             c1, c2 = list(num)[:2]
-            m = min(len(num[c1]), len(num[c2]))
-            xs, ys = num[c1][:m], num[c2][:m]
+            pr = [(to_num(r.get(c1)), to_num(r.get(c2))) for r in rows]
+            xs = [a for a, b in pr if a is not None and b is not None]
+            ys = [b for a, b in pr if a is not None and b is not None]
+            m = len(xs)
             try:
                 mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
                 cov = sum((xs[i] - mx) * (ys[i] - my) for i in range(m))
