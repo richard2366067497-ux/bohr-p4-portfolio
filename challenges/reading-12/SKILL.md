@@ -20,6 +20,14 @@ maps columns to roles, parses each value cell, converts units only inside one di
 duplicates, keeps conflicting values side by side, and gives every change a rule id and a locator.
 Nothing is invented: a missing cell stays empty, an unresolvable unit is queued, never guessed.
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -81,10 +89,6 @@ Run this single command; with no draft it still writes every artifact and a comp
 `result.json`, and exits 0:
 
 无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 ## 3. agent-first 增强路径（可选，质量更高）
 
