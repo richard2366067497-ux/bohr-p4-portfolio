@@ -66,7 +66,7 @@ PLACE = re.compile(r"\[\s*待写\s*\]|待写|待补充|待填写|TBD|TODO|FIXME|
 BAD_TOKENS = ((r"\bplaceholder\b", "fallback"), (r"\bnot[-_ ]?extracted\b", "unavailable"),
               (r"\bpending\b", "needs_review"), (r"\bnull\b", "absent"), (r"\bNone\b", "absent"),
               (r"\bN/?A\b", "not_applicable"), (r"\bTBD\b", "open"), (r"\bTODO\b", "open"),
-              (r"\bFIXME\b", "open"), (r"\bXXX\b", "open"), (r"待写|待补充|待填写", "open"),
+              (r"\bFIXME\b", "open"), (r"\bXXX\b", "open"), (r"尚未", "not_yet"), (r"待写|待补充|待填写", "open"),
               (r"example\.com", ""), (r"lorem ipsum", ""))
 BUILTIN_CODES = {
     "IN-POP": ("include", "population matches the review question"),
