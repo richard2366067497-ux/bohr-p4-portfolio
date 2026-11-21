@@ -13,6 +13,18 @@ version: 6.0.0
 
 ---
 
+## 0. 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：任务本质与判分要点、错误做法→正确做法、求解框架（S1–S6）、量化口径与公式（论断
+覆盖率 / 定位有效率 / 引用支持率 / 数值一致率）、领域知识、交付物清单与专家检查表、完整虚构
+案例、交付前门控。执行顺序固定为：先读手册 → 再按手册求解框架逐阶段落盘冻结产物 →
+交付前逐项勾选手册 §5 专家检查表。手册与 `SKILL.md` 冲突时，契约键名与入口命令以 `SKILL.md`
+为准，方法与判分口径以手册为准。
+
+---
+
+
 ## 1. 单命令入口（首条）
 
 评测与日常使用都只需这一条，它会跑完整流程并落齐全部产物：
@@ -122,8 +134,9 @@ Agent 读完后把草稿写入 `/app/work/draft.json`（结构见 references/con
 
 ## 7. 自检
 
-每次 `run/build` 之后：
+每一次 `run/build` 之后：
 
+- **`references/expert_playbook.md` §5 专家检查表逐项通过**（未通过项先修复再交付）；
 - `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键齐全且无空值；
 - `manuscript.md` 至少 5 个二级标题，且每个证据句都带 `文件:行号`；
 - 空目录与坏 JSON 两个探针各自 exit 0 且写出合法 result.json（结果写入 `work/self_check.json`）；
@@ -134,6 +147,7 @@ Agent 读完后把草稿写入 `/app/work/draft.json`（结构见 references/con
 ```
 SKILL.md                              本说明
 scripts/main.py                       入口与内核：init / show / check / build / run
+references/expert_playbook.md         专家方法论：判分要点、公式、检查表、虚构案例
 references/contract-and-locators.md   草稿结构、result 字段、定位与状态判定
 README.md                             安装、最小示例、限制
 SELFTEST.md                           空/坏输入与四格评测记录
