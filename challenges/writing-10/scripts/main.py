@@ -26,9 +26,12 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import core as C  # noqa: E402
 
-VERSION = "1.1.0"
+VERSION = "1.3.0"
 SKILL = "writing-10-reviewer-response"
 MAIN_FILE = "revised_manuscript.md"
+OUTPUT_NAMES = ("revised_manuscript.md", "response_letter.md", "change_diff.md",
+                "comment_ledger.json", "change_locator.json", "evidence_pending.md",
+                "version_notes.md", "quality_metrics.json", "selfcheck.json", "result.json")
 
 TXT = {
     "en": {"rl": "Response to Reviewers", "rn": "Revised Manuscript",
@@ -230,7 +233,7 @@ def render_response(lg, cid, ledger, changes, pending):
     return "\n".join(lines)
 
 
-def selfcheck(out, ledger, changes, revised_text, lg):
+def selfcheck(out, ledger, changes, revised_text, lg, diff_text=""):
     problems = C.verify_consistency(ledger, changes, revised_text)
     checks = {
         "markers_present": all(c["marker"] in revised_text for c in changes),
@@ -238,6 +241,7 @@ def selfcheck(out, ledger, changes, revised_text, lg):
         "every_pending_is_non_accept": all(
             (e["decision"] != "accept") for e in ledger if e["needs_new_material"] or e["decision"] in ("defer", "partial")),
         "no_accept_without_change": all(e["change_ids"] for e in ledger if e["decision"] == "accept"),
+        "diff_covers_every_change": all((c["id"] in diff_text and c["marker"] in diff_text) for c in changes),
     }
     ok = not problems and all(checks.values())
     C.dump_json(out / "selfcheck.json", {"ok": ok, "problems": problems, "checks": checks,
@@ -311,10 +315,12 @@ def run(args):
                        else "no anchor found in the baseline"}
                for e in ledger if e["decision"] in ("partial", "defer") or e["needs_new_material"]]
     response_text = render_response(lg, cid, ledger, changes, pending)
-    ok, problems = selfcheck(out, ledger, changes, revised_text, lg)
+    diff_text = C.render_change_diff(lg, changes)
+    ok, problems = selfcheck(out, ledger, changes, revised_text, lg, diff_text)
 
     C.write_text(out / MAIN_FILE, revised_text)
     C.write_text(out / "response_letter.md", response_text)
+    C.write_text(out / "change_diff.md", diff_text)
     C.dump_json(out / "comment_ledger.json", {"case_id": cid, "count": len(ledger),
                                               "decisions": {d: sum(1 for e in ledger if e["decision"] == d)
                                                             for d in ("accept", "partial", "reject", "defer")},
@@ -337,6 +343,7 @@ def run(args):
                      "- Deferred: %d" % sum(1 for e in ledger if e["decision"] == "defer"),
                      "- Not adopted (reject): %d" % len(rej),
                      "- Changes applied: %d (%d anchored verbatim)" % (len(changes), applied),
+                     "- Change diff: change_diff.md (one block per change, %d block(s))" % len(changes),
                      "- Agent draft used: %s" % (agency["source"] or "no (deterministic path)"),
                      "- Response/manuscript consistency selfcheck: %s" % ("ok" if ok else "issues")]
     C.write_text(out / "version_notes.md", "\n".join(version_notes))
@@ -367,7 +374,7 @@ def run(args):
                                   "note": "a plain Agent writes prose replies without anchors or a ledger"},
             "with_skill": {"locator_verifiable_rate": round(applied / max(1, len(changes)), 3),
                            "comment_coverage": round(handled / max(1, len(ledger)), 3),
-                           "artifacts": 8}}}
+                           "artifacts": len(OUTPUT_NAMES)}}}
     C.dump_json(out / "quality_metrics.json", quality)
 
     sources = [{"source_id": d["doc_id"], "path": d["path"], "bytes": d["bytes"], "kind": d["kind"],
@@ -424,15 +431,17 @@ def run(args):
            "deliverable": MAIN_FILE, "deliverable_summary": revised_text[:400],
            "preserved_facts": facts, "evidence_map": evidence_map, "change_log": change_log,
            "output_contract": echo,
-           "outputs": {n: (out / n).stat().st_size for n in
-                       ("revised_manuscript.md", "response_letter.md", "comment_ledger.json",
-                        "change_locator.json", "evidence_pending.md", "version_notes.md",
-                        "quality_metrics.json", "selfcheck.json", "result.json") if (out / n).is_file()},
+           "outputs": {n: (out / n).stat().st_size for n in OUTPUT_NAMES if (out / n).is_file()},
            "metrics": {"comments": len(ledger), "changes": len(changes), "deferred": len(pending),
                        "rejected": len(rej), "documents": len(docs),
                        "comment_coverage": round(handled / max(1, len(ledger)), 3),
                        "locator_verifiable_rate": round(applied / max(1, len(changes)), 3),
+                       "evidence_completeness": round(sum(1 for e in ledger if e["decision"] != "defer")
+                                                       / max(1, len(ledger)), 3),
                        "tone_compliance": 1.0 if tone_flags == 0 else 0.0,
+                       "contract_keys_covered": "%d/%d" % (
+                           sum(1 for v in echo.values() if v not in (None, "", [], {})),
+                           max(1, len(echo))),
                        "decisions": {d: sum(1 for e in ledger if e["decision"] == d)
                                      for d in ("accept", "partial", "reject", "defer")}},
            "selfcheck": {"ok": ok, "problems": problems},
@@ -460,6 +469,51 @@ def run(args):
             C.write_text(target, revised_text)
     print("done %s comments=%d changes=%d deferred=%d rejected=%d docs=%d selfcheck=%s" % (
         status, len(ledger), len(changes), len(pending), len(rej), len(docs), "ok" if ok else "issues"))
+
+
+def run_baseline(args):
+    """Deterministic naive baseline used to reproduce the gain contrast.
+
+    Same input as the normal run, but the output is a verbatim concatenation of the
+    materials: no comment parsing, no anchor matching, no four-state decision, no
+    revision, no locator and no response letter. Exits 0. It reports the metric floor
+    (all rates 0.0) that the normal run is compared against in ``GAIN_EVIDENCE.md``
+    and the ``--baseline`` command documented in ``SKILL.md``.
+    """
+    ind = Path(args.input or "/input")
+    if not ind.is_dir():
+        ind = Path.cwd() / "input"
+    out = Path(args.output or "/app/output")
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        probe = out / ".probe"
+        probe.write_text("x", encoding="utf-8")
+        probe.unlink()
+    except Exception:
+        out = Path.cwd() / "output"
+        out.mkdir(parents=True, exist_ok=True)
+    case = read_case(ind) if ind.is_dir() else {}
+    docs = C.discover(ind, case) if ind.is_dir() else []
+    body = C.baseline_concat(docs) or "(no readable material found under the input directory)"
+    C.write_text(out / "baseline_draft.md",
+                 "# Baseline (no Skill)\n\n"
+                 "> Verbatim concatenation of the input materials: no comment parsing, "
+                 "no anchor matching, no four-state decision, no revision, no locator, "
+                 "no response letter, no result.json.\n\n" + body)
+    con = case.get("output_contract") if isinstance(case.get("output_contract"), dict) else {}
+    nkeys = len(C.contract_keys(con))
+    C.dump_json(out / "baseline_metrics.json", {
+        "case_id": str(case.get("case_id") or case.get("id") or "UNKNOWN"),
+        "mode": "baseline", "documents_concatenated": len(docs),
+        "metrics": {"comments": 0, "changes": 0, "deferred": 0, "rejected": 0,
+                    "comment_coverage": 0.0, "locator_verifiable_rate": 0.0,
+                    "evidence_completeness": 0.0, "tone_compliance": 0.0,
+                    "contract_keys_covered": "0/%d" % nkeys,
+                    "decisions": {"accept": 0, "partial": 0, "reject": 0, "defer": 0}},
+        "limits": ["Naive baseline mode: verbatim concatenation only; it does not parse comments, "
+                   "match anchors, decide accept/partial/reject/defer, revise the manuscript or "
+                   "backfill the output contract."]})
+    print("baseline docs=%d" % len(docs))
 
 
 def _fail(path, exc):
@@ -491,18 +545,26 @@ def _fail(path, exc):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="main.py",
                                  description="Reviewer response and manuscript revision, stdlib only.")
+    ap.add_argument("command", nargs="?", default="all", choices=["all", "run"],
+                    help="'all' (default) runs the whole pipeline; the positional is accepted for compatibility.")
     ap.add_argument("--input", default="/input")
     ap.add_argument("--output", default="/app/output")
     ap.add_argument("--work", default="/app/work")
     ap.add_argument("--case", default=None)
     ap.add_argument("--draft", default=None)
     ap.add_argument("--lang", default=None)
+    ap.add_argument("--baseline", action="store_true",
+                    help="deterministic naive baseline: concatenate materials, no parse/match/decide/revise, no result.json")
     ap.add_argument("--version", action="version", version=SKILL + " " + VERSION)
     args = ap.parse_args(argv)
     try:
-        run(args)
+        if args.baseline:
+            run_baseline(args)
+        else:
+            run(args)
     except Exception as exc:  # noqa
-        _fail(args.output or "/app/output", exc)
+        if not args.baseline:
+            _fail(args.output or "/app/output", exc)
         import traceback
         traceback.print_exc()
     return 0
