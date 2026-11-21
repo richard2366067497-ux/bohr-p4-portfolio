@@ -9,6 +9,14 @@ license: MIT
 
 完成闭环：**批注提取 → 笔记结构化 → 知识关联 → 检索入库 → 可核验交付**。每条批注可回到原文件具体页与位置；每条笔记可找到支撑原文；每条关联有依据；整条流程可复跑。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --output /app/output
+```
+
 ## 执行前必读（强制）
 
 **执行前先阅读 `references/expert_playbook.md`，按其中专家检查表逐项产出。** 手册给出判分要点、错误做法→正确做法、量化公式、20 项自查表与完整案例，是质量下限；本文件只描述接口与契约。
@@ -34,13 +42,10 @@ license: MIT
 
 ## 单命令等价入口（single command — one shot，无 draft，评测入口）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
 一条命令即跑完 init→build→selfcheck，直接产出完整契约与全部交付物：
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --output /app/output
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 ## Agent 路径（五命令）
 
