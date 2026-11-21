@@ -42,6 +42,16 @@ license: MIT
 | `directory_plan.json` / `tree.txt` | 目标目录规划与树 |
 | `recovery.json` / `self_check.json` | 回滚信息与自检报告 |
 
+## 单命令等价入口（single command — one shot，无 draft，评测入口）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+一条命令即完成整条流水线（等价于 init→build→selfcheck），直接产出完整契约与全部交付物：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 ## Agent 路径（五命令，逐步）
 
 ```bash
@@ -61,11 +71,7 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --work /ap
 
 ## 单命令等价入口（single command — one shot，无 draft）
 
-只需一条命令即可完成整条流水线（等价于 init→build→selfcheck），直接产出完整契约与全部交付物：
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令等价入口（评测入口）」——同一条 `all` 命令，一条命令跑完整条流水线。
 
 ## 规则要点
 
