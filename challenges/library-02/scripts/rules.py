@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""rules.py - path metadata, hard filters, duplicate/version ledger for research-file-locator.
-
-Pure standard library. All functions are deterministic and side-effect free, so the
-same library always yields the same index, filters ledger and evidence exclusions.
-"""
+"""rules.py - term scoring, hard filters, dedupe/version chains and deterministic retrieval."""
 import os
 import re
 from pathlib import Path
@@ -31,9 +27,7 @@ TYPE_WORD = re.compile(r"(?i)\b(pdf|docx?|xlsx?|pptx?|csv|txt|markdown|md|tex|js
                        r"扫描件|图片)\b")
 OPS = (">=", "<=", "!=", "==", "=>", "=<", "=", ">", "<")
 
-
 def lk(d, keys, default=None):
-    """Case-insensitive key lookup tolerant of naming variants."""
     if not isinstance(d, dict):
         return default
     low = {str(k).lower().replace("-", "_"): v for k, v in d.items()}
@@ -43,16 +37,13 @@ def lk(d, keys, default=None):
             return low[kk]
     return default
 
-
 def norm_type_word(w):
     w = str(w).lower().strip(".")
     return {"doc": "docx", "xls": "xlsx", "ppt": "pptx", "markdown": "md",
             "扫描件": "pdf", "图片": "image"}.get(w, w)
 
-
 # ---------------------------------------------------------------- path metadata
 def meta_from_name(rel):
-    """Deterministic metadata that is literally present in the path (provenance: path)."""
     s = str(rel)
     out = {"sources": {}}
     m = YEAR_RE.search(s)
@@ -76,9 +67,7 @@ def meta_from_name(rel):
         out["sources"]["project"] = "path"
     return out
 
-
 def merge_declared(decl, rel):
-    """case.json metadata overrides path-derived metadata; every value keeps its source."""
     out = {"year": None, "version": None, "project": None, "batch": None, "tags": [], "sources": {}}
     guess = meta_from_name(rel)
     md = lk(decl, ("metadata", "meta", "attributes", "properties", "元数据")) or {}
@@ -101,7 +90,6 @@ def merge_declared(decl, rel):
         out["tags"] = [t.strip() for t in re.split(r"[,;、]", tg) if t.strip()]
     return out
 
-
 # ---------------------------------------------------------------- filter parsing
 def _cond(key, value, op=None):
     k = FKEY.get(str(key).strip().lower()) or FKEY.get(str(key).strip())
@@ -121,7 +109,6 @@ def _cond(key, value, op=None):
     if k == "type":
         s = norm_type_word(s)
     return {"key": k, "op": op2 or "=", "value": s, "raw": f"{key} {op2 or '='} {s}"}
-
 
 def _cond_str(part):
     part = part.strip()
@@ -157,9 +144,7 @@ def _cond_str(part):
         return [{"key": "type", "op": "=", "value": norm_type_word(ty.group(1)), "raw": part}]
     return [{"key": "unparsed", "op": "=", "value": part, "raw": part}]
 
-
 def parse_filters(raw):
-    """Accept dict / list / free text; unparsable parts stay as 'unparsed' (never dropped)."""
     conds = []
     if raw in (None, "", [], {}):
         return conds
@@ -188,10 +173,8 @@ def parse_filters(raw):
             conds.extend(_cond_str(part))
     return [c for c in conds if c]
 
-
 def filter_text(c):
     return f"{c['key']}{c['op']}{c['value']}" if c["op"] != "in" else f"{c['key']} in {c['value']}"
-
 
 # ---------------------------------------------------------------- filter evaluation
 def doc_attrs(doc):
@@ -208,7 +191,6 @@ def doc_attrs(doc):
     if a["year"] is None and doc.get("mtime_year"):
         a["year"] = doc["mtime_year"]
     return a
-
 
 def _cmp(op, have, want):
     if op == "in":
@@ -232,13 +214,10 @@ def _cmp(op, have, want):
         return a > b if op in (">", ">=") else a < b
     return False
 
-
 def _natkey(s):
     return [(0, int(t)) if t.isdigit() else (1, t.lower()) for t in re.split(r"(\d+)", str(s or ""))]
 
-
 def eval_filters(conds, doc):
-    """Hard evaluation: an unknown attribute is UNSATISFIED, never silently skipped."""
     attrs = doc_attrs(doc)
     fails = []
     for c in conds:
@@ -257,9 +236,7 @@ def eval_filters(conds, doc):
                           "detail": f"{k}={have!r} 不满足 {op} {want!r}"})
     return (not fails), fails
 
-
 def filter_ledger(conds, docs):
-    """Per-condition kept/removed counts + what a relaxation would have matched (informational)."""
     rows = []
     for c in conds:
         kept, removed, reasons = [], [], {}
@@ -281,9 +258,7 @@ def filter_ledger(conds, docs):
                                          "放宽后无额外命中")})
     return rows
 
-
 def apply_all(conds, docs):
-    """Return (allowed_docs, blocked[doc_id -> failures], combination_satisfiable)."""
     allowed, blocked = [], {}
     for d in docs:
         ok, f = eval_filters(conds, d)
@@ -293,14 +268,11 @@ def apply_all(conds, docs):
             blocked[d.get("doc_id")] = f
     return allowed, blocked, bool(allowed)
 
-
 # ---------------------------------------------------------------- duplicates / versions
 COPY_RE = re.compile(r"(?i)(?:^|[\s_\-.])copy(?:[\s_\-.]|$)|copy\s*of|duplicate|backup|\bbak\b|"
                      r"副本|拷贝|复制件")
 
-
 def base_key(rel):
-    """Name stem with copy/version/final markers removed, so a version chain collapses."""
     s = Path(str(rel)).name.lower()
     s = re.sub(r"\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|tsv|json|tex|png|jpe?g|tiff?)$", "", s)
     s = COPY_RE.sub("", s)
@@ -312,7 +284,6 @@ def base_key(rel):
     s = re.sub(r"[\s_\-.]+", "", s)
     return s or Path(str(rel)).stem.lower()
 
-
 def ver_rank(doc):
     v = str(doc.get("version") or (doc.get("meta") or {}).get("version") or "")
     if not v:
@@ -322,12 +293,10 @@ def ver_rank(doc):
     nums = re.findall(r"\d+", v)
     return tuple(int(x) for x in nums) if nums else (0,)
 
-
 def _tokens(doc):
     txt = (doc.get("_head") or " ".join(p.get("text", "")[:120] for p in (doc.get("paragraphs") or [])[:4])
            or "")[:1600].lower()
     return set(re.findall(r"[a-z0-9一-龥]{2,}", txt))
-
 
 def _sim(a, b):
     ta, tb = _tokens(a), _tokens(b)
@@ -335,9 +304,7 @@ def _sim(a, b):
         return 0.0
     return len(ta & tb) / float(len(ta | tb))
 
-
 def dedupe(docs):
-    """Mark byte-identical copies and superseded versions; returns (groups, excluded, conflicts)."""
     groups, excluded = [], []
     by_sha = {}
     for d in docs:
@@ -405,7 +372,6 @@ def dedupe(docs):
                                            "sha256_16": d.get("sha256_16")} for d in g]})
     return groups, excluded, conflicts
 
-
 # ---------------------------------------------------------------- retrieval (deterministic candidates)
 def _nw(s):
     return re.sub(r"\s+", " ", str(s or "").replace("\u3000", " ").replace("\u00a0", " ")).strip()
@@ -439,7 +405,6 @@ SYN = {
     "project": ["项目", "项目编号", "proj"],
 }
 
-
 # ---------------------------------------------------------------- retrieval
 def q_terms(q, extra=None):
     terms = {}
@@ -467,7 +432,6 @@ def q_terms(q, extra=None):
                 add(v, 1.2)
     return terms
 
-
 def score_para(text, terms, phrase=None):
     low = text.lower()
     s, hits, toks = 0.0, [], None
@@ -487,9 +451,7 @@ def score_para(text, terms, phrase=None):
         s += 2.0
     return round(s, 4), hits
 
-
 def search(index, question, conds, extra=None, k=8):
-    """Deterministic candidate retrieval. Filters are applied BEFORE scoring."""
     docs = index.get("docs") or []
     allowed, blocked, ok = apply_all(conds, docs)
     if not ok and conds:
@@ -511,4 +473,3 @@ def search(index, question, conds, extra=None, k=8):
                              "text": (p.get("text") or "")[:400]})
     hits.sort(key=lambda h: (-h["score"], h["doc_id"], h["paragraph_id"]))
     return hits[:k], blocked, True
-
