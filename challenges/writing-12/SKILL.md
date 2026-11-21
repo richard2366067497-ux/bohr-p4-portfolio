@@ -21,6 +21,16 @@ license: MIT
 
 ---
 
+## 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：任务本质与判分要点、错误做法→正确做法、7 步求解框架、量化口径与公式（编译成功率 /
+修复正确率 / 事实可核验率 / 警告降幅）、领域知识与单位陷阱、交付物清单与专家检查表、完整虚构
+案例、交付前门控。执行顺序固定为：先读手册 → 再按求解框架逐阶段落盘冻结产物 → 交付前逐项勾选
+手册 §5.2 专家检查表。手册与本文冲突时，契约键名与入口命令以本文为准，方法与判分口径以手册为准。
+
+---
+
 ## 0. result.json 契约样例（output_contract 逐键回填）
 
 `result.json` 逐键回填用例声明的每一个 `output_contract` 键：既放进顶层同名键，也放进
@@ -158,6 +168,7 @@ python3 /skills/weekly-skill/scripts/latex_build.py check --input /input --outpu
 
 ## 9. 交付前自查
 
+- [ ] **`references/expert_playbook.md` §5.2 专家检查表逐项通过**（未通过项先修复再交付）。
 - [ ] `result.json` 可解析，`case_id` 在，`output_contract` 逐键回填且无类型占位符。
 - [ ] `comparison_report.md` 已写出，且明确标注为自评（非官方 A/B）。
 - [ ] `main.tex` 存在且非空；`lint_report.json`/`fixes.json`/`build.json`/`diff.patch` 结构合法。
@@ -191,6 +202,7 @@ python3 /skills/weekly-skill/scripts/latex_build.py build --input INPUT_DIR --ou
 SKILL.md                        本文件：入口、agent-first、体检/修复、构建、契约、降级
 scripts/latex_build.py          入口：build / lint / fix / check / selfcheck
 scripts/latexcheck.py           静态体检 + 可逆修复（纯函数，无引擎）
+references/expert_playbook.md   专家方法论：判分要点、7步框架、公式、检查表、虚构案例
 references/checks.md            体检判据表 + result.json 字段字典 + draft.json 交接格式
 environment/resources.yaml      资源入口声明（命令、预算、无网络、纯标准库）
 README.md  SELFTEST.md  GITHUB_URL.txt   安装、用法、自测记录、仓库地址
