@@ -1,0 +1,17 @@
+{
+  "case_id": "example-plan-choice-sensitivity",
+  "language": "en",
+  "materials_root": ".",
+  "task_instruction": "Compare the three MoS2 thin-film routes under a unified weighted matrix, gate on the hard constraints, and report how far each assumption can move before the choice changes.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "decision_memo": "string",
+    "criteria_matrix": "string",
+    "flip_report": "string",
+    "cost_ledger": "string",
+    "evidence": "string",
+    "uncertainties": "string",
+    "selected": "string"
+  }
+}
