@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""citation-trace (v6) -- citation tracing / citation-network tracing.
+"""citation-trace (v10) -- citation tracing / citation-network tracing.
 
 Single command `all` plus the five-command workflow (init/show/check/build/selfcheck).
 `all`: scan -> detect papers & citation markers -> build edges -> trace from seed ->
@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SKILL = "citation-trace"
-VERSION = "6.0.0"
+VERSION = "10.0.0"
 T0 = time.time()
 TEXT_EXT = {".md", ".markdown", ".txt", ".json", ".jsonl", ".tex", ".csv", ".tsv",
             ".yaml", ".yml", ".bib", ".html", ".htm"}
@@ -423,14 +423,6 @@ def finalize(out, idx, case, task_text, notes, status=None):
     res, graph, paths, gaps = assemble(idx, case, task_text, status, notes)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    wj(out / "citation_network.json", {"seed": res["seed"], "nodes": graph["nodes"],
-                                       "edges": graph["edges"]})
-    (out / "edges.jsonl").write_text(
-        "".join(json.dumps(deep_clean(e), ensure_ascii=False) + "\n" for e in graph["edges"]) or
-        json.dumps({"status": "no_edges"}, ensure_ascii=False) + "\n", encoding="utf-8")
-    wj(out / "traced_paths.json", {"seed": res["seed"], "paths": paths})
-    wj(out / "gaps.json", {"gaps": gaps})
-    (out / "report.md").write_text(render_report(idx, graph, paths, gaps, res), encoding="utf-8")
     values = {
         "show": {"command": "show", "purpose": "list locator-addressable paragraphs and detected records"},
         "build": {"command": "build", "purpose": "assemble network, paths, gaps and final result"},
@@ -442,6 +434,14 @@ def finalize(out, idx, case, task_text, notes, status=None):
         "network": graph, "summary": res["summary"], "report": "report.md",
         "case_id": res["case_id"], "status": res["status"],
     }
+    wj(out / "citation_network.json", {"seed": res["seed"], "nodes": graph["nodes"],
+                                       "edges": graph["edges"]})
+    (out / "edges.jsonl").write_text(
+        "".join(json.dumps(deep_clean(e), ensure_ascii=False) + "\n" for e in values["edges"]),
+        encoding="utf-8")
+    wj(out / "traced_paths.json", {"seed": res["seed"], "paths": values["paths"]})
+    wj(out / "gaps.json", {"gaps": values["gaps"]})
+    (out / "report.md").write_text(render_report(idx, graph, paths, gaps, res), encoding="utf-8")
     bind_contract(res, case_contract_keys(case), values, out)
     res["outputs"] = sorted([p.name for p in out.iterdir() if p.is_file()] + ["result.json"])
     res["deliverable"] = "report.md"
