@@ -1,0 +1,27 @@
+# Resource entry point — citation-fact-audit (review-02, v10)
+schema: resource-entry/v1
+skill: citation-fact-audit
+entry:
+  command: python3 /skills/weekly-skill/scripts/main.py all
+  arguments: ["--input /input", "--output /app/output", "--work /app/work"]
+  exit_code_expected: 0
+  alternatives: [init, show, check, build, selfcheck, compare]
+references: [references/expert_playbook.md, references/verdict-rubric.md, references/contract-and-playbook.md]
+examples: {dir: examples, case: examples/case.json, expected: "exit 0; contract keys echoed; citation_report.md + manuscript.md + evidence.jsonl + index.json + run_manifest.json written"}
+runtime: {language: python3, version: ">=3.8", third_party: none, network: false, clock: false, model_calls: 0}
+budget: {max_requests: 64, max_seconds: 900, max_tokens: 16384}
+limits:
+  bytes_per_file: 500000      # larger files are read up to the cap; truncation is reported
+  units_per_source: 4000      # further units are indexed and marked truncated
+  draft_optional: true        # without a draft every semantic verdict stays pending review
+inputs:
+  - {path: /input/case.json, required: false, note: "case_id, language, output_contract (authoritative); challenge.json accepted"}
+  - {path: /input, required: true, note: "manuscript + materials: md, txt, json, csv, tsv, pdf; anything else is snapshotted and named"}
+  - {path: /app/work/draft.json, required: false, note: "agent judgement; every verdict is recomputed, disagreements kept as changes"}
+outputs: [result.json, citation_report.md, manuscript.md, evidence.jsonl, index.json, run_manifest.json]
+workdir: /app/work
+degradation:
+  missing_input: status=input_error, contract keys still echoed with a reason, exit 0
+  unreadable_material: snapshotted and named in index.json, nothing guessed
+  no_draft: mechanical candidates, all semantic verdicts pending review, degradations listed
+  bad_draft: rejected field by field into change_records, documented defaults applied
