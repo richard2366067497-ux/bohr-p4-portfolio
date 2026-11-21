@@ -18,6 +18,14 @@ chapter and a discussion chapter disagree. This skill turns the supplied chapter
 **index, six ledgers, a set of findings, and annotations that can be removed again**. It never
 rewrites the author's sentences and it never invents a reference.
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（专家方法论）
 
 **动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册给出任务本质
@@ -79,11 +87,7 @@ match is rejected, never adjusted.
 ## 2. 单命令（等价入口，one-shot，评测入口，无 draft 时执行）
 
 Run this single command. With no draft it still indexes the material, writes every artifact and a
-complete `result.json`, and exits 0. **无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+complete `result.json`, and exits 0.
 
 ## 3. agent-first 增强路径（可选，质量更高）
 
