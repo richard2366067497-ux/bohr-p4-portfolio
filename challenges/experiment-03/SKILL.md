@@ -60,10 +60,10 @@ each is filled the same way (path-like keys resolve to the artifact written into
 directory, text-like keys get a real derived sentence). `status` is one of `answered`,
 `partial`, `insufficient_evidence`, `input_error`.
 
-## 1. 单命令（one-shot，评测入口）
+## 1. 单命令（one-shot，评测入口，无 draft 时执行）
 
 Run this single command; with no draft it still writes every artifact and a complete
-`result.json` and exits 0:
+`result.json` and exits 0. **无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
