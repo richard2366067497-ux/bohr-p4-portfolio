@@ -18,6 +18,19 @@ the locator it came from and the sentence that supports it; a candidate that can
 verbatim in the material is rejected rather than kept, and two papers that share a name are aligned
 by that name alone — never by assuming the same sample, model or condition.
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 八步框架（含门控）** 推进——输入登记 → 正文解析与证据锚定 → 定 Schema 与粒度
+  → 保守抽取 → 跨篇对齐与反合并 → 图谱装配与稳定编号 → 执行查询 → 提前保存并验证；前一步未冻结不进入下一步。
+- **证据**：按其 **§3 证据结构** 给每条边与节点带 `source_id#paragraph_id` 定位、逐字短引、归属与证据强度。
+- **口径**：按其 **§3 量化口径** 计算 `C_node / C_edge / R_valid / P_merge / Q_replay / S_ID`，测量值绑定样品与条件。
+- **陷阱**：按其 **§4 领域陷阱清单** 逐条排雷（错误做法 → 正确做法）；同名不代表同样品，共现只生成候选。
+- **门控**：交付前逐项通过其 **§7 防扣分自查表（25 项）**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainty` / `conflicts.json`，绝不静默提升为完整成功。
+
 ## 0. result.json contract
 
 Every key below is echoed both at the top level of `result.json` and inside its
@@ -130,3 +143,13 @@ The engine lives in `scripts/kglib.py`; `scripts/main.py` is the CLI entry that 
   two papers' samples are never assumed equal.
 - Empty / binary / placeholder-only file → recorded with its parse status, never quoted.
 - No network, no third-party package, no invented literature or numbers.
+
+## 7. 交付前自查
+
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键非空、无类型占位符。
+- [ ] `graph.json` 无悬空边、无重复 ID；每条节点/边都带 `source_id#paragraph_id` 定位与逐字短引。
+- [ ] 跨篇合并仅在明确依据下执行，拒绝合并与不确定候选都写入 `alignment_report.json`。
+- [ ] 至少 3 个查询真实执行，空结果 / 不可判定 / 执行失败三者已区分。
+- [ ] 空语料 / 候选无法逐字命中两条路径各跑过一次，均 exit 0 且有缺口报告。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §7 的 25 项防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainty`，绝不静默提升为完整成功。
