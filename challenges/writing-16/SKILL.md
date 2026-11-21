@@ -1,10 +1,19 @@
 ---
 name: source-faithful-retargeting
 description: Retarget a scientific source (paper, technical report, abstract, data table, figure caption) into a finished piece for a named audience and genre — popular-science article, industry transfer brief, grant/application summary, journal abstract, bilingual release — inside a hard length budget, while every number, unit, sample size, condition, figure/table reference and claim strength stays traceable to a verbatim source locator. Use when a task asks to "rewrite this result for <readers>", "turn this paper into a briefing / application / popular piece", "convert the same result into several genres", or "compress without losing the evidence". The script indexes and checks; the Agent reads, judges and writes the actual draft; build never fails and always emits a valid result.json.
-version: 9.0.0
+version: 10.0.0
 ---
 
 # source-faithful-retargeting — 受众/体裁改写，且每句话都留得住来源
+
+## 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册给出任务本质与
+判分要点、错误做法→正确做法、8 步求解框架、量化口径与公式（证据保留率 / 数值一致率与复算容差 /
+论断越级率 / 缩写首现展开率·术语锁定率·段落可追溯率 / 效率增益）、领域知识与单位陷阱、交付物
+清单与 22 项专家检查表、完整虚构案例、交付前门控。执行顺序固定为：先读手册 → 再按求解框架逐
+阶段落盘冻结产物 → 交付前逐项勾选手册 §5.2 专家检查表。手册与本文冲突时，契约键名与入口命令以
+本文为准，方法与判分口径以手册为准。
 
 ## 0. 输出契约样例（result.json 骨架，逐键回填）
 
@@ -53,11 +62,10 @@ python3 scripts/main.py build      # 由工作稿生成 deliverable.md + 附表 
 python3 scripts/main.py selfcheck  # 复检产物：契约字段、可复算指标、文件清单（交付前跑一次）
 ```
 
-> **脚本不会代替你阅读理解；必须先阅读材料、写工作稿，再运行 build；禁止只跑 build 就结束。**
-> `build` 在没有工作稿时只会产出"逐字摘录兜底稿"（`status=partial`，稿首明确标注"未完成受众改写"），
-> 它保证你 **不空手而归**，但不能替代一次真正的改写——直接跑 `build` 交出的分数接近基础 Agent。
-
-单命令的定位：`init` 与 `build` 是**唯一**会写 `result.json` 的步骤；`show`/`check`/`selfcheck` 只读。
+> **脚本不代替阅读理解：必须先读材料、写工作稿，再运行 build；禁止只跑 build 就结束。**
+> 没有工作稿时 `build` 只产出“逐字摘录兜底稿”（`status=partial`，稿首标注“未完成受众改写”），
+> 保证不空手而归，但对不上一次真正的改写。`init`/`build` 是唯一写 `result.json` 的步骤；
+> `show`/`check`/`selfcheck` 只读。
 
 ---
 
@@ -65,24 +73,16 @@ python3 scripts/main.py selfcheck  # 复检产物：契约字段、可复算指�
 
 **做一件事**：把一份科研事实底稿，改写成"目标读者读得懂、原作者接得住、每条事实找得到来源"的成稿，并交付可逐段复核的记录。
 
-适用（满足任一条即可触发）：
+适用（命中任一条即可触发）：论文/预印本 → 科普文章、产业转化简报、项目申报摘要、政策简报、
+新闻稿；技术报告 → 立项/投资/合作说明；同一成果 → 多体裁、多受众、双语版本（换读者不换数字）；
+硬篇幅压缩（“不超过 800 字”）仍保住结论、样本、条件与图表引用；摘要/图注/结果段 → 结构化产物。
 
-- 论文/预印本 → 科普文章、产业转化简报、项目申报摘要、政策简报、新闻稿；
-- 技术报告 → 立项材料、投资/合作方说明；
-- 同一成果 → 多体裁、多受众、双语版本（同一份事实，换读者不换数字）；
-- 硬篇幅压缩（"不超过 800 字"）但仍须保住结论、样本、条件、图表引用；
-- 摘要/图注/结果段 → 结构化写作产物（要点表、问答、口播稿）。
+不适用或必须明确拒绝：没有任何源材料只给题目（不给结论、不造数据，列所需材料清单）；要求补写
+源文没有的市场规模/成本/时间表/机制（拒绝写入正文，进 `open_questions`）；统计推断、显著性重算、
+meta 分析（交回作者/统计人员）；代替同行评审、伦理审查、涉密解密判断（只做“标注 + 待授权”）。
 
-不适用，或必须明确拒绝：
-
-| 情形 | 处理 |
-|---|---|
-| 没有任何源材料，只给一个题目 | 不给结论、不造数据；说明"缺少事实底稿"并给出所需材料清单 |
-| 要求补写源文没有的市场规模、成本、时间表、机制解释 | 拒绝写入正文；进 `open_questions`/`uncertainty` |
-| 要求做统计推断、显著性重算、meta 分析 | 超出范围，交回作者/统计人员 |
-| 代替同行评审、伦理审查、涉密解密判断 | 不做；涉密/未发布只做"标注 + 待授权" |
-
-三条硬线（违反任一条即视为失败）：**不改源文的数字与单位**、**不写源文不支持的新结论**、**删冗余不删证据**。
+三条硬线（违反任一条即失败）：**不改源文的数字与单位**、**不写源文不支持的新结论**、
+**删冗余不删证据**。
 
 ---
 
@@ -112,11 +112,11 @@ python3 scripts/main.py init
 
 它做五件事，并在**任何解析之前**先写一份合法的 partial `result.json`（契约字段已按原名占位）：
 
-1. 递归扫描 `/input`，按扩展名 + 魔数识别材料；PDF 优先 `pdftotext`，无则用内置流解析并标 `builtin-pdf-lowconf`；DOCX/XLSX 走 zip+XML；图片不 OCR（记 `image-no-ocr`，不臆造图注）。
+1. 递归扫描 `/input`，按扩展名 + 魔数识别材料；PDF 优先 `pdftotext`，无则内置流解析并标 `builtin-pdf-lowconf`；DOCX/XLSX 走 zip+XML；图片不 OCR（记 `image-no-ocr`，不臆造图注）。
 2. 每份材料切段编号 `M1:P1`、`M1:P2`……这是全文唯一允许的定位语法。
 3. 抽数字+单位对、缩写、图表引用（`图 3`/`Table 2`）、引文标记（`[12]`/`(Smith 2020)`）、hedge（初步/提示/可能/尚待）。
-4. 生成**候选必保留项**清单（结论句 / 带单位数值 / 样本量 / 图表引用 / 引文 / 限定条件），这是后面 `check` 算"保留覆盖率"与"静默删除"的分母。
-5. 解析工作单：受众、体裁、篇幅上限、双语要求；命中依据会打印出来（`<- '一句话里的原文'`），没有命中就明确写"未识别，按默认"。
+4. 生成**候选必保留项**清单（结论句/带单位数值/样本量/图表引用/引文/限定条件），作为 `check` 算“保留覆盖率”与“静默删除”的分母。
+5. 解析工作单：受众、体裁、篇幅上限、双语要求，并打印命中依据（`<- '原文'`）；未命中就写“未识别，按默认”。
 
 `init` 还会生成 `draft.json` 模板（字段齐全、留空待填）。**不要删字段**，只填值。
 
@@ -300,6 +300,7 @@ python3 scripts/main.py selfcheck
 
 ## 12. 交付前自查（`selfcheck` 覆盖其中机械项）
 
+- [ ] **`references/expert_playbook.md` §5.2 专家检查表逐项通过**（未通过项先修复再交付）。
 - [ ] `deliverable.md` 八节齐全，正文是成稿不是提纲/要点。
 - [ ] `check` 无 `[错误]`；引文命中率 100%；数字漂移 0；篇幅 ≤ 上限。
 - [ ] 每个 P0 项在 `retained` 有 locator + 逐字 quote + 落点；覆盖率写进 `fidelity_summary`。
@@ -314,66 +315,54 @@ python3 scripts/main.py selfcheck
 
 ```
 $ python3 scripts/main.py init
-== 材料索引 ==
-M1   demo_paper.md        text  text        2841字/  9段 [material]
-M2   reviewer_notes.csv   text  text         210字/  3段 [material]
-M3   task.md              text  text         430字/  2段 [instruction]
+== 材料索引 ==  M1 demo_paper.md 9段 [material] | M2 reviewer_notes.csv 3段 [material] | M3 task.md [instruction]
 == 工作单 ==
-case_id: EXAMPLE-NOT-A-TEST-CASE
-受众: 非专业公众      <- `面向对科学有兴趣的普通读者`
-体裁: 科普文章        <- `写成一篇科普文章`
-篇幅: 1200 字         <- `不超过1200字`
+case_id: EXAMPLE-NOT-A-TEST-CASE   受众: 非专业公众 <- `面向科学有兴趣的普通读者`
+体裁: 科普文章   篇幅: 1200 字 <- `不超过1200字`
 契约: case_id, deliverable, preserved_facts, evidence_map, change_log（5 字段）
 候选必保留项: 23（结论 4 / 数值 11 / 样本 2 / 图表 3 / 引文 2 / 限定 1）
 下一步：读原文 → 写 /app/work/draft.json → check → build
 
 $ python3 scripts/main.py check
-== check ==
 状态 ok | 段落 5 | 正文 1043 字（目标 1200，比值 0.869）| 引文 12/12 | 数字 14（漂移 0）
 保留覆盖 9/9 | 未解释缺口 0/21 | 术语漂移 0 | 未展开缩写 1 | hedge 源 8/成稿 5
-  [提示] 缩写首次出现未展开：IL-6（首次出现处给全称，或登记进 glossary）
-→ 无错误，可运行 build；仍请以目标读者身份通读一遍正文。
+  [提示] 缩写首次出现未展开：IL-6（首现处给全称，或登记进 glossary）
 
 $ python3 scripts/main.py build
-== build ==
 status=ok fallback=False 字数=1043 目标=1200
-文件: deliverable.md, diff_map.md, glossary.csv, retained_facts.json, result.json
 契约 5/5 回填（null 0）| 引文 12/12 | 数字漂移 0 | 保留覆盖 9/9 | errors 0 | pending 2
 
 $ python3 scripts/main.py selfcheck
-| PASS | contract 键齐全且同名 | 5 键；缺 无 |
-| PASS | quote 全部逐字命中 | 12/12 |
-| PASS | 数值漂移为 0 | 0 |
-| PASS | 篇幅在上限内且非提纲 | 比值 0.869 |
+| PASS | contract 键齐全且同名 | 5 键；缺 无 |    | PASS | quote 全部逐字命中 | 12/12 |
+| PASS | 数值漂移为 0 | 0 |                   | PASS | 篇幅在上限内且非提纲 | 比值 0.869 |
 PASS 14 / FAIL 0
 ```
 
-上例材料、数字与输出均为构造示例，仅用于说明接口；正式案例一律以平台 `/input` 为准。
+上例材料、数字与输出均为构造示例，仅说明接口；正式案例一律以平台 `/input` 为准。
 
 ---
 
 ## 14. 文件清单、版本与维护
 
-| 文件 | 作用 | 大小量级 |
+| 文件 | 作用 | 量级 |
 |---|---|---|
-| `SKILL.md` | 本说明：流程、契约、规则、降级、自查 | ~21 KB |
-| `scripts/main.py` | CLI 五个子命令 + 各阶段编排 + 异常兜底 | ~22 KB |
+| `SKILL.md` | 本说明：流程、契约、规则、降级、自查 | ~17 KB |
+| `scripts/main.py` | CLI 五子命令 + 阶段编排 + 异常兜底 | ~22 KB |
 | `scripts/kit.py` | 材料解析、切段编号、数字/图表/引文/hedge 抽取、索引、候选保留项 | ~21 KB |
 | `scripts/audit.py` | 确定性校验（引文/数字/覆盖/术语/强度/篇幅）与契约回填 | ~23 KB |
-| `scripts/render.py` | 排版八节、附表生成（retained_facts/diff_map/glossary）、兜底稿、result.json finalize | ~20 KB |
+| `scripts/render.py` | 排版八节、附表生成、兜底稿、`result.json` finalize | ~20 KB |
+| `references/expert_playbook.md` | 专家方法论：判分要点、8 步框架、公式、检查表、虚构案例 | ~13 KB |
 | `references/draft-schema.md` | 工作稿字段字典 + 校验代码表 + 正反例 | ~9 KB |
 | `references/audience-genre-matrix.md` | 受众矩阵、六种体裁骨架、强度词表、取舍顺序、反模式 | ~7 KB |
-| `references/acceptance-rubric.md` | 评分五维 → 可执行检查项 → 交付证据，含验收清单与已知边界 | ~7 KB |
-| `README.md` | 安装/调用/环境/自检（SELFTEST 步骤）与生态资源说明 | ~4 KB |
-| `GAIN_EVIDENCE.md` | 使用增益对照协议 + 本包 eval_sim 实际运行记录（可复算） | ~4 KB |
+| `environment/resources.yaml` | 运行环境、入口命令、预算与依赖声明（离线、纯标准库） | <1 KB |
+| `README.md` / `SELFTEST.md` | 安装、调用、环境、自检与复跑记录 | ~4 KB |
+| `GAIN_EVIDENCE.md` | 使用增益对照协议 + 本包 eval_sim 运行记录（可复算） | ~4 KB |
 | `examples/walkthrough.md` | 最小调用示例：输入契约 + 源材料 + 调用 + 期望产物 | ~3 KB |
 | `GITHUB_URL.txt` | 公开作品链接（仓库地址 + 作品相对路径两行） | <1 KB |
 
-版本 `9.0.0`；纯标准库；无网络；无外部服务；无硬编码路径。
+版本 `10.0.0`；纯标准库；无网络；无外部服务；无硬编码路径。
 
-维护约定：
-
-- 新材料格式无需改代码：`kit.extract` 按扩展名 + 魔数分派；不支持的类型只降级不报错。
-- 新增体裁：在 `audience-genre-matrix.md` 加一行矩阵 + 一段骨架，`init` 的体裁识别词表加同义词即可。
-- 新增校验口径：只改 `audit.check_draft`，`main.py` 复用其结论。
-- 改脚本后必须跑：`--help`（退出码 0）、一个空输入、一个坏 JSON，确认仍写出合法 partial `result.json`。
+维护约定：新材料格式无需改代码（`kit.extract` 按扩展名 + 魔数分派，不支持的类型只降级不报错）；
+新增体裁在 `audience-genre-matrix.md` 加一行矩阵 + 一段骨架，并在 `init` 的体裁词表加同义词；
+新增校验口径只改 `audit.check_draft`，`main.py` 复用其结论；改脚本后必须跑 `--help`（退出码 0）、
+空输入、坏 JSON 各一次，确认仍写出合法 partial `result.json`。
