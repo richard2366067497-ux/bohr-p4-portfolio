@@ -1,0 +1,15 @@
+{
+  "case_id": "example-event-timeline",
+  "task_instruction": "把给定材料整理成有年份的事件台账，派生年度分布、阶段、转折、代表工作与研究空白，产出 result.json。",
+  "materials_root": "sources",
+  "output_contract": {
+    "research_summary": "value",
+    "events": "value",
+    "trend_stats": "value",
+    "stage_division": "value",
+    "turning_points": "value",
+    "gaps": "value",
+    "evidence_matrix": "value",
+    "uncertainty": "value"
+  }
+}
