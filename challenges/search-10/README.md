@@ -5,6 +5,8 @@
 给定「问题 + 内置跨语种术语表 + 视图/版本文件」，把一次跨语种 known-item 检索做成**可独立复核**的
 固化产物：概念锚点、逐语种查询式、跨语种术语对齐、视图台账与 work 级去重、命中卡/misses。
 
+执行前先读 `references/expert_playbook.md`，产出后按其 §7 检查表逐项自检。
+
 核心约束：
 
 - 每个概念、每条术语对齐、每条命中都带 `locator`（`materials/x.md#L20`）与**逐字引文**；
@@ -40,7 +42,8 @@ python3 scripts/main.py all --input /input --output /app/output --work /app/work
 scripts/main.py      命令入口（all/init/show/check/build/selfcheck）
 scripts/core.py      扫描 → 术语表 → 概念锚点 → 查询式 → 术语对齐 → 视图去重 → 卡片 → 增益
 scripts/render.py    人读/机读产物渲染 + 校验报告 + 降级说明
-SKILL.md             契约、单命令、分步命令、异常处置、top_fix 映射
+references/expert_playbook.md  专家方法论：十步框架/量化口径/陷阱/检查表（执行前必读）
+SKILL.md             契约、单命令、分步命令、异常处置、自查、top_fix 映射
 SELFTEST.md          本地评测记录（4 组 eval_sim 全 PASS）
 GAIN_EVIDENCE.md     与朴素基线的对照（诚实声明：基线为确定性模拟）
 environment/resources.yaml  运行时契约
