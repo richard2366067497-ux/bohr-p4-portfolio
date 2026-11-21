@@ -1,9 +1,9 @@
-# environment/resources.yaml — 运行时与资源约定（writing-08）
+# environment/resources.yaml — 运行时与资源约定（writing-08 v10）
 # 纯标准库、离线；被 SKILL.md 与 scripts/ 共同引用。
 
 skill:
   name: provenance-gated-methods-writer
-  version: "1.1.0"
+  version: "10.0.0"
   entry_point: scripts/main.py
   language: detected          # case.json.language → 材料/任务文本 CJK 占比
   runtime: python3 >= 3.8 (stdlib only)
@@ -16,8 +16,6 @@ paths:
 
 commands:
   run: "python3 scripts/main.py run --input /input --output /app/output --work /app/work"
-  run_with_draft: "python3 scripts/main.py run --input /input --output /app/output --work /app/work"
-  run_cn: "python3 scripts/main.py run --input /input --output /app/output --work /app/work"
   steps:
     - "python3 scripts/main.py init --input /input --work /app/work --output /app/output"
     - "python3 scripts/main.py check --work /app/work --output /app/output"
@@ -26,14 +24,8 @@ commands:
   exit_code_policy: always_zero
 
 required_outputs:
-  - manuscript.md
-  - fact_ledger.csv
-  - parameter_ledger.csv
-  - evidence_matrix.csv
-  - gaps.md
-  - conflicts.md
-  - coverage.json
-  - result.json
+  [manuscript.md, fact_ledger.csv, parameter_ledger.csv, evidence_matrix.csv,
+   gaps.md, conflicts.md, coverage.json, result.json]
 
 contract:
   keys: [case_id, deliverable, preserved_facts, evidence_map, change_log]
@@ -42,12 +34,8 @@ contract:
   placeholders_forbidden: true   # 不得出现 TODO/TBD/pending/待补充 等占位符
   case_id_passthrough: true
 
-budgets:
-  max_material_bytes: 409600     # 单文件读取上限，超出截断并登记
-  max_candidates: 500
-  model_requests: 64
-  wall_clock_seconds: 900
-  max_response_tokens: 16384
+budgets: {max_material_bytes: 409600, max_candidates: 500, model_requests: 64,
+          wall_clock_seconds: 900, max_response_tokens: 16384}
 
 degradation_policy:
   unreadable_material: record_and_continue
