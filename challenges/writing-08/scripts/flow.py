@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """flow.py — run / check / build / selfcheck 实现（由 main.py 懒加载）。
 
 run   = 单命令全流程：init → build → selfcheck
@@ -85,9 +84,9 @@ def check_draft(ctx):
         if not s or s.startswith("#") or s.startswith(">") or NUM_TABLE.match(s):
             continue
         if s.startswith(HEADER_PREFIXES):
-            continue  # 稿件头部元信息，不是科学陈述
+            continue
         if re.match(r"^\| G\d+", s):
-            continue  # 缺口表行：描述指向材料事实，定位信息在 gaps.md/台账中
+            continue
         if not re.search(r"\d", _strip_markers(s)):
             continue
         total += 1
@@ -201,7 +200,6 @@ def cmd_check(ctx, args):
           else "[check] 先写工作稿再 check/build；直接 build 会自动生成确定性工作稿")
     return 0
 
-# ------------------------------------------------------------ 确定性抽取工作稿
 UNIT_WORDS = (r"(?:mg/L|g/L|µg/L|ug/L|mmol/L|mg|kg|g|%|°C|℃|min|mins|h|hr|hours?|"
               r"days?|s|sec|mL|L|mM|µM|μM|nM|kV|W|nm|rpm|pH|"
               r"replicates?|times?|runs?|epochs?)")
@@ -217,7 +215,6 @@ STOP_NAME = {"the", "a", "an", "of", "in", "on", "at", "with", "and", "or", "was
              "reached", "reaches", "using", "by", "as", "it", "this", "that",
              "reused", "recorded", "shown", "obtained", "given", "was", "then"}
 
-# 单位 → 量名（组名不可用时使用；材料原文仍在台账/引用中逐字保留）
 UNIT_CLASS_LABEL = {
     "conc": ("concentration", "浓度"),
     "cond": ("temperature / condition", "温度 / 条件"),
@@ -299,7 +296,6 @@ def _unit_class(unit):
         return "rep"
     return "generic"
 
-# --- split tail: executed in this module's namespace (keeps every file <=30KB) ---
 _TAIL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flow_tail.py")
 with open(_TAIL, "r", encoding="utf-8") as _tail_fh:
     exec(compile(_tail_fh.read(), _TAIL, "exec"), globals())
