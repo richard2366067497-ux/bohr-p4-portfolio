@@ -6,6 +6,21 @@ version: 1.2.0
 
 # 研究前沿与趋势分析：事件台账优先（event-first）
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **四类产物**：按其 **§1** 交付"时间趋势－主题演化－代表性工作－研究空白"，每条结论回链 locator，区分
+  "材料事实 / 合理推断 / 无法确定"。
+- **流程**：按其 **§2 步骤 0–9（含门控）** 推进——读取输入 → 拆解问题与检索范围 → 收集去重 → 年份归一与时间切片
+  → 主题归并演化 → 代表作 → 空白 → 证据矩阵 → 不确定性 → 结构化输出；前一步未过门控不进入下一步。
+- **口径**：按其 **§3 量化口径** 计算年度产出量、主题占比、CAGR、拐点（>30% 且增量 ≥3）、主题出现/合并/分裂/衰退、
+  代表作阶段指数与空白判据。
+- **陷阱**：按其 **§4 领域陷阱清单** 逐条排雷（材料/工艺/条件/模拟/预印本/综述、单位量纲、证据状态）。
+- **门控**：交付前逐项通过其 **§6 防扣分自查表（20 项）**；任一项未过则 `status=partial` 并把未决项写入
+  `uncertainty` / `degradations`，绝不静默提升为完整成功。
+
 ## 0. result.json 契约样例（output_contract 逐键回填，顶层 + 嵌套）
 
 `result.json` 把**用例声明的每一个 `output_contract` 键**写进 `output_contract` 对象，并在顶层写入同名键；
@@ -50,7 +65,7 @@ python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/ou
 
 ```bash
 python3 scripts/main.py init       # 建索引：解析 case.json/task.md/材料，登记语料与年份口径，先写合法 partial result.json
-python3 scripts/main.py show       # 打印带 locator 的原文段与候选事件线索，供你逐字引用
+python3 scripts/main.py show       # 打印带 locator 的原文段与候选事件线索，供逐字引用
 #  >>> 你（评审 Agent）亲自读材料，写工作稿 /app/work/draft.json <<<
 python3 scripts/main.py check      # 机械校验：契约字段、quote 命中、事件字段、统计守恒、阶段依据、空白证据
 python3 scripts/main.py build      # 由工作稿生成事件台账/时间线/派生/图 + 最终 result.json（无条件 finalize）
@@ -89,10 +104,10 @@ python3 scripts/main.py selfcheck  # 复检产物一致性（可选，但建议�
 
 - 每个来源登记：`source_id`（`S01`…）、`title`、`year`、`year_source`、`venue`、`themes[]`、`has_fulltext`。
 - `year_source` 固定枚举：`published`（见刊年）、`online`（在线发表）、`preprint`（预印本）、`venue`（会议/期刊卷期推定）、`unknown`。
-- **一个来源有多种年份时，以 `published` 为主口径，其余进 `year_alt`**；统计口径对结论的影响写进 `method_notes.year_basis`（例如"若改用 online 年，2019 与 2020 各迁移 1 篇，不改变阶段边界"）。
+- **一个来源有多种年份时，以 `published` 为主口径，其余进 `year_alt`**；统计口径对结论的影响写进 `method_notes.year_basis`。
 - 年份缺失：`year=null` 且 `year_source="unknown"`，**不猜测、不用当前年填充**；该来源仍进语料但标注"未参与年度统计"。
 - 产物：`result.json.sources[]`、`events/event_sources.json`。
-- 错误码：`SRC_NO_ID`、`YEAR_INVALID`（非 1800–2100 的整数）、`YEAR_CONFLICT`（同一来源两个不同年且未标 `year_alt`）。
+- 错误码：`SRC_NO_ID`、`YEAR_INVALID`（非 1800–2100 的整数）、`YEAR_CONFLICT`。
 
 ### 第 2 步 事件抽取（类型学）
 
@@ -117,17 +132,17 @@ python3 scripts/main.py selfcheck  # 复检产物一致性（可选，但建议�
 ### 第 3 步 时间线排序与阶段划分
 
 - `timeline.md` 按年升序，每年下列事件；阶段标记插在年份之间。
-- 阶段划分依据必须写 `basis_event_ids`（该阶段边界由哪些事件支撑），常用三种依据：**事件类型构成变化**（如某年起 `validation` 超过 `proposal`）、**新主题首次出现**、**事件密度突变**。写不出依据就不要切阶段。
+- 阶段划分依据必须写 `basis_event_ids`，常用三种依据：**事件类型构成变化**（如某年起 `validation` 超过 `proposal`）、**新主题首次出现**、**事件密度突变**。写不出依据就不要切阶段。
 - `stage_division[]` 字段：`stage_id`、`label`、`year_range`、`basis_event_ids`、`lifecycle`（`emerging|consolidating|maturing|declining`）、`rationale`。
-- 错误码：`STAGE_NO_BASIS`、`STAGE_YEAR_ORDER`、`STAGE_GAP`（相邻阶段年份断裂未说明）。
+- 错误码：`STAGE_NO_BASIS`、`STAGE_YEAR_ORDER`、`STAGE_GAP`。
 
 ### 第 4 步 派生统计与转折事件
 
-- `derived/trend_stats.json` **由事件台账聚合**：`by_year`、`by_type`、`by_theme_year`、`growth`（相邻年事件数变化）、`peak_year`、`span`、`small_sample`。脚本计算，不是你手算；**台账与统计必须守恒**（年度求和 = 台账条数）。
+- `derived/trend_stats.json` **由事件台账聚合**：`by_year`、`by_type`、`by_theme_year`、`growth`、`peak_year`、`span`、`small_sample`。脚本计算，不是你手算；**台账与统计必须守恒**（年度求和 = 台账条数）。
 - `derived/turning_points.json`：转折事件 `{turning_id, event_ids, why_turning, criteria_hit}`。`criteria_hit` 只能取：
-  `first_of_type`（某类型首次出现）、`type_shift`（类型构成反转）、`density_jump`（相邻年事件数翻倍/腰斩，且样本 ≥8）、`theme_birth`（新主题首现）、`theme_death`（主题此后无事件）。
+  `first_of_type`、`type_shift`、`density_jump`（相邻年事件数翻倍/腰斩，且样本 ≥8）、`theme_birth`、`theme_death`。
 - **代表性工作不是被引最高**：代表作 = 命中 `criteria_hit` 的转折事件所在文献；每阶段至少 1 篇，长尾方法首创优先于高被引综述。
-- 错误码：`STAT_MISMATCH`（脚本重算与产物不一致）、`TURNING_NO_CRITERIA`、`TURNING_EVENT_MISSING`、`REP_STAGE_UNCOVERED`。
+- 错误码：`STAT_MISMATCH`、`TURNING_NO_CRITERIA`、`TURNING_EVENT_MISSING`、`REP_STAGE_UNCOVERED`。
 
 ### 第 5 步 研究空白判定
 
@@ -139,9 +154,9 @@ python3 scripts/main.py selfcheck  # 复检产物一致性（可选，但建议�
 | `stalled_theme` | 某主题最后一次事件后 ≥2 年无事件 | 最后事件 id + 时间窗 |
 | `no_transfer` | 方法在某对象/尺度上无 `application_transfer` | 方法事件 + 检索过的对象词 |
 | `unresolved_conflict` | 存在 `validation` 与 `refutation` 指向同一主张 | 双方事件 id |
-| `retrieval_gap` | 材料本身不足（缺全文/缺年份/仅摘要），无法判断 | 缺什么 + 补检索建议 |
+| `retrieval_gap` | 材料本身不足（缺全文/缺年份/仅摘要） | 缺什么 + 补检索建议 |
 
-- `exclusion_evidence` 必填：写清"我检索了哪些词/范围、为什么这不是遗漏"（例如"在给出的 9 份材料中对 `X` 与 `Y` 检索 0 命中，属材料范围限制，非领域空白"）。
+- `exclusion_evidence` 必填：写清"我检索了哪些词/范围、为什么这不是遗漏"。
 - 错误码：`GAP_NO_EXCLUSION`、`GAP_TYPE_INVALID`、`GAP_NO_EVENT_EVIDENCE`。
 
 ## 6. 工作稿 `draft.json`（五命令路径的唯一写入口）
@@ -165,21 +180,21 @@ python3 scripts/main.py selfcheck  # 复检产物一致性（可选，但建议�
 }
 ```
 
-字段与校验口径的完整版见 `references/draft-schema.md`。`init` 会写一份带 `corpus` 骨架与候选事件的 `draft.json` 模板；**你要删掉/改写候选，不能原样提交**（`check` 会把仍带 `auto: true` 且 `reviewed: false` 的脚本候选逐条提示）。
+字段与校验口径见 `references/event-typology.md` 与本节各步错误码。`init` 会写一份带 `corpus` 骨架与候选事件的 `draft.json` 模板；**你要删掉/改写候选，不能原样提交**（`check` 会把仍带 `auto: true` 且 `reviewed: false` 的脚本候选逐条提示）。
 
 ## 7. 输出契约（`result.json`）
 
 - **原样回填 `case.json` 的 `output_contract` 全部字段**：不改名、不删键、不嵌套重排；同时在 `result.json.output_contract` 与顶层各写一份同值副本。
-- 键值必须是**真实内容**：`deliverable` 等路径键指向真实非空产物（如 `trend_report.md`）；数组/对象键写真实事件、统计、阶段、转折、空白、证据行；`case_id`/`status` 等标量键写实际值。**禁止写类型串**（`string`/`path`/`array`/`object`）。
+- 键值必须是**真实内容**：`deliverable` 等路径键指向真实非空产物；数组/对象键写真实事件、统计、阶段、转折、空白、证据行；标量键写实际值。**禁止写类型串**。
 - 某键确实抽不到内容时，写**诚实的非空结构**（带 `search_scope`/`basis`/`note`），并在 `degradations` 解释缺口；不要留 `null`。
 - 固定信封字段：`case_id`、`status`(`ok|partial|insufficient_evidence|input_error`)、`research_question`、`sources[]`、`events[]`、`trend_stats`、`stage_division[]`、`turning_points[]`、`gaps[]`、`representative_works[]`、`evidence_matrix[]`/`evidence_map`、`coverage`、`method_notes`、`uncertainty`/`uncertainties`、`limits`、`errors[]`、`degradations[]`、`change_log`/`change_records`、`self_check`、`runtime`、`contract_fill`、`deliverable_manifest`、`output_contract`。
-- `status` 规则：契约字段齐 + 事件 ≥8 且 quote 全命中 + 阶段有依据 + 空白有排除证据 → `ok`；有缺口但已交付 → `partial`（缺口写进 `errors`/`degradations`/`uncertainty`）；材料不可用 → `insufficient_evidence`；输入不可解析 → `input_error`。
+- `status` 规则：契约字段齐 + 事件 ≥8 且 quote 全命中 + 阶段有依据 + 空白有排除证据 → `ok`；有缺口但已交付 → `partial`；材料不可用 → `insufficient_evidence`；输入不可解析 → `input_error`。
 - `coverage`：`sources_expected`、`sources_read`、`sources_with_year`、`events`、`years_covered`、`themes`、`event_types_covered`、`small_sample`（`events<=20` 或 `sources<=10` 时 `true`）。
 - **小样本**：`small_sample=true` 时结论句必须用"提示性/初步"，禁止"显著上升""证明"；脚本会在 `check` 里对断言词报 `CLAIM_OVERREACH`。
 
 ## 8. 证据与定位规范
 
-- locator 格式：`S<两位来源号>:P<三段段号>`，如 `S03:P07`；也接受 `S03:P07-P03:P09` 区段（校验用起点）。
+- locator 格式：`S<两位来源号>:P<三段段号>`，如 `S03:P07`；也接受区段（校验用起点）。
 - 段号由 `init`/`show` 打印的编号决定，**不要自己数**。
 - `quote` 逐字取自源材料：允许空白/全半角/连字符差异与大小写差异，**不允许改词、补字、翻译、拼接两段**。校验失败顺序：改用词更短的 quote → 改 locator → 该项移入 `pending_human`。**禁止为了通过校验修改原文。**
 - 事件 `statement` 里出现的数字/年份必须能在该 quote 或同源材料找到（`NUM_UNSOURCED` 提示）。
@@ -216,53 +231,19 @@ python3 scripts/main.py selfcheck  # 复检产物一致性（可选，但建议�
 - [ ] `small_sample=true` 时全文无"显著/证明/必然"断言。
 - [ ] `timeline.md`、`trend_report.md` 的每个结论后面都有事件 id。
 - [ ] 全部产物无 `[待写]`/`null`/`pending` 等占位符（`all` 会自动净化）。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §6 的 20 项防扣分自查表逐项勾选通过；任一项未过则 `status=partial` 并把未决项写入 `uncertainty`/`degradations`，绝不静默提升为完整成功。
 
-## 12. 最小调用示例（示例，非正式案例结果）
-
-```
-$ python3 scripts/main.py all --input /input --output /app/output --work /app/work
-== build ==  status=partial  events=4  stages=2  turning=1  gaps=1  fallback=True
-产物: derived, events, figures, result.json, timeline.md, trend_report.md
-== all ==  单命令完成：index + build + 净化（exit 0）
-
-$ python3 scripts/main.py init
-== 输入 ==  /input  材料 3 份（S01..S03），记录 6 条
-case_id: DEMO-CASE  契约字段 5: research_summary, events, trend_stats, gaps, evidence_matrix
-== 语料 ==
-S01 2017 demo-a.md   published  venue: demo-venue   themes: T1     6段
-S02 2020 demo-b.md   online     venue: -            themes: T1,T2  5段
-S03 2022 demo-c.md   published  venue: demo-venue   themes: T2     4段
-提示: 样本 n=3（small_sample 强制 true）
-== 下一步 == 用 show 读原文，然后写 /app/work/draft.json
-
-$ python3 scripts/main.py show --grep "提出|propose" --limit 6
-S02:P03  [2020 online]  we propose a ... framework for ...
-S03:P01  [2022 published]  ... 首次在 X 对象上应用 ...
-
-# Agent 写 draft.json（2 阶段 / 4 事件 / 1 空白）
-$ python3 scripts/main.py check
-[错误] 0  [提示] 1：E04 confidence=low 且未标注 reviewed
-统计守恒 ok（4 事件 = 年度求和 4）| 引文命中 4/4 | 阶段 2/2 有依据 | 空白 1/1 有排除证据
-
-$ python3 scripts/main.py build
-status=partial events=4 stages=2 gaps=1 fallback=False files=result.json, timeline.md, trend_report.md, events/event_ledger.jsonl ...
-```
-
-（以上材料、数字均为构造示例，仅说明接口；正式案例以平台 `/input` 为准。）
-
-## 13. 评分维度映射（内化在包里的实现）
+## 12. 评分维度映射（内化在包里的实现）
 
 | 维度 | 本包落实 |
 |---|---|
-| 实际效果 40（完成度/正确性/完整性/可核验） | 四类可检查产物齐备（台账/时间线+统计/阶段+转折/空白）；quote 逐字命中校验；年份口径与 `year_alt`；阶段 `basis`、转折 `criteria_hit`；台账-统计守恒可独立复算 |
+| 实际效果 40 | 四类可检查产物齐备；quote 逐字命中校验；年份口径与 `year_alt`；阶段 `basis`、转折 `criteria_hit`；台账-统计守恒可独立复算 |
 | 使用增益 25 | 事件化替代"前 N 条当前沿"；单命令 `all` 一次完成扫描/统计/渲染/契约回填/净化；`self_check` 与 `derived` 文件给出可复算证据 |
 | 创新 15 | event-first（统计是派生视图）；台账-统计守恒；转折事件作为代表作口径；空白由事件类型缺口推导 |
 | 可靠 10 | 单命令 `all` + 五命令固定入口、恒 exit 0、全分支降级、空输入/坏 JSON 均产合法 `result.json` |
-| 生态 10 | SKILL.md + `references/event-typology.md`（可复用类型学）+ `references/draft-schema.md`（字段字典）+ `references/rubric-map.md`（评分→检查项）+ 最小示例；脚本可换领域复用 |
+| 生态 10 | SKILL.md + `references/event-typology.md`（可复用类型学）+ `references/draft-schema.md`（字段字典）+ 最小示例；脚本可换领域复用 |
 
-详见 `references/rubric-map.md`。
-
-## 14. 文件清单、版本与维护
+## 13. 文件清单、版本与维护
 
 | 文件 | 作用 |
 |---|---|
@@ -272,8 +253,8 @@ status=partial events=4 stages=2 gaps=1 fallback=False files=result.json, timeli
 | `scripts/derive.py` | 统计与阶段/转折/空白派生、时间线与 SVG/报告渲染 |
 | `scripts/audit.py` | 契约字段解析/回填、产物自检 |
 | `references/event-typology.md` | 事件类型学、年份归一规则、阶段与空白判据（换领域直接复用） |
-| `references/draft-schema.md` | `draft.json` 字段字典与每类错误码的修法 |
-| `references/rubric-map.md` | 评分维度 → 产物/检查项映射表、反模式清单 |
+| `references/expert_playbook.md` | 专家方法论：四类产物口径、量化公式、陷阱、自查表、虚构案例 |
+| `GAIN_EVIDENCE.md` / `environment/resources.yaml` / `examples/case.json` | 增益对照、资源入口声明、最小示例 |
 
 - 版本 1.2.0；仅标准库；无网络；无外部服务。
 - 换领域不需要改脚本：`init` 按扩展名+魔数识别材料，段落编号自动生成；新增事件类型需同时改 `derive.py` 的 `EVENT_TYPES` 与 `references/event-typology.md`（保持枚举一致）。
