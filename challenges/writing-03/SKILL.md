@@ -30,11 +30,11 @@ version: 6.1.0
 
 ---
 
-## 1. 入口命令（单命令，评测只跑这一条也能过）
+## 1. 入口命令（评测入口，无 draft 时执行；单命令，评测只跑这一条也能过）
 
-单命令即完成全流程并写出全部契约产物：
+单命令即完成全流程并写出全部契约产物。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
-```
+```bash
 python3 /skills/weekly-skill/scripts/main.py run \
   --input /input --output /app/output --work /app/work
 ```
