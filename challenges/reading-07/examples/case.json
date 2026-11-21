@@ -1,0 +1,11 @@
+{
+  "case_id": "example-reading-07",
+  "task_instruction": "Verify each claim against the supplied paper; return a four-tier support verdict with a verbatim quote and a locator. This example is synthetic and is not a formal case result.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "result": "object",
+    "claims": "array",
+    "uncertainties": "array"
+  }
+}
