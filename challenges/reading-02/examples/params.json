@@ -19,7 +19,7 @@
   },
   "readings": {
     "figures": {
-      "fig1.png": {
+      "fig1.md": {
         "figure_id": "Fig. 1",
         "panel": "a",
         "caption": "Load-displacement response of specimens A and B at 1 mm/min.",
@@ -57,7 +57,7 @@
       {"claim_id": "c03", "kind": "element",
        "text": "The x axis reads displacement in mm from 0 to 8 and the y axis load in N from 0 to 100.",
        "readability": "directly_read", "conditions": "panel a",
-       "evidence": {"quote": "x: 0-8 mm, y: 0-100 N", "quote_type": "visual", "source_id": "fig1.png",
+       "evidence": {"quote": "x: 0-8 mm, y: 0-100 N", "quote_type": "visual", "source_id": "fig1.md",
                     "location": {"figure": "Fig. 1", "panel": "a", "bbox_px": [80, 30, 580, 370]},
                     "read_basis": "axis tick labels"}}
     ],
