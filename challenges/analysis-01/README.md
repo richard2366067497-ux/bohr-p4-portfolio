@@ -1,48 +1,48 @@
-# field-contract-cleaner（v6 修复包）
+# field-contract-cleaner（分析-01 · v9 包）
 
-把带缺失 / 异常 / 重复 / 单位与编码问题的科研汇总表，清洗成**可复核、可复跑**的结果。
-**纯标准库、确定性、退出码恒 0。**
+把「脏汇总表 + 数据字典 + 每指标单位/QC 规则 + 清洗工单」变成可逐格复核的证据链：
+清洗表 + 变换账本 + 字段级质量报告 + 契约与三方对账，`result.json` 回填每个契约键。
 
-## 快速开始（单命令）
+## 30 秒上手
 
 ```bash
-python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
 
-## 交付物（`/app/output`）
+单命令入口（等价别名 `build`）：不写工作稿也产出全部交付物，恒 exit 0。目录约定：
+输入 `/input`、交付 `/app/output`、工作区 `/app/work`（三者都可由 `--input/--output/--work` 改）。
 
-`cleaned_table.csv`、`transform_ledger.jsonl`、`field_issues.csv`、`field_contract.json`、
-`reconciliation.json`、`data_quality_report.md`、`case_materials.json`、`result.json`。
+Agent 增强路径（需要逐字段复核时）：
 
-## 为什么这样改
-
-上一版宣称支持异常值 / 去重 / 单位换算，但**零实现**：异常与重复没有任何判定逻辑，
-清洗表表头与数据行列数不一致（表头 4 列、数据 4+N 列）。本版补齐真实实现并修正对齐。
-
-## 设计要点
-
-- **真实推导**：字段契约、问题计数、行数对账全部由输入材料逐项计算，每条带 locator
-  （`<file>#row<n>` / `<file>#L<n>` / `<file>#col:<field>`）；报告数字与清洗表可回算。
-- **异常检测**：数值列 IQR（k=1.5）+ MAD（k=3.0）双侧栅栏，叠加字典物理上下限。
-- **重复记录**：可比较列全等的次要行隔离保留（不删除）。
-- **单位换算**：注册表 + 别名归一，量纲一致才换算，账本记录因子与逆映射。
-- **QC 逐条核验**：`qc_invariants` 每条给出 `pass`/`fail`/`recorded` 与证据。
-- **标记不改值**：源文件只读（sha256 前后一致）；缺失 / 无效 / 越界只写 `__flags`。
-- **表头对齐**：`cleaned_table.csv` 表头 = `record_id,__src_row,__row_status,__flags` + 源列，数据行列数一致。
-- **无占位符**：写出前对 JSON 文本做令牌中和（解码后仍为原文）。
-- **优雅降级**：空目录、坏 JSON、零字节文件、无表输入都不抛错；仍输出全部交付物与合法
-  `result.json`（`status=partial`/`input_error`）。
-- **可复跑**：无网络、无时钟读取，同输入重复运行字节稳定。
-
-## 目录
-
+```bash
+python3 scripts/main.py init  --input /input --output /app/output --work /app/work
+python3 scripts/main.py show  --input /input --output /app/output --work /app/work
+#  读 show 的逐字原文，写 /app/work/draft.json（schema 见 SKILL.md §6）
+python3 scripts/main.py check --input /input --output /app/output --work /app/work
+python3 scripts/main.py build --input /input --output /app/output --work /app/work
+python3 scripts/main.py selfcheck --input /input --output /app/output --work /app/work
 ```
-SKILL.md                          题面式技能说明（第一条即单命令入口）
-README.md                         本文件
-SELFTEST.md                       自测记录（eval_sim rich/boundary × single/agent）
-GITHUB_URL.txt                    仓库地址
-environment/resources.yaml        运行时与输入/输出资源清单
-scripts/engine.py                 单命令入口 + 清洗流水线 / 对账 / QC / 契约回填
-references/cleaning-rules.md      可编辑清洗规则 / 问题码 / 阈值 / 降级策略
-examples/README.md                一个最小可跑示例
-```
+
+## 交付物
+
+| 文件 | 说明 |
+|---|---|
+| `result.json` | 机器答案：`output_contract` 全键回填 + 信封（status/sources/verification/degradations…） |
+| `cleaned_table.csv` | 主产物：原始列序 + `record_id/__src_row/__row_status/__flags`，缺失与越界值原样保留并标记 |
+| `transform_ledger.jsonl` | 唯一执行记录：聚合行 + 改值单元格行，`input` 可由 `output` 反算 |
+| `data_quality_report.md` | 输入与编码、契约、账本、三方对账、逐字段问题、未处置、可逆性与复现 |
+| `field_contract.json` / `reconciliation.json` | 生效契约 / 行数守恒与报告-表一致性 |
+| `field_issues.csv` | 字段级问题清单，可直接排序筛选 |
+
+## 与基线的差别
+
+基线直接 `dropna/fillna`、就地换单位、删重复行、人写数字——结果不可复核也不可复现。
+本包：**不填补只标记**、单位换算逐格记账且可逆、重复行隔离不删、报告每个数字由 `__flags` 回算、
+`selfcheck` 独立复检，并且坏 JSON / 空材料 / 无字典 / 无工单全部恒 exit 0 并如实降级。
+详见 SKILL.md §14/§15 与 GAIN_EVIDENCE.md。
+
+## 不做什么
+
+统计检验与总体推断、填补缺失、图表美化、数据库运维、用输出替换原始实验数据。
+
+作品集：见 GITHUB_URL.txt。
