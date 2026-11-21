@@ -25,11 +25,11 @@ version: 6.0.0
 ---
 
 
-## 1. 单命令入口（首条）
+## 1. 单命令入口（首条；评测入口，无 draft 时执行）
 
-评测与日常使用都只需这一条，它会跑完整流程并落齐全部产物：
+评测与日常使用都只需这一条，它会跑完整流程并落齐全部产物。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
-```
+```bash
 python3 /skills/weekly-skill/scripts/main.py run --input /input --output /app/output --work /app/work
 ```
 
