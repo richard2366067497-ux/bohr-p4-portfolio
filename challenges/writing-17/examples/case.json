@@ -1,0 +1,20 @@
+{
+  "case_id": "example-writing-17",
+  "language": "zh",
+  "materials_root": "materials",
+  "output_contract": {
+    "init": null,
+    "show": null,
+    "check": null,
+    "build": null,
+    "selfcheck": null,
+    "mindmap": null,
+    "nodes": [],
+    "edges": [],
+    "outline": {},
+    "summary": null,
+    "report": null,
+    "case_id": null,
+    "status": null
+  }
+}
