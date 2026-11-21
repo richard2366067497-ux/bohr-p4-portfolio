@@ -1,0 +1,73 @@
+# environment/resources.yaml - search-06 / latest-lit-tracking (v10)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: latest-lit-tracking
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 -B /skills/weekly-skill/scripts/main.py
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 -B /skills/weekly-skill/scripts/main.py init  --input /input --output /app/output --work /app/work
+    - "Agent: run show, read the snapshot paragraphs with their S0x#pN locators, confirm the window, optionally write /app/work/draft.json"
+    - python3 -B /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py selfcheck --output /app/output --work /app/work
+  selftest: >-
+    python3 -B /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all (default) / init / show / check / build / selfcheck
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  case_json: "case.json provides case_id, research question, window start/end and output_contract (keys echoed verbatim)"
+  task_md: "task.md provides the research question when case.json does not"
+  materials: "each UTF-8 text material is treated as one subscription source of the snapshot"
+  records: "reference-like lines are indexed with rid + S0x#rN locators; dedup uses DOI (case-insensitive) > arXiv id > norm_title|first_author_surname|year; no live remote feed is queried"
+  window: "UTC ISO8601, left-closed right-open [start, end); window_end is echoed as the contract key 'end'"
+  state: "work/state.json keeps last_snapshot / last_window_end / delivery_log so reruns stay idempotent"
+  unusable_files: "empty / corrupt / binary files are recorded and never quoted"
+
+required_outputs:
+  - result.json
+  - decisions.jsonl
+  - new_records.json
+  - diff_report.json
+  - window.json
+  - report.md
+
+reusable_templates:
+  - references/expert_playbook.md
+  - examples/expected_output.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 300
+  max_output_files: 16
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, status, end, decisions, decision_missing, out_of_window]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> challenges/<key>.json -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  empty_structures: "empty arrays / objects are rendered as non-empty honest structures with a note"
+  placeholders: forbidden
+
+dependencies: []            # standard library only
+exit_code_policy: always 0 (usage error 2)
