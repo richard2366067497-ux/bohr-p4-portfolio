@@ -9,6 +9,14 @@ license: MIT
 
 把一批科研文献变成**规则驱动、可回滚、幂等**的规范化库：盘点 → 元数据 → 分类/标签 → 命名/去重/版本 → 执行 → 交付证据。
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（强制）
 
 **执行前先阅读 `references/expert_playbook.md`，按其中专家检查表逐项产出。** 手册给出判分要点、错误做法→正确做法、量化公式与 17 项自查表，是质量下限；本文件只描述接口与契约。
@@ -34,13 +42,7 @@ license: MIT
 
 ## 单命令等价入口（single command — one shot，无 draft，评测入口）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
-
-一条命令即跑完 init→build→selfcheck，直接产出完整契约与全部交付物：
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --output /app/output
-```
+一条命令即跑完 init→build→selfcheck，直接产出完整契约与全部交付物；命令见文首「单命令评测入口」。
 
 ## Agent 路径（五命令）
 
@@ -61,7 +63,7 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --work /ap
 
 ## 单命令等价入口（single command — one shot，无 draft）
 
-见文首「单命令等价入口（评测入口）」——同一条 `build` 命令，一条命令跑完整条流水线。
+见文首「单命令评测入口」——同一条 `build` 命令，一条命令跑完整条流水线。
 
 ## 规则与约束
 
