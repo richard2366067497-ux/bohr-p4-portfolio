@@ -1,0 +1,57 @@
+# Resource entry point for the source-bound-manuscript-audit skill.
+# The evaluator installs this package at /skills/weekly-skill and runs the documented command(s).
+schema: resource-entry/v1
+skill: source-bound-manuscript-audit
+entry:
+  command: python3 /skills/weekly-skill/scripts/main.py init
+  arguments:
+    - --input /input
+    - --output /app/output
+    - --work /app/work
+  exit_code_expected: 0
+  agent_pipeline:
+    - python3 /skills/weekly-skill/scripts/main.py init
+    - python3 /skills/weekly-skill/scripts/main.py show
+    - python3 /skills/weekly-skill/scripts/main.py check
+    - python3 /skills/weekly-skill/scripts/main.py build
+    - python3 /skills/weekly-skill/scripts/main.py selfcheck
+runtime:
+  language: python3
+  version: ">=3.8"
+  third_party: none            # pure standard library; pdftotext is used only if already present
+  network: false
+  model_calls: 0
+budget:
+  max_requests: 64
+  max_seconds: 900
+  max_tokens: 16384
+limits:
+  max_file_bytes: 12000000
+  max_segments: 6000
+  concurrent_processes: 1
+inputs:
+  - path: /input/case.json
+    required: false
+    note: carries case_id, task_instruction and the output_contract to echo (keys unknown)
+  - path: /input/task.md
+    required: false
+    note: the task statement; its summary is stored in result.json.task_instruction
+  - path: /input
+    required: true
+    note: manuscript, supplements, response letter, bibliography, images — scanned recursively
+outputs:
+  - /app/output/result.json
+  - /app/output/audit_report.md
+  - /app/output/evidence.jsonl
+  - /app/output/candidates.json
+  - /app/output/run_manifest.json
+workdir: /app/work
+degradation:
+  missing_case_json: tolerant parse, then continue on directory materials; status=partial
+  unreadable_material: images / scanned pages listed in unchecked_items with the reason; nothing guessed
+  missing_draft: every candidate emitted as pending_review; all artifacts still produced; status=partial
+  quote_not_found: that finding downgraded to pending_review, recorded in degradations
+  any_exception: a minimal legal result.json is still written; exit code is always 0
+environment_hints:
+  python: /usr/local/bin/python3 or any python3 on PATH
+  optional: pdftotext (if absent, pypdf / PyPDF2 / pdfminer / raw-stream fallbacks are used)
