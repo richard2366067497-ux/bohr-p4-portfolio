@@ -1,4 +1,4 @@
-# plan-forge-experiment — 实验方案生成与优化（experiment-01 v6）
+# plan-forge-experiment — 实验方案生成与优化（experiment-01 v10）
 
 把一批实验材料整理成**可逐条复核、可复跑的版本化实验方案**：先从材料里抽出六类必需要素
 （假设与变量 / 对照组 / 设备材料 / 时间成本 / 参数范围 / 风险和异常），每条都带
@@ -19,9 +19,16 @@
 ```
 /skills/weekly-skill/
   SKILL.md
+  references/expert_playbook.md
   scripts/main.py   scripts/plan.py   scripts/design.py   scripts/render.py
-  README.md  SELFTEST.md  GITHUB_URL.txt
+  environment/resources.yaml
+  examples/case.json   examples/params.json
+  README.md  SELFTEST.md  GAIN_EVIDENCE.md  GITHUB_URL.txt
 ```
+
+**执行前必读**：`references/expert_playbook.md`（专家参考手册）。流程按其 §2 六步法推进，量化按其
+§3 口径复算（样本量功效分析、关键路径工时、预算折算），交付前逐项通过其 §5 自查表（C01–C17）并用
+§7 专家注意点排雷。
 
 ## 用法
 
@@ -79,3 +86,24 @@ python3 scripts/main.py selfcheck  # 复检产物存在性与契约回显是否�
 
 版本 2.6.0；契约键名冻结，抽取规则集中在 `SKILL.md` 与 `scripts/plan.py`。
 改了脚本必须重跑：`--help`、空 `/input`、坏 JSON（三者均 exit 0），并跑一次自测（见 SELFTEST.md）。
+
+## 随包最小样例（examples/，可直接复跑）
+
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+# exit 0；8 件产物；status=answered；3 参数域 / 1 约束 / 4 资源 / 3 候选；
+# per_run=2080、total=10400（×5）、duration=1035 min；4 项算术自检全通过
+```
+
+样例输入：`examples/case.json`（契约 + 指令）+ `examples/params.json`（假设、3 个有限参数域、
+1 条上界约束、4 项带单价资源、3 版候选方案、2 个对照、5 步工序、风险与确认项、budget 15000、deadline 5）。
+使用增益对照见 `GAIN_EVIDENCE.md`（含确定性 `baseline_sim` 说明，非官方对照）。
+
+## 随包文件（v10 新增）
+
+```
+references/expert_playbook.md  专家参考手册（六步法/量化口径/风险等级/陷阱与单位/自查表 C01–C17/完整案例）
+environment/resources.yaml     运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                      最小可复跑样例（case.json + params.json）
+GAIN_EVIDENCE.md               使用增益证据（无 Skill 基线对照 + 真实运行数字）
+```
