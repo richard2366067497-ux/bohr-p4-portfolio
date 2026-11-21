@@ -127,7 +127,7 @@
 | `argument_map.json` | 研究问题句、主张-证据链、无证据链计数 | 核心论断逐行回溯，无材料外来源 |
 | `consistency_report.md` | 文件清单、标题层级、重复句、跨文档术语、引用与条目计数 | 计数可由原稿复算 |
 | `pending_human.json` | 需要作者补充或确认的缺口 | 每项说明“缺什么、影响什么、如何解除” |
-| `semantic_audit.json` | 机械预筛候选句（带 locator/逐字引文）、提示词、四维度与判定取值、记录模式 | 判定可由候选句复核 |
+| `semantic_audit.json` | 机械预筛候选句（带 locator/逐字引文）、固定审读协议、四维度与判定取值、记录模式 | 判定可由候选句复核 |
 | `metrics.json` | 与包内声明阈值的基线对照 | 每行从 `result.json`/`structural_review.json` 复算 |
 
 若合同禁止扩展字段，不擅自增加 JSON 键，应将附加内容放入合同指定字段或关联文件。
