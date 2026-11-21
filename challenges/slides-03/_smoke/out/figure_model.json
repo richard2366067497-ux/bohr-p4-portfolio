@@ -1,0 +1,98 @@
+{
+  "title": "Mechanism figure (draft not supplied - degraded from workorder/material)",
+  "subtitle": "status=partial: entity types, arrow semantics and compartments are unconfirmed",
+  "canvas": {
+    "w": 1600,
+    "h": 1000
+  },
+  "compartments": [
+    {
+      "id": "cytoplasm",
+      "label": "Cytoplasm",
+      "order": 2.0,
+      "y": 132,
+      "h": 744.0,
+      "x": 48,
+      "w": 1504,
+      "kind": "lane"
+    }
+  ],
+  "entities": [
+    {
+      "id": "x",
+      "name": "不区分",
+      "type": "unspecified",
+      "species": "",
+      "compartment": "cytoplasm",
+      "box": {
+        "x": 694.0,
+        "y": 477.0,
+        "w": 212.0,
+        "h": 54.0,
+        "cx": 800.0,
+        "cy": 504.0
+      },
+      "italic": false,
+      "sublabel": "",
+      "status": "verbatim",
+      "locator": "task.md#para7"
+    }
+  ],
+  "relations": [
+    {
+      "id": "r1",
+      "from": "x",
+      "to": "x",
+      "type": "activation",
+      "direction": "forward",
+      "strength": "mined",
+      "path": [
+        [
+          694.0,
+          504.0
+        ],
+        [
+          800.0,
+          504.0
+        ],
+        [
+          800.0,
+          504.0
+        ],
+        [
+          906.0,
+          504.0
+        ]
+      ],
+      "label": "",
+      "badge": "",
+      "status": "verbatim",
+      "locator": "task.md#para7"
+    }
+  ],
+  "legend_rows": [
+    {
+      "channel": "color",
+      "key": "unspecified",
+      "label": "unspecified",
+      "meaning": "entity type"
+    },
+    {
+      "channel": "line_style",
+      "key": "activation",
+      "label": "activation",
+      "meaning": "relation type"
+    }
+  ],
+  "legend_used": [
+    "line_style:activation",
+    "color:unspecified"
+  ],
+  "legend_declared": [],
+  "legend_h": 76,
+  "source_material": [
+    "case.json",
+    "materials/mechanism-drawing-contract.md",
+    "task.md"
+  ]
+}
