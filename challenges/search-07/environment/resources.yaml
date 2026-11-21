@@ -1,0 +1,66 @@
+# Runtime contract for search-coverage-gap-auditor (search-07)
+# Declares the execution surface the evaluator relies on. Pure stdlib, offline,
+# deterministic: no network, no third-party packages, no clock-dependent output.
+
+skill:
+  name: search-coverage-gap-auditor
+  version: "1.0.0"
+  entry: scripts/main.py
+  language: python3
+
+paths:
+  input: /input          # case.json, task.md and the materials tree
+  output: /app/output    # every deliverable listed below
+  work: /app/work        # index, draft skeleton and check report
+
+entry:
+  single_command: "python3 scripts/main.py all --input /input --output /app/output --work /app/work"
+  commands: [all, init, show, check, build, selfcheck, compare]
+  default_command: all
+  exits:
+    success: 0
+    usage_error: 2       # argparse usage error only
+
+runtime:
+  python: ">=3.8"
+  libraries: [argparse, csv, difflib, hashlib, io, json, re, sys, pathlib]  # standard library only
+  network: none
+  translation_service: none
+  deterministic: true    # timestamps are excluded from every judgement
+
+budget:
+  requests: 64
+  seconds: 900
+  tokens_per_response: 16384
+
+inputs:
+  - case.json            # optional: case_id, research_question, constraints, output_contract
+  - task.md              # optional: the research question in prose
+  - materials/           # reference set, query log, retrieved snapshot (json / jsonl / csv / md)
+
+outputs:
+  required:
+    - result.json
+    - scope_card.md
+    - hit_ledger.csv
+    - gap_matrix.csv
+    - gap_atlas.json
+    - supplement_plan.md
+    - coverage_report.md
+    - audit_trail.json
+    - self_check.json
+  optional:
+    - gain_report.md
+    - gain_report.json
+    - run_log.txt
+
+contract:
+  source_order: [case.json:output_contract, task.md, challenges/search-07.json, SKILL.md json sample]
+  echo: "every key is written into result.json.output_contract and copied to the top level"
+  builtin_keys: [case, parse, read, discover, queries, gap, draft, quote, paths, products,
+                 init, show, check, build, selfcheck]
+
+failure_policy:
+  empty_input: "exit 0 with status=input_error and a valid result.json"
+  broken_json: "recorded in degradations, still exit 0"
+  no_reference_set: "status=insufficient_evidence, coverage reported honestly as zero"
