@@ -9,6 +9,14 @@ license: MIT
 围绕一份稿件与它的材料做**可复核**的质量审查：逐条给出问题定位（locator）、逐字原文、判定依据、
 严重度与修改建议；判定引用是**存在**还是**支持结论**；无法确认的条目标记待复核，绝不凭空补结论。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 执行任何命令前**先完整阅读 `references/expert_playbook.md`**，并按其检查表组织全部产出：
@@ -42,11 +50,8 @@ Agent 可在运行前写 `work/draft.json`；脚本会重算每一条判定，�
 与 `human_check_needed`。字段含义与同义映射见 `references/contract-and-playbook.md`。
 ## 单命令入口（一次性，无需 draft）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 一条命令建立索引、finalize（无工作稿时用机械候选并标待复核）、写全部交付物并自检，退出码 0。
 `--input` / `--output` / `--work` 默认即 `/input`、`/app/output`、`/app/work`，也可显式传入。
