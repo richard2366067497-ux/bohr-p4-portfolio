@@ -1,0 +1,54 @@
+{
+  "note": "ILLUSTRATIVE example output only; not an official case result. Produced from examples/ with the single command.",
+  "case_id": "latest-lit-tracking-example",
+  "status": "completed",
+  "end": "2024-12-31T00:00:00Z",
+  "window": {
+    "window_start": "2023-01-01T00:00:00Z",
+    "window_end": "2024-12-31T00:00:00Z",
+    "start_year": 2023,
+    "end_year": 2024,
+    "rule": "UTC ISO8601, left-closed right-open [start, end)"
+  },
+  "summary": {
+    "candidate_count": 5,
+    "unique_count": 3,
+    "dedup_rate": 0.4,
+    "new_count": 2,
+    "update_count": 0,
+    "retraction_count": 0,
+    "correction_count": 0,
+    "old_indexed_count": 1,
+    "alert_count": 2,
+    "new_accuracy": 1.0,
+    "duplicate_rate": 0.4,
+    "window_coverage": 1.0,
+    "replayability": 1.0
+  },
+  "decisions": [
+    {"dedup_key": "doi:10.1038/s41560-024-01234-5", "locator": "S01#r1", "source": "crossref", "decision": "include", "reason": "new/retraction/correction in window"},
+    {"dedup_key": "arxiv:2401.12345", "locator": "S01#r2", "source": "crossref", "decision": "include", "reason": "new/retraction/correction in window"},
+    {"dedup_key": "doi:10.1002/adma.201901234", "locator": "S01#r3", "source": "crossref", "decision": "exclude", "reason": "outside the tracking window or unchanged"}
+  ],
+  "decision_missing": [
+    {"dedup_key": "arxiv:2401.12345", "missing_fields": ["doi"], "note": "metadata incomplete in the supplied snapshot; not fabricated"}
+  ],
+  "out_of_window": ["doi:10.1002/adma.201901234"],
+  "alerts": [
+    {"dedup_key": "doi:10.1038/s41560-024-01234-5", "type": "new"},
+    {"dedup_key": "arxiv:2401.12345", "type": "new"}
+  ],
+  "deliverable": "report.md",
+  "output_contract": {
+    "case_id": "latest-lit-tracking-example",
+    "status": "completed",
+    "end": "2024-12-31T00:00:00Z",
+    "decisions": "3 per-record include/exclude decisions with source + locator + reason",
+    "decision_missing": "1 record with an incomplete field (doi) recorded, not fabricated",
+    "out_of_window": "1 record outside [2023-01-01, 2024-12-31)"
+  },
+  "limits": [
+    "incremental diff compares against the local state snapshot only",
+    "no full-text parsing, translation or retraction-notice retrieval is performed"
+  ]
+}
