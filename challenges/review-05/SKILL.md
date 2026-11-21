@@ -6,6 +6,14 @@ version: 1.0.0
 
 # 学术规范与合规审查：合规矩阵优先（Agent 主答 + 脚本辅助 + 兜底必成）
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+```
+
 ## 1. 这是什么
 
 输入一份论文、报告或学位论文章节（可能附带文献表、目标期刊作者指南、数据/材料清单），输出一份**逐条可核对**的合规审查：
