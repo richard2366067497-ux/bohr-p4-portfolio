@@ -1,4 +1,4 @@
-# figure-data-extractor — reading-02 (v9)
+# figure-data-extractor — reading-02 (v10)
 
 把一张科研图（含原表）读成**可核验的结构化数据**：还原坐标轴类型（线性/对数）、刻度起点与间隔、
 单位量级；从刻度像素位置标定「像素→数据坐标」；按**颜色匹配**把每条曲线数字化；表头给出单位、
@@ -53,6 +53,7 @@ python3 /skills/weekly-skill/scripts/main.py compare   --input /input --output /
 
 ```
 SKILL.md                              # 名称、契约、单命令、agent 路径、draft schema、管线、降级规则
+references/expert_playbook.md         # 专家参考手册：方法、口径、陷阱、虚构案例、防扣分自查表
 scripts/main.py                       # 单文件 CLI：all / init / show / check / build / selfcheck / compare
 environment/resources.yaml            # 资源入口声明：入口命令、路径、输入约定、契约、运行时
 examples/case.json  examples/params.json  examples/fig1.png   # 自带示例：一图一表 + 几何 sidecar
