@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """engine.py — corpus ledger + bilingual section rendering.
 
 Part 1 (ledger): material inventory, candidate extraction, verbatim quote
@@ -35,8 +34,6 @@ TEXT_EXT = {
     ".csv": "table", ".tsv": "table",
 }
 
-# Key normalisation: common synonyms -> canonical key. Used for three-source
-# comparison only, never to judge relevance.
 KEY_CANON = {
     "lr": "learning_rate", "learning_rate": "learning_rate", "learningrate": "learning_rate",
     "init_lr": "learning_rate", "base_lr": "learning_rate", "peak_lr": "learning_rate",
@@ -81,7 +78,6 @@ KEY_CANON = {
     "model": "model", "model_name": "model", "arch": "model",
 }
 
-# Keys shown first in reports (what a methods section really needs).
 PRIORITY_KEYS = [
     "dataset", "dataset_version", "split", "learning_rate", "batch_size", "epochs",
     "optimizer", "weight_decay", "scheduler", "warmup", "seed", "repeats",
@@ -270,10 +266,10 @@ def extract_candidates(materials, input_dir):
             value, unit = split_value_unit(val)
             if m["kind"] == "code" and BARE_IDENT.match(value or "") \
                     and value.lower() not in ("true", "false", "none", "null"):
-                continue  # a variable reference in code (lr=lr) is not a value
+                continue
             key = canon_key(raw_k) if raw_k else ""
             if m["kind"] == "log" and str(raw_k).strip().lower() in ("epoch", "epochs", "step"):
-                key = "epoch_index"  # epoch=N in a log is progress, not a hyper-parameter
+                key = "epoch_index"
             sig = (key, norm_value(value), line_no if line_no is not None else quote[:40])
             if sig in seen:
                 continue
@@ -375,7 +371,6 @@ def excerpt(material, max_lines=12):
     return ["%s#L%d | %s" % (material["rel"], i + 1, ln.strip()[:200])
             for i, ln in enumerate(lines)]
 
-# ===================================================================== render
 SECTIONS = {
     "zh": [
         ("scope", "1 任务与范围"),
@@ -623,7 +618,6 @@ def _conflict_map(draft):
             out[item] = c
     return out
 
-# --- split tail: executed in this module's namespace (keeps every file <=30KB) ---
 _TAIL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine_tail.py")
 with open(_TAIL, "r", encoding="utf-8") as _tail_fh:
     exec(compile(_tail_fh.read(), _TAIL, "exec"), globals())
