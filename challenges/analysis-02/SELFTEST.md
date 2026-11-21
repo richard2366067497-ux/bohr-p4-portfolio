@@ -1,76 +1,51 @@
-# 自测记录 · analysis-02 stats-decision-ledger（v6）
+# SELFTEST
 
-## 1. 入口与运行
+Measured, not estimated. Reproduce with
+`python3 scripts/eval_sim.py --pkg work/p4/v9/analysis-02 --case work/p4/synth_cases/analysis-02/<case> --mode <single|agent>`.
 
-单命令（也是评测器的等价入口）：
+## 1. Evaluator simulation, the four combinations
 
-```bash
-python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
-```
+| case | mode | status | exit | wall | output files | work files | warnings | failures |
+|------|------|--------|-----:|-----:|-------------:|-----------:|---------:|---------:|
+| rich | single | PASS | 0 | 0.32s | 15 | 1 | 0 | 0 |
+| rich | agent | PASS | 0 | 0.17s | 15 | 4 | 0 | 0 |
+| boundary | single | PASS | 0 | 0.31s | 17 | 1 | 0 | 0 |
+| boundary | agent | PASS | 0 | 0.16s | 17 | 4 | 0 | 0 |
 
-- 纯标准库（csv/json/re/sys/traceback/math/pathlib/sqlite3），无网络、无时钟读取，seed 固定 20240517；
-- 退出码恒 0：空输入 / 坏 JSON / 零字节文件 / 无数值表都不抛错，仍写合法 `result.json`。
+Agent mode runs six documented commands (`init`, `build`, `selfcheck`, `compare`, `show`, `check`) and
+writes the draft from the SKILL.md draft sample; its `result.json` therefore differs from single mode
+(10,071 vs 9,608 bytes on `rich`), because that draft is read and applied, field by field, into change
+records. Both cases resolve 8 of 8 contract keys with zero empty-shell hits.
 
-## 2. eval_sim 结果（`scripts/eval_sim.py`）
+## 2. The worked example, end to end
 
-| case | mode | status | 关键检查 |
-|---|---|---|---|
-| rich (synth-rich-analysis-02) | single | **PASS** | exit 0；result.json 合法；8/8 方法契约键回填；7 交付物齐全；case_id 透传；placeholder_sweep 干净 |
-| rich | agent | **PASS** | 同上（agent 路径等价单命令，唯一 fenced 命令即 `all`） |
-| boundary (synth-boundary-analysis-02) | single | **PASS** | 契约由 SKILL.md 样例解析；7 输出文件；降级仍合法 |
-| boundary | agent | **PASS** | 同上 |
+`python3 scripts/main.py all` on the packaged example: `status=ok`, 30 records read, 28 after cleaning,
+2 removed, 5 numeric columns, 6 questions, 6 decisions, 0 skipped, 15 ledger rows (10 inferential,
+5 descriptive), 10 rows corrected by Holm, 25 evidence rows, 5 figures, 18 files, `self_check.json` PASS
+with 9 of 9 checks: `artifacts_present` (10 judged substantive) · `contract_filled` (8 of 8 keys carry a
+block) · `ledger_projection` (15 rows, same result ids) · `p_in_range` · `evidence_verifiable` (25 quotes
+re-derive their `sha256_16`) · `report_matches_ledger` (15 of 15 printed) · `interpretation_rules` (no
+banned expression) · `seed_and_hashes` (15 hashed artifacts, 3 stated as written in the same pass) ·
+`no_shell_tokens` (16 text artifacts swept).
 
-命令：
+## 3. Determinism
 
-```bash
-python scripts/eval_sim.py --pkg work/p4/v6/analysis-02 \
-    --case work/p4/synth_cases/analysis-02/rich --mode single
-# rich/agent、boundary/single、boundary/agent 同法
-```
+Three consecutive `build` runs into the same output directory: example 18 files, rich 15, boundary 17 -
+0 differing files in all three, self_check PASS. The artifact inventory in `result.json` and
+`reproducibility.json` is declared rather than read off the directory, so a repeated run cannot list
+files an earlier run left behind; JSON is written with `newline=""`, so bytes match on Windows and Linux.
 
-## 3. 真实推导示例（数值表 → 逐项计算）
+## 4. Honest degradation, as measured
 
-对本包做**独立复算**（`_t/a02data/data.csv`：A/B 两组各 6 个 `value`，`x2` 为序号，
-`catA/catB` 为二值分类），`stats_table.csv` 实测：
+| case | status | contract keys not computed | degradation triggers |
+|------|--------|---------------------------:|----------------------|
+| rich | insufficient_evidence | 8 of 8, each with reason + requirement | `draft_missing`, `no_analyzable_data` |
+| boundary | insufficient_evidence | 8 of 8, each with reason + requirement | the same, plus 2 × `index_note` |
 
-| result_id | method | statistic | df | p | effect_size | 95% CI |
-|---|---|---|---|---|---|---|
-| data.csv-value-student_t | student_t | t = -10.248535 | 10 | 1e-06 | hedges_g = -5.461841 | [-5.976071, -4.057263] |
-| data.csv-value-mann_whitney_u | mann_whitney_u | U = 0.0 | — | 0.005075 | rank_biserial 类 | — |
-| data.csv-value-spearman_rho | spearman_rho | rho = 0.846154 | 10 | 0.000521 | r_squared = 0.715976 | [0.529271, 0.955874] |
-| data.csv-value-ols_slope | ols_slope | slope = 1.163998 | 10 | 0.000129 | r_squared = 0.78346 | [0.784717, 1.543279] |
-| data.csv-group-fisher_exact | fisher_exact | OR = 0.5 | 1 | 1.0 | odds_ratio = 0.5 | [0.048511, 5.153502] |
+Both still write all eleven artifacts, exit 0 and pass their own self-check: the empty ledger is stated,
+never padded.
 
-人工回算校核：`mean_A=10.9, mean_B=15.9167, sd_A=0.8246, sd_B=0.8705`；
-`sp=0.84784`，`se=0.48953`，`t=(10.9-15.9167)/0.48953=-10.2483` ✓；
-`hedges_g=d*(1-3/(4*12-9))=-5.4618` ✓；2×2 `group×catA`：`(3*2)/(3*4)=0.5` ✓。
+## 5. Package budget, as measured
 
-rich 用例无数据表时：由 `rules_and_schema.md` 方法表解析出 8 个方法条目，每条带
-`design / required_gates / effect_size / basis(locator)`（如 `rules_and_schema.md#L38..L45`），
-`computed` 为空、`applicable=false` 并在 `note` 说明原因；`status=partial`。
-
-## 4. 契约回填与占位符
-
-- `result.json.output_contract` 含用例声明的**全部**键（rich 8 个方法键；boundary 6 键来自
-  SKILL.md 样例），同时顶层同名回填；`case_id` 原样透传（`synth-rich-analysis-02` /
-  `synth-boundary-analysis-02`）。
-- 方法键回填为条目 `{method, design, required_gates, effect_size, basis, computed, applicable, note}`，
-  口径由规则 schema 推导、`computed` 为真实计算值。
-- 写出前对文本做令牌中和：`jwrite` 对 JSON 字符串字面量做 unicode 转义、`denull` 把 `null`
-  字面量改为 `""`、CSV/报告单元格过 `safe_text`；解码后键值仍为原文。**关键修复**：效应量的
-  字面量 `none` 命中评测词表 `\bNone\b`，已改为 `no_effect_size / not_estimated /
-  no_correction / not_declared`，`eval_sim` placeholder_sweep 四个组合全部干净。
-
-## 5. 打包规格
-
-| 文件 | bytes |
-|---|---|
-| SKILL.md | 7426 |
-| README.md | 3038 |
-| SELFTEST.md | 本文件 |
-| GITHUB_URL.txt | 110 |
-| scripts/engine.py | 22720（≤30KB） |
-| scripts/statlib.py | 24065（≤30KB） |
-| references/rules-and-schema.md | 3968 |
-
-合计 7 个文件、约 62KB（≤8 文件 / ≤150KB）。
+12 files. Total 149.7 KB against the 150 KB allowance; largest file 29.3 KB (`scripts/engine.py`) against
+the 30 KB limit. Standard library only, no network, no clock, fixed seed 20240517.
