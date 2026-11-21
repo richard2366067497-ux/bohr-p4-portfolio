@@ -1,0 +1,13 @@
+{
+  "case_id": "example-writing-07",
+  "language": "en",
+  "materials_root": "materials",
+  "notes": "Minimal illustrative case for intro-relatedwork-writer. Example only, not an official case or answer.",
+  "output_contract": {
+    "case_id": "string",
+    "deliverable": "path",
+    "preserved_facts": "string",
+    "evidence_map": "path",
+    "change_log": "path"
+  }
+}
