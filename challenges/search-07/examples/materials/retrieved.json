@@ -1,0 +1,12 @@
+[
+  {"title": "Photocatalytic water splitting on TiO2 under visible light",
+   "doi": "10.1016/j.apcatb.2015.120001", "year": 2015, "author": "Nakamura H.", "venue": "Applied Catalysis B"},
+  {"title": "Visible-light-driven hydrogen evolution over doped metal oxides",
+   "doi": "10.1039/c6ee01234a", "year": 2016, "author": "Silva R.", "venue": "Energy and Environmental Science"},
+  {"title": "Band-gap engineering of BiVO4 for solar water oxidation",
+   "doi": "10.1021/jacs.7b01234", "year": 2017, "author": "Okafor C.", "venue": "Journal of the American Chemical Society"},
+  {"title": "Cocatalyst loading on SrTiO3 for overall water splitting",
+   "doi": "10.1002/anie.201904567", "year": 2019, "author": "Yamada K.", "venue": "Angewandte Chemie"},
+  {"title": "Charge transfer in Cu2O photocathodes for solar hydrogen",
+   "doi": "10.1016/j.ijhydene.2019.01.222", "year": 2019, "author": "Rossi L.", "venue": "International Journal of Hydrogen Energy"}
+]
