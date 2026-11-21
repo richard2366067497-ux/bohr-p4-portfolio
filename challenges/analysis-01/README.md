@@ -1,4 +1,4 @@
-# field-contract-cleaner（分析-01 · v9 包）
+# field-contract-cleaner（分析-01 · v10 包）
 
 把「脏汇总表 + 数据字典 + 每指标单位/QC 规则 + 清洗工单」变成可逐格复核的证据链：
 清洗表 + 账本 + 字段级质量报告 + 契约与三方对账，`result.json` 回填每个契约键。
@@ -16,7 +16,7 @@ Agent 增强路径（需要逐字段复核时）：
 ```bash
 python3 scripts/main.py init  --input /input --output /app/output --work /app/work
 python3 scripts/main.py show  --input /input --output /app/output --work /app/work
-#  读 show 的逐字原文，写 /app/work/draft.json（schema 见 SKILL.md §6）
+#  读 show 的逐字原文，写 /app/work/draft.json（schema 见 SKILL.md「工作稿 work/draft.json」节）
 python3 scripts/main.py check --input /input --output /app/output --work /app/work
 python3 scripts/main.py build --input /input --output /app/output --work /app/work
 python3 scripts/main.py selfcheck --input /input --output /app/output --work /app/work
@@ -38,7 +38,7 @@ python3 scripts/main.py selfcheck --input /input --output /app/output --work /ap
 基线直接 `dropna/fillna`、就地换单位、删重复行、人写数字——结果不可复核也不可复现。
 本包：**不填补只标记**、换算逐格记账且可逆、重复行隔离不删、报告数字由 `__flags` 回算、
 `selfcheck` 独立复检，坏 JSON / 空材料 / 无字典 / 无工单也恒 exit 0 并如实降级。
-详见 SKILL.md §14/§15 与 GAIN_EVIDENCE.md。
+详见 SKILL.md 的「失败处理与降级矩阵」「自查」与 GAIN_EVIDENCE.md。
 
 ## 不做什么
 
