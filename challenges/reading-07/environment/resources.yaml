@@ -1,0 +1,65 @@
+skill: claim-evidence-verifier
+version: 3.0.0
+runtime: python3
+python_min: "3.9"
+dependencies: []          # stdlib only: json re argparse pathlib datetime unicodedata subprocess
+network: false
+external_models: false
+install_root: /skills/weekly-skill
+
+entry:
+  primary:
+    cmd: "python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work"
+    note: "No subcommand needed; the same invocation deployed by eval_sim. Equivalent to `main.py run`."
+    produces: [result.json, evidence_cards.jsonl, verification_report.md]
+  subcommands:
+    - {name: run,   cmd: "python3 /skills/weekly-skill/scripts/main.py run   --input /input --output /app/output --work /app/work"}
+    - {name: init,  cmd: "python3 /skills/weekly-skill/scripts/main.py init  --input /input --output /app/output --work /app/work"}
+    - {name: show,  cmd: "python3 /skills/weekly-skill/scripts/main.py show  --input /input --output /app/output --work /app/work"}
+    - {name: check, cmd: "python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work"}
+    - {name: build, cmd: "python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work"}
+  agent_first:
+    draft: "/app/work/draft.json"
+    template: "/app/work/draft.template.json"
+    note: "run writes deterministic verdicts first; an optional agent draft.json is merged only where every quote re-verifies verbatim. run -> show -> draft.json -> check -> run."
+
+paths:
+  install_root: /skills/weekly-skill
+  input: /input
+  output: /app/output
+  work: /app/work
+
+defaults:
+  input: /input
+  output: /app/output
+  work: /app/work
+
+inputs:
+  claims: ["claims-to-verify.json", "claims_to_verify.json", "claims.json", "case.json:claims"]
+  case: ["case.json", "case_info.json"]
+  materials: "recursive scan of input for pdf / md / txt / json / csv"
+
+outputs:
+  - result.json
+  - evidence_cards.jsonl
+  - verification_report.md
+  work_dir:
+    - index.json
+    - draft.template.json
+
+budget:
+  max_model_requests: 64
+  max_wall_seconds: 900
+  max_tokens_per_response: 16384
+  max_output_bytes: 3000000
+  deterministic_model_requests: 0
+  note: >-
+    64 requests / 900 s / 16384 tokens per response are the platform execution envelope.
+    The deterministic path issues 0 model requests and is offline; an agent may spend the
+    remaining budget on the optional draft.
+
+notes: >-
+  All paths are resolved from __file__; the current working directory is irrelevant.
+  Exit code is always 0 on every degraded path (empty input, unreadable material, malformed
+  case.json, unwritable output); only argparse usage errors return 2. Pure standard library,
+  no network, no external model. A legal partial result.json is written before any heavy work.
