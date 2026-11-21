@@ -1,0 +1,64 @@
+# environment/resources.yaml — writing-17 / mindmap-builder
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不写全局状态。
+skill: mindmap-builder
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 -B /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 -B /skills/weekly-skill/scripts/main.py init  --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py show  --input /input --output /app/output --work /app/work
+    - "Agent: read sections/locators (M01#s3), edit /app/work/draft.json"
+    - python3 -B /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py selfcheck --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py     # 入口：扫描→大纲→图→渲染→契约回填（all/init/show/check/build/selfcheck）
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  case_json:
+    case_id: optional        # 原样透传；缺失时用输入目录名
+    output_contract: optional  # 给定则以其键为准；缺失回退 SKILL.md §1 的 13 键样例
+  materials: "md | txt | json | tex | bib | csv（标题层级与句子驱动分支/叶子）"
+  discovery: "walk 输入目录；缺失物料即降级而非报错"
+  skip: [case.json, task.md, README.md, draft.json, mindmap.json]
+
+required_outputs:
+  - result.json
+  - mindmap.json
+  - mindmap.md
+  - outline.json
+  - report.md
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 60
+  max_output_files: 16
+  max_output_bytes: 1048576
+
+contract:
+  keys: [init, show, check, build, selfcheck, mindmap, nodes, edges, outline, summary, report, case_id, status]
+  keys_from: "case.json:output_contract -> SKILL.md §1 默认 13 键（CANON）"
+  echo: "每个契约键既写顶层，也写 result.json.output_contract"
+  placeholders: forbidden
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
