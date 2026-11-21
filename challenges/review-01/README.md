@@ -21,20 +21,14 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck --output /app/output
 ## 文件清单
 
 ```
-SKILL.md                                用途、五命令主路径、契约、方法、降级、自查
-README.md                               本文件：安装、快速开始、文件清单、维护
-SELFTEST.md                             实测数字、双路径、边界降级、测试矩阵
-GAIN_EVIDENCE.md                        同输入同契约下的基线对照（compare 复现）
-GITHUB_URL.txt                          仓库目录链接（两行）
-scripts/main.py                         五命令入口：init / show / check / build / selfcheck
-scripts/audit_core.py                   解析与定位：编码/PDF/DOCX、切段、locator、quote 校验、草稿规范化
-scripts/audit_leads.py                  规则扫描：结构/一致性/引用/方法统计/论证/规范候选
-scripts/render.py                       契约回填、兜底条目、报告与证据卡渲染、run_manifest
-references/checklist-and-severity.md    检查项与规则号、严重度锚点、误报抑制表、判定流程
-references/io-and-draft-schema.md       输入发现、字段字典、工作稿 schema、最小示例、异常处置
-references/expert_playbook.md           专家方法论：六面判分、求解框架、证据口径、误报抑制、自查表、虚构案例
-environment/resources.yaml              资源入口声明
-examples/case.json                      最小示例输入
+scripts/main.py           五命令入口：init / show / check / build / selfcheck
+scripts/audit_core.py     解析与定位：编码/PDF/DOCX、切段、locator、quote 校验、草稿规范化
+scripts/audit_leads.py    规则扫描：结构/一致性/引用/方法统计/论证/规范候选
+scripts/render.py         契约回填、兜底条目、报告与证据卡渲染、run_manifest
+references/checklist-and-severity.md   检查项与规则号、严重度锚点、误报抑制表、判定流程
+references/io-and-draft-schema.md      输入发现、工作稿 schema、输出字段与契约回填
+references/expert_playbook.md          专家方法论：判分要点、求解框架、量化口径、陷阱、自查表、虚构案例
+SKILL.md / SELFTEST.md / GAIN_EVIDENCE.md / environment/resources.yaml / examples/case.json / GITHUB_URL.txt
 ```
 
 ## 依赖与配置
