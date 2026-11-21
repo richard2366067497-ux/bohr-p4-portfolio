@@ -203,3 +203,7 @@ GITHUB_URL.txt                 仓库地址与子目录
 - 依赖：Python 3.9+ 标准库（`xml.etree.ElementTree`/`csv`/`json`/`re`/`hashlib`/`argparse`）；无第三方、无网络、无外部模型。
 - 版本 3.0.0：契约键名冻结；新增规则 → 次版本；阈值与文案 → 修订号。
 - 每次改动后跑 `main.py selfcheck` 与 `scripts/eval_sim.py`（四组组合），结果记入 `SELFTEST.md`。
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
