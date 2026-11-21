@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
-"""facet-catalog-curator CLI: init / show / check / build / selfcheck (stdlib only, exit 0)."""
+"""library-curator driver: init | show | check | build | selfcheck.
+
+init      index /input (case.json, task.md, materials) and write a legal partial result.json
+show      print locator-tagged objects so the Agent can quote real text
+check     mechanical validation of the Agent's work draft (/app/work/draft.json)
+build     turn the draft into a real curated tree + all artifacts + final result.json
+selfcheck re-verify what was delivered
+
+Exit code is always 0; problems are reported in errors/degradations inside result.json.
+"""
+
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -9,576 +20,444 @@ import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import catalog_core as C  # noqa: E402
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 
-TOOL, VERSION = C.TOOL, C.V
-ART = [("deliverable|main_output|primary_file", "entries/catalog_entries.jsonl"),
-       ("rollback", "provenance/rollback.json"), ("idempot", "provenance/idempotency.json"),
-       ("skipp|unprocessed|failed_item", "provenance/skipped.json"),
-       ("verify|selfcheck", "provenance/verify_report.json"),
-       ("operation|ops_log|action_log|move_log|change_log|changelog", "provenance/operations.log"),
-       ("naming|rename|filename", "views/naming_view.tsv"), ("tree|director|hierarch|folder", "views/directory_tree.txt"),
-       ("facet_index|inverted|term_index", "views/facet_index.json"),
-       ("coverage", "facets/facet_coverage.json"),
-       ("reconcil|dedup|duplicate|version", "reconciliation/reconciliation_ledger.jsonl"),
-       ("entr|catalog|inventory|file_list|filelist|manifest|metadata_table", "entries/catalog_entries.jsonl"),
-       ("facet|schema|taxonom", "facets/facet_schema.json")]
-DATA = [("reconcil|dedup|duplicate", "reconciliation"), ("entr|catalog|inventory|items|files", "entries"),
-        ("facet_schema|schema|taxonom", "facets"), ("facet", "facets"), ("naming|rename", "naming_view"),
-        ("operation|change", "operations"), ("skipp|unprocessed", "skipped"),
-        ("stats|count|number", "stats"), ("coverage", "coverage"),
-        ("note|method|remark|limit", "method_notes"), ("summary|stats", "stats")]
-PH = C.PLACEHOLDERS
+import contract as C
 
-DEFAULT_CONTRACT = ["case_id", "deliverable", "evidence_map", "change_log", "coverage", "status"]
-_RULES = [
-    (re.compile(r"\[\s*待写\s*\]|\[\s*待补充\s*\]|待写|待补充|待填写|尚未"), "需人工确认"),
-    (re.compile(r"\bTBD\b|\bTODO\b|\bFIXME\b|\bXXX\b", re.I), "to confirm"),
-    (re.compile(r"\bplaceholders?\b", re.I), "field"),
-    (re.compile(r"\bNOT_EXTRACTED\b|\bnot[-_ ]?extracted\b", re.I), "unavailable"),
-    (re.compile(r"\bpending\b", re.I), "awaiting review"),
-    (re.compile(r"\bNone\b", re.I), "unavailable"),
-    (re.compile(r"\bnull\b", re.I), "empty value"),
-    (re.compile(r"\bN/?A\b", re.I), "not applicable"),
-    (re.compile(r"example\.com", re.I), "invalid-host"),
-    (re.compile(r"lorem ipsum", re.I), "sample text"),
-    (re.compile(r"^\s*\.\.\.\s*$", re.M), "truncated"),
-    (re.compile(r"<([A-Za-z_][\w /-]*)>"), r"\1"),
-]
+OK = True
+LIBERR = ""
+try:
+    import library_ops as L
+    import library_text as T
+    import build_cmd as B
+except Exception as _e:
+    OK = False
+    LIBERR = "%s: %s" % (type(_e).__name__, _e)
 
 
-def _safe(s):
-    s = "" if s is None else str(s)
-    for pat, rp in _RULES:
-        s = pat.sub(rp, s)
-    return s
-
-
-def clean_obj(o):
-    if o is None:
-        return ""
-    if isinstance(o, bool) or isinstance(o, (int, float)):
-        return o
-    if isinstance(o, str):
-        return _safe(o)
-    if isinstance(o, list):
-        return [clean_obj(x) for x in o]
-    if isinstance(o, dict):
-        return {str(k): clean_obj(v) for k, v in o.items()}
-    return _safe(o)
-
-
-def sanitize_out(out, work):
-    for base in (Path(out), Path(work)):
-        if not base.is_dir():
-            continue
-        for p in sorted(base.rglob("*")):
-            if not p.is_file():
-                continue
-            suf = p.suffix.lower()
-            try:
-                if suf == ".jsonl":
-                    rows = []
-                    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-                        if not line.strip():
-                            continue
-                        try:
-                            rows.append(clean_obj(json.loads(line)))
-                        except Exception:  # noqa: BLE001
-                            rows.append(_safe(line))
-                    txt = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
-                    if len(txt.encode("utf-8")) < 40:
-                        txt += "# no records for this input\n"
-                    p.write_text(txt, encoding="utf-8")
-                elif suf == ".json":
-                    try:
-                        obj = json.loads(p.read_text(encoding="utf-8", errors="replace"))
-                    except Exception:  # noqa: BLE001
-                        p.write_text(_safe(p.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
-                        continue
-                    obj = clean_obj(obj)
-                    txt = json.dumps(obj, ensure_ascii=False, indent=2)
-                    if len(txt.encode("utf-8")) < 40 and isinstance(obj, dict):
-                        obj["note"] = "generated by facet-catalog-curator; no records for this input"
-                        txt = json.dumps(obj, ensure_ascii=False, indent=2)
-                    p.write_text(txt, encoding="utf-8")
-                elif suf in (".tsv", ".csv", ".txt", ".md", ".log", ".sh"):
-                    p.write_text(_safe(p.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
-            except Exception:  # noqa: BLE001
-                continue
-
-
-# ------------------------------------------------------------------ contract
-def resolve(name, res, as_path=True):
-    k = str(name).lower()
-    for pat, path in ART:
-        if re.search(pat, k):
-            if as_path:
-                return path
-            break
-    r = res.get("result") or {}
-    for pat, key in DATA:
-        if re.search(pat, k):
-            v = r.get(key)
-            return res.get(key) if v is None else v
-    return res.get(k) if k in ("status", "case_id") else None
-
-
-def fill_contract(tpl, res):
-    """Fill output_contract in place: same names/nesting, missing -> null/[]."""
-    mapping = {}
-
-    def leaf(name, node, path):
-        if str(name).lower() == "evidence_map":
-            ev = res.get("evidence_index") or []
-            if not ev:
-                ev = [{"source_id": (s or {}).get("file"), "locator": (s or {}).get("file"),
-                       "quote": "source file recorded in the inventory", "verified": True}
-                      for s in (res.get("sources") or [])[:8]] or [
-                    {"source_id": "input", "locator": "input", "quote": "input directory scanned",
-                     "verified": True}]
-            mapping[path] = "value:evidence"
-            return ev
-        if isinstance(node, dict):
-            if not node:
-                v = resolve(name, res, as_path=False)
-                if isinstance(v, dict):
-                    mapping[path] = "value"
-                    return v
-                return node
-            return {k: leaf(k, v, path + "." + k) for k, v in node.items()}
-        if isinstance(node, list):
-            if not node:
-                v = resolve(name, res, as_path=False)
-                if isinstance(v, list):
-                    mapping[path] = "value:list"
-                    return v
-                return node
-            return [leaf(name, v, "%s[%d]" % (path, i)) for i, v in enumerate(node)]
-        if isinstance(node, str):
-            p = resolve(name, res)
-            if isinstance(p, str) and re.match(r"^(facets|entries|reconciliation|views|provenance|library)/", p):
-                mapping[path] = "artifact:" + p
-                return p
-            v = resolve(name, res, as_path=False)
-            if isinstance(v, list) and v and all(isinstance(x, str) for x in v):
-                mapping[path] = "value:joined"
-                return " | ".join(v)
-            if v is not None and not isinstance(v, (dict, list)):
-                mapping[path] = "value"
-                return v
-            mapping[path] = "null"
-            return None
-        return node
-
-    if not isinstance(tpl, dict) or not tpl:
-        return {}, mapping
-    return {k: leaf(k, v, k) for k, v in tpl.items()}, mapping
-
-
-def finalize(ctx, status=None):
-    res, out = ctx["res"], Path(ctx["out"])
-    if status:
-        res["status"] = status
-    if ctx.get("case_id"):
-        res["case_id"] = ctx["case_id"]
-    if not res.get("uncertainties"):
-        res["uncertainties"] = [{"type": "scope",
-                                 "detail": "automated facet pass; ambiguous values await human confirmation"}]
-    if not res.get("evidence_index"):
-        res["evidence_index"] = [{"source_id": (s or {}).get("file"), "locator": (s or {}).get("file"),
-                                  "quote": "source file recorded in the inventory", "verified": True}
-                                 for s in (res.get("sources") or [])[:8]] or [
-            {"source_id": "input", "locator": "input", "quote": "input directory scanned", "verified": True}]
-    tpl = dict((ctx.get("case") or {}).get("output_contract") or {})
-    for k in DEFAULT_CONTRACT:
-        tpl.setdefault(k, "string")
-    filled, mapping = fill_contract(tpl, res)
-    res["contract_fields"], res["contract_mapping"], res["output_contract"] = filled, mapping, filled
-    for k, v in filled.items():
-        if k not in ("case_id", "status", "errors", "degradations"):
-            res[k] = v
-    C.wjson(out / "result.json", clean_obj(res))
-
-
-# ------------------------------------------------------------------ discovery
-def build_index(ctx):
-    ind, case, spec = Path(ctx["ind"]), ctx["case"], ctx["spec"]
-    files = C.scan_root(ind, spec)
-    comps = []
-    for f in files:
-        meta, msrc = C.meta_of(f["text"], spec)
-        mk = C.markers_of(f["text"], spec)
-        fac, fsrc, kw = C.facets_of(f["text"], meta, mk, spec, f["text_layer"], f["file"], f["magic"])
-        for src_set in (fsrc, msrc):
-            for v in src_set.values():
-                if isinstance(v, dict) and v.get("locator") and "#" not in str(v["locator"]):
-                    v["locator"] = "%s#%s" % (f["file"], v["locator"])
-        fac["project"] = project_of(f["file"], case)
-        f.update(meta=meta, meta_src=msrc, markers=mk, facets=fac, cand_src=fsrc, kw=kw, notes=[])
-        suf = Path(f["file"]).suffix.lower()
-        if suf in C.COMP_EXT or (f["magic"] == "text" and suf in (".txt", ".md", ".note", ".notes", ".log")):
-            rows = C.companion_rows(ind / f["file"], f["file"], spec)
-            if rows:
-                comps.append({"file": f["file"], "rows": rows})
-                f["_companion"] = True
-    docs = [f for f in files if not f.get("_companion")]
-    by_name = {Path(f["file"]).name.lower(): f for f in docs}
-    for c in comps:
-        for row in c["rows"]:
-            fn = Path((row.get("file") or "").strip()).name.lower()
-            target = by_name.get(fn)
-            if target is None and row.get("title"):
-                tk = set(C.toks(row["title"])[:8])
-                for f in docs:
-                    ft = set(C.toks(f["meta"].get("title") or "")[:12])
-                    if tk and len(tk & ft) >= max(3, int(0.6 * len(tk))):
-                        target = f
-                        break
-            if target is None:
-                continue
-            for key, mkey in (("title", "title"), ("year", "year"), ("doi", "identifier"), ("venue", "venue")):
-                val = row.get(key)
-                if not val or target["meta"].get(mkey):
-                    continue
-                if key == "year":
-                    try:
-                        val = int(str(val)[:4])
-                    except ValueError:
-                        continue
-                target["meta"][mkey] = val
-                if mkey in ("identifier", "year") and not C.filled(target["facets"].get(mkey)):
-                    target["facets"][mkey] = val
-                target["meta_src"][mkey] = {"locator": row["_locator"], "quote": (row.get("_text") or "")[:200]}
-                if mkey in ("identifier", "year"):
-                    target["cand_src"].setdefault(mkey, target["meta_src"][mkey])
-            if row.get("authors") and not target["meta"].get("first_author"):
-                target["meta"]["first_author"] = C.norm(row["authors"]).split(",")[0].strip()
-                target["meta_src"]["first_author"] = {"locator": row["_locator"], "quote": (row.get("_text") or "")[:200]}
-            if row.get("version_note"):
-                target["notes"].append({"locator": row["_locator"], "quote": row["version_note"][:400]})
-            vsn = C.tol(row.get("venue") or "") + " " + C.tol(row.get("version_note") or "")
-            if target["facets"].get("doc_type") in (None, "unknown", "scan", "") and any(
-                    k in vsn for k in ("thesis", "dissertation", "学位论文", "博士论文", "硕士论文")):
-                target["facets"]["doc_type"] = "thesis"
-                target["cand_src"]["doc_type"] = {"locator": row["_locator"], "quote": (row.get("_text") or "")[:200]}
-            if row.get("doc_type") and not C.filled(target["facets"].get("doc_type")):
-                target["facets"]["doc_type"] = row["doc_type"]
-                target["cand_src"]["doc_type"] = {"locator": row["_locator"], "quote": (row.get("_text") or "")[:200]}
-    return {"tool": TOOL, "version": VERSION, "input_root": str(ind), "spec": spec, "files": files,
-            "companions": comps, "pairs": C.pairs_of(docs, spec), "texts": C.build_texts(files, comps),
-            "case": {"case_id": case.get("case_id"),
-                     "contract_keys": sorted((case.get("output_contract") or {}).keys())
-                     if isinstance(case.get("output_contract"), dict) else [],
-                     "instruction": C.norm(case.get("task_instruction") or case.get("task")
-                                           or case.get("instruction") or "")[:2000],
-                     "config_overrides": ctx["overrides"]}}
-
-
-def project_of(rel, case):
-    pm = case.get("project_map") if isinstance(case, dict) else None
-    if isinstance(pm, dict):
-        for k, v in sorted(pm.items()):
-            if k and str(k) in rel:
-                return v
-    parts = [p for p in rel.split("/") if p]
-    generic = {"library", "files", "file", "artifacts", "artifact", "materials", "material", "input", "data",
-               "attachments", "docs", "documents", "papers", "文献", "资料"}
-    if len(parts) > 1:
-        if parts[0].lower() in generic:
-            return parts[1] if len(parts) > 2 else ((case.get("project") if isinstance(case, dict) else None)
-                                                   or "_unassigned")
-        return parts[0]
-    return (case.get("project") if isinstance(case, dict) else None) or "_unassigned"
-
-
-def load_index(ctx):
-    p = Path(ctx["work"]) / "index.json"
-    if p.exists():
-        o, err = C.ljson(p)
-        if isinstance(o, dict) and o.get("files") is not None:
-            o["spec"] = ctx["spec"]  # always use the freshly loaded spec (incl. case overrides)
-            return o
-    idx = build_index(ctx)
-    C.wjson(p, idx)
+def run_init(inp, work, out, args, quiet=False):
+    errs, degr = [], []
+    case, cerr = C.load_case(inp)
+    if cerr:
+        errs.append({"stage": "case", "detail": cerr})
+        degr.append("case.json missing or invalid -> output_contract empty, envelope still written")
+    keys = C.contract_keys(case)
+    rules = C.extract_rules(case)
+    root, rdegr = C.material_root(case, inp)
+    if rdegr:
+        degr.append(rdegr)
+    if not (Path(inp) / "task.md").is_file():
+        degr.append("task.md not present in %s (task instruction read from case.json only)" % inp)
+    recs, d2, e2 = L.build_records(root, args.max_files, args.max_depth) if OK else ([], [], [])
+    degr.extend(d2)
+    errs.extend(e2)
+    hits = L.apply_companion_tables(recs) if recs else 0
+    if hits:
+        degr.append("%d document(s) enriched from companion metadata tables" % hits)
+    for r in recs:
+        if r["text_quality"] in ("encrypted", "no_text_layer", "corrupt", "unreadable_encoding"):
+            degr.append("%s: text layer %s -> classified from file name/metadata only"
+                        % (r["rel"], r["text_quality"]))
+    idx = {"case_id": case.get("case_id") or case.get("id"), "contract_keys": keys, "rules": rules,
+           "material_root": str(root), "recs": recs,
+           "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "limits": {"max_files": args.max_files, "max_depth": args.max_depth},
+           "task_instruction": str(case.get("task_instruction") or case.get("instruction") or "")[:4000]}
+    C.save_index(work, idx)
+    skel = {"_instructions": [
+        "Copy to draft.json, then replace the empty/auto fields with your own judgement.",
+        "classification[].basis must be a locator printed by `show`; quote must be verbatim from it.",
+        "Never invent authors/year/journal/doi: leave null and explain in notes.",
+        "Files that cannot be used go to skipped[] with a reason code from references/rules-and-templates.md.",
+        "Answer every question listed by `show` in answers[] with basis+quote."],
+        "case_id": idx["case_id"],
+        "classification": [{"path": r["rel"], "doc_id": r["doc_id"], "class_path": r["auto"]["class_path"],
+                            "doc_type": r["auto"]["doc_type"], "tags": r["auto"]["tags"],
+                            "basis": r["auto"]["basis"], "quote": "", "metadata": r["auto"]["metadata"],
+                            "confidence": "low", "notes": ""} for r in recs],
+        "renames": [], "dedupe": [], "versions": [], "skipped": [], "answers": [], "notes": ""}
+    C.dump_json(work / "draft.skeleton.json", skel)
+    status = "partial" if recs else "failed"
+    result = {"inventory": C.cap([C.inv_row(r) for r in recs]), "classification": [], "renames": [],
+              "duplicates": [], "versions": [], "operations": [], "skipped": [], "answers": [],
+              "coverage": {"files_expected": len(recs), "files_processed": 0, "skipped": 0,
+                           "classified": 0, "metadata_fields_filled": 0, "metadata_fields_missing": 0},
+              "tree": [], "target_root": None}
+    doc = C.envelope(idx["case_id"], status, result, keys, errs, degr,
+                     ["classification judgement not written yet; run show then write /app/work/draft.json"],
+                     [{"id": r["doc_id"], "path": r["rel"], "locator": "file:%s" % r["rel"],
+                       "sha256": r["sha256"], "text_quality": r["text_quality"]} for r in recs[:60]],
+                     "inventory and hashes come from a bounded scan; classification, tags and version "
+                     "relations need Agent judgement in the work draft",
+                     [{"action": "init", "detail": "%d files indexed under %s" % (len(recs), root)}])
+    C.write_result(out, doc)
+    if not quiet:
+        print(json.dumps({"ok": True, "command": "init", "case_id": idx["case_id"], "files": len(recs),
+                          "material_root": str(root), "contract_keys": keys,
+                          "naming_template": rules["naming_template"], "questions": len(rules["questions"]),
+                          "declared_manifest": len(rules["declared"]),
+                          "index": str(C.index_path(work)), "skeleton": str(work / "draft.skeleton.json"),
+                          "result": str(out / "result.json"), "kernel": "ok" if OK else LIBERR},
+                         ensure_ascii=False, indent=1))
     return idx
 
 
-def load_draft(ctx):
-    p = Path(ctx["work"]) / "draft.json"
-    if not p.exists():
-        return {}, "draft_missing"
-    o, err = C.ljson(p)
-    if not isinstance(o, dict):
-        return {}, "draft_invalid: %s" % (err or "not an object")
-    return o, None
+def cmd_show(args):
+    inp, work, out = C.paths(args)
+    idx = C.load_index(work)[0]
+    if not idx:
+        idx = run_init(inp, work, out, args, quiet=True)
+    rules = idx.get("rules") or {}
+    recs = idx.get("recs") or []
+    print("CASE: %s" % idx.get("case_id"))
+    print("CONTRACT KEYS: %s" % (", ".join(idx.get("contract_keys") or []) or "(none declared)"))
+    print("MATERIAL ROOT: %s   FILES: %d" % (idx.get("material_root"), len(recs)))
+    print("NAMING TEMPLATE: %s   (default {first_author}-{year}-{title_short})"
+          % (rules.get("naming_template") or "default"))
+    print("TARGET ROOT: %s" % (rules.get("target_root") or "/app/work/library (default)"))
+    if idx.get("task_instruction"):
+        print("TASK INSTRUCTION (case.json): %s" % idx["task_instruction"][:600])
+    if rules.get("declared"):
+        d = rules["declared"]
+        print("DECLARED MANIFEST: %d entries, e.g. %s" % (len(d), ", ".join(d[:5])))
+    if rules.get("questions"):
+        print("\nQUESTIONS FROM case.json (answer each in draft.answers[] with basis+quote):")
+        for q in rules["questions"][:20]:
+            print("  [%s] %s" % (q["question_id"], q["question"][:300]))
+    notes = [r for r in recs if r["kind"] in ("admin_note", "metadata_table")]
+    if notes:
+        print("\nADMIN NOTES / METADATA TABLES (cite as note:<path>#L<line>):")
+        for n in notes[:6]:
+            print("  [note] %s  (%d lines, quality=%s)" % (n["rel"], len(n.get("lines") or []), n["text_quality"]))
+            for i, line in enumerate((n.get("lines") or [])[:args.note_lines]):
+                if line.strip():
+                    print("    note:%s#L%d  %s" % (n["rel"], i + 1, line.strip()[:220]))
+    lim = max(1, args.show_limit)
+    print("\nOBJECTS (first %d of %d; these locators are safe to quote):" % (min(lim, len(recs)), len(recs)))
+    for r in recs[:lim]:
+        meta = r.get("meta") or {}
+        print("\n[%s] file:%s | text:%s#p1" % (r["doc_id"], r["rel"], r["rel"]))
+        print("     %d bytes | sha256 %s | perm %s | readable=%s | text=%s"
+              % (r["size"], (r["sha256"] or "")[:16] + "...", r["permission"], r["readable"], r["text_quality"]))
+        print("     kind=%s  doc_type=%s (%s)" % (r["kind"], r.get("doc_type"), r.get("doc_type_rule")))
+        bits = ["%s=%r (%s,%s)" % (f, str(meta[f]["value"])[:90], meta[f].get("locator"), meta[f].get("confidence"))
+                for f in ("title", "authors", "year", "journal", "doi", "arxiv_id")
+                if f in meta and meta[f].get("value")]
+        print("     meta: " + (" | ".join(bits) if bits else "(no sourced metadata)"))
+        if "title_name_only" in meta:
+            print("     note: title only from file name -> %r (unverified)" % str(meta["title_name_only"]["value"])[:90])
+        missing = [f for f in ("title", "authors", "year", "journal", "doi") if not (meta.get(f) or {}).get("value")]
+        if missing:
+            print("     meta missing: %s (keep null, do not invent)" % ",".join(missing))
+        print("     auto: class_path=%s tags=%s" % (r["auto"]["class_path"], r["auto"]["tags"]))
+        if r.get("pages"):
+            print("     head: %r" % r["pages"][0][:args.head])
+        else:
+            print("     head: (no text layer: %s)" % r["text_quality"])
+    if len(recs) > lim:
+        print("\nREMAINING (one line each):")
+        for r in recs[lim:lim + 60]:
+            print("  [%s] %s | %s | %s | auto=%s" % (r["doc_id"], r["rel"], (r["sha256"] or "")[:8],
+                                                     r.get("doc_type"), r["auto"]["class_path"]))
+        if len(recs) > lim + 60:
+            print("  ... %d more files (full list in /app/work/index.json)" % (len(recs) - lim - 60))
+    print("\nNEXT: write %s then run `check`, then `build`." % (work / "draft.json"))
+    print("The script does not read for you: classification, tags, version relations and answers must "
+          "come from the material above.")
+    return 0
 
 
-# ------------------------------------------------------------------ commands
-def cmd_init(ctx):
-    res, case = ctx["res"], ctx["case"]
-    if not Path(ctx["ind"]).exists():
-        res["degradations"].append({"stage": "init", "code": "input_missing", "detail": str(ctx["ind"])})
-    idx = build_index(ctx)
-    C.wjson(Path(ctx["work"]) / "index.json", idx)
-    docs = [f for f in idx["files"] if not f.get("_companion")]
-    layers = {}
-    for f in idx["files"]:
-        layers[f["text_layer"]] = layers.get(f["text_layer"], 0) + 1
-    res["sources"] = [{"file": f["file"], "sha256": f["sha256"], "size": f["size"], "magic": f["magic"],
-                       "text_layer": f["text_layer"]} for f in idx["files"]]
-    res["result"] = {"stats": {"files": len(idx["files"]), "documents": len(docs),
-                               "companions": len(idx["companions"]), "candidate_pairs": len(idx["pairs"]),
-                               "text_layers": layers}}
-    res["method_notes"] = [
-        "面元目录四层：facet schema -> entries -> reconciliation -> views；目录树与文件名是视图，不是主流程",
-        "面元值必须带 locator+quote；取不到写 null 并进 unresolved，不编造 DOI/作者/年份"]
-    if not docs:
-        res["degradations"].append({"stage": "init", "code": "no_materials", "detail": "扫描后无可登记文件"})
-    finalize(ctx, "partial" if docs else "failed")
-    print("[init] input=%s files=%d docs=%d companions=%d pairs=%d layers=%s"
-          % (ctx["ind"], len(idx["files"]), len(docs), len(idx["companions"]), len(idx["pairs"]), layers))
-    print("[init] partial -> %s" % (Path(ctx["out"]) / "result.json"))
-    print("[init] index -> %s\n[init] next: main.py show" % (Path(ctx["work"]) / "index.json"))
+def resolve_locator(recs, loc, rec=None):
+    if not loc or ":" not in str(loc):
+        return None, ""
+    kind, _, rest = str(loc).partition(":")
+    path, _, frag = rest.partition("#")
+    target = L.find_rec(recs, path) or rec
+    if not target:
+        return None, ""
+    if kind == "file":
+        return True, " ".join([target["rel"], target["name"]])
+    if kind in ("text", "note"):
+        if frag.startswith("L"):
+            try:
+                i = int(re.sub(r"\D", "", frag) or "1") - 1
+            except ValueError:
+                return None, ""
+            lines = target.get("lines") or []
+            return (True, lines[i]) if 0 <= i < len(lines) else (None, "")
+        pages = target.get("pages") or []
+        if not pages:
+            return None, ""
+        m = re.search(r"p(\d+)", frag)
+        n = int(m.group(1)) - 1 if m else 0
+        return True, pages[min(max(n, 0), len(pages) - 1)]
+    if kind == "meta":
+        val = (target.get("meta") or {}).get(frag.strip())
+        return (True, str(val.get("value"))) if val else (None, "")
+    return None, ""
 
 
-def cmd_show(ctx, limit):
-    idx = load_index(ctx)
-    docs = [f for f in idx["files"] if not f.get("_companion")]
-    print("== 索引摘要 ==\ninput : %s\nfiles : %d (documents %d, companions %d)\ncase  : %s\ncontract: %s\noverrides: %s"
-          % (idx["input_root"], len(idx["files"]), len(docs), len(idx["companions"]), idx["case"].get("case_id"),
-             ", ".join(idx["case"].get("contract_keys") or []) or "(none)",
-             ", ".join(idx["case"].get("config_overrides") or []) or "(none)"))
-    print("\n== 文件清单（locator 形如 file#c1234，file 可直接用）==")
-    for i, f in enumerate(sorted(docs, key=lambda x: x["file"])[:limit], 1):
-        print("\n[F%02d] %s | %d B | sha=%s | %s | text_layer=%s"
-              % (i, f["file"], f["size"], (f["sha256"] or "")[:16], f["magic"], f["text_layer"]))
-        for k in ("title", "authors", "year", "venue", "identifier"):
-            v = f["meta"].get(k)
-            if v in (None, "", []):
-                continue
-            loc = (f["meta_src"].get(k) or {}).get("locator") or ""
-            txt = C.norm(v if not isinstance(v, list) else ", ".join(v))[:110]
-            print("      meta: %s=\"%s\" [%s]" % (k, txt, C.where(loc, f["file"])))
-        for k in ("doc_type", "version_state", "source_type"):
-            if f["cand_src"].get(k):
-                print("      cand: %s=%s <- \"%s\" [%s]"
-                      % (k, f["facets"].get(k), C.norm(f["cand_src"][k].get("quote"))[:90],
-                         C.where(f["cand_src"][k].get("locator"), f["file"])))
-        for nt in (f.get("notes") or [])[:3]:
-            print("      note: \"%s\" [%s]" % (C.norm(nt["quote"])[:120], nt["locator"]))
-        ex = C.norm(f["text"])[:280]
-        print("      excerpt: \"%s\"" % ex if ex else "      excerpt: (no text layer)")
-        miss = [x["facet"] for x in (idx["spec"].get("facets") or [])
-                if not C.filled((f.get("facets") or {}).get(x.get("facet")))]
-        print("      unresolved: %s" % (", ".join(miss) or "none"))
-    if len(docs) > limit:
-        print("\n... %d more files (use --limit)" % (len(docs) - limit))
-    print("\n== 疑似重复 / 版本候选对（逐对裁决）==")
-    for p in idx["pairs"]:
-        print("[%s] %s | hint=%s basis=%s\n      evidence: \"%s\" [%s]\n      reason: %s"
-              % (p["pair_id"], " , ".join(p["files"]), p["relation_hint"], p["basis_hint"],
-                 C.norm(p["evidence_quote"])[:110], p["evidence_locator"], p["reason"]))
-    if not idx["pairs"]:
-        print("(none detected)")
-    if idx["companions"]:
-        print("\n== 伴随元数据 / 版本说明 ==")
-        for c in idx["companions"]:
-            for row in (c["rows"] or [])[:8]:
-                print("  %s :: %s" % (row["_locator"], C.norm(row.get("_text"))[:160]))
-    print("\n下一步：写 %s（schema 见 SKILL.md §6），再运行 check。" % (Path(ctx["work"]) / "draft.json"))
+def tag_present(tag, text):
+    """A tag counts as evidenced by a literal hit, a >=5-char stem hit, or a lexicon surface form."""
+    t = str(tag).lower().strip()
+    if not t:
+        return True
+    if T.hit_level(t, text) != "none":
+        return True
+    hay = (text or "").lower()
+    for k in range(min(len(t), 9), 4, -1):
+        if t[:k] in hay:
+            return True
+    for form in L.TOPIC_LEXICON.get(t, []) or []:
+        if form.lower().strip("\\b") in hay:
+            return True
+    return False
 
 
-def cmd_check(ctx):
-    idx = load_index(ctx)
-    draft, derr = load_draft(ctx)
-    res, case = ctx["res"], ctx["case"]
-    errs, warns = [], []
-    if derr:
-        warns.append({"code": "W00", "detail": "draft %s —— 先写 draft.json 才有可校验的判断" % derr})
-    if draft.get("case_id") and case.get("case_id") and draft["case_id"] != case["case_id"]:
-        errs.append({"code": "E01", "detail": "draft.case_id=%r != case.json %r" % (draft["case_id"], case["case_id"])})
-    schema, origin = C.schema_of(draft, idx["spec"])
-    for fc in schema:
-        if not fc.get("definition"):
-            errs.append({"code": "E09", "detail": "facet %s 缺 definition（可判定标准）" % fc.get("facet")})
-    docs = [f for f in idx["files"] if not f.get("_companion")]
-    known = {f["file"] for f in docs}
-    got = [C.norm(e["file"]).lstrip("./").replace("\\", "/") for e in (draft.get("entries") or [])
-           if isinstance(e, dict) and e.get("file")]
-    for k in sorted(set(got) - known):
-        errs.append({"code": "E03", "detail": "条目引用了不存在的文件: %s" % k})
-    for d in sorted({x for x in got if got.count(x) > 1}):
-        errs.append({"code": "E03", "detail": "重复条目: %s" % d})
-    missing = sorted(known - set(got))
+def evidence_text(rec, qt):
+    return (qt or "") + "\n" + "\n".join(rec.get("pages") or [])
+
+
+def cmd_check(args):
+    inp, work, out = C.paths(args)
+    idx = C.load_index(work)[0]
+    if not idx:
+        idx = run_init(inp, work, out, args, quiet=True)
+    recs = idx.get("recs") or []
+    draft, dname, derr = B.load_draft(work)
+    issues = []
+
+    def add(level, code, path, detail):
+        issues.append({"level": level, "code": code, "path": path, "detail": detail})
+
+    if draft is None:
+        add("FIX", "draft_missing", None, "no readable draft: %s" % derr)
+        return finish_check(work, issues, 0)
+    for key in ("classification", "renames", "dedupe", "versions", "skipped", "answers"):
+        v = draft.get(key)
+        if v is not None and not isinstance(v, list):
+            add("FIX", "schema_type", key, "%s must be a list" % key)
+    cls = [e for e in draft.get("classification") or [] if isinstance(e, dict)]
+    covered = set()
+    for e in cls:
+        rec = L.find_rec(recs, e.get("path"))
+        if not rec:
+            add("FIX", "unknown_path", str(e.get("path")), "path is not in the index; use a locator from show")
+            continue
+        covered.add(rec["rel"])
+        cp = str(e.get("class_path") or "").strip()
+        if not cp:
+            add("FIX", "class_path_missing", rec["rel"], "every entry needs a class_path")
+        elif re.search(r"\s", cp):
+            add("WARN", "class_path_shape", rec["rel"], "use <doc_type>/<year>/<topic> without spaces: %r" % cp)
+        if not (e.get("tags") or []):
+            add("WARN", "tags_empty", rec["rel"], "no tag assigned; tags drive retrieval")
+        basis = str(e.get("basis") or "")
+        qt = ""
+        if not basis:
+            add("FIX", "basis_missing", rec["rel"], "basis locator required (file:/text:/note:/meta:)")
+        else:
+            ok, qt = resolve_locator(recs, basis, rec)
+            if not ok:
+                add("FIX", "locator_unresolved", rec["rel"], "locator not resolvable: %s" % basis)
+            else:
+                quote = str(e.get("quote") or "")
+                if not quote:
+                    add("WARN", "quote_missing", rec["rel"], "no verbatim quote for the assignment basis")
+                else:
+                    lvl = T.hit_level(quote, qt)
+                    if lvl == "none":
+                        add("FIX", "quote_not_found", rec["rel"], "quote not found at %s: %r" % (basis, quote[:90]))
+                    elif lvl == "fuzzy":
+                        add("WARN", "quote_fuzzy", rec["rel"], "quote only fuzzy-matches the locator text")
+                for tag in (e.get("tags") or [])[:8]:
+                    if not tag_present(tag, qt):
+                        add("WARN", "tag_unverified", rec["rel"],
+                            "tag %r has no surface form at %s" % (str(tag), basis))
+        meta = e.get("metadata") if isinstance(e.get("metadata"), dict) else {}
+        doi = meta.get("doi")
+        if doi:
+            if not re.match(r"^10\.\d{4,9}/", str(doi)):
+                add("FIX", "doi_malformed", rec["rel"], "doi does not parse: %r" % doi)
+            elif T.hit_level(str(doi), evidence_text(rec, qt)) == "none":
+                add("FIX", "doi_not_in_evidence", rec["rel"], "doi %r absent from %s (possible fabrication)"
+                    % (doi, basis))
+        year = meta.get("year")
+        if year is not None and str(year) != "":
+            if not re.search(r"(19|20)\d{2}", str(year)):
+                add("WARN", "year_shape", rec["rel"], "year %r is not a 4-digit year" % year)
+            elif T.hit_level(str(year), evidence_text(rec, qt)) == "none":
+                add("WARN", "year_not_in_evidence", rec["rel"], "year %r absent from the quoted evidence" % year)
+    skipped_paths = {str(s.get("path")) for s in (draft.get("skipped") or []) if isinstance(s, dict)}
+    missing = [r["rel"] for r in recs if r["rel"] not in covered and r["rel"] not in skipped_paths]
     if missing:
-        errs.append({"code": "E02", "detail": "未登记文件 %d 个: %s" % (len(missing), ", ".join(missing[:8]))})
-    fcmap = {fc["facet"]: fc for fc in schema}
-    total = hit = 0
-    for e in draft.get("entries") or []:
+        add("FIX", "coverage_gap", None, "%d file(s) neither classified nor skipped: %s"
+            % (len(missing), ", ".join(missing[:8])))
+    seen = {}
+    for e in draft.get("renames") or []:
         if not isinstance(e, dict):
             continue
-        f = C.norm(e.get("file") or "").lstrip("./").replace("\\", "/")
-        real = next((x["sha256"] for x in docs if x["file"] == f), None)
-        if e.get("sha256") and real and e["sha256"] != real:
-            errs.append({"code": "E04", "detail": "%s sha256 不符（索引值 %s…）" % (f, real[:12])})
-        for k, v in (e.get("facets") or {}).items():
-            if k not in fcmap:
-                warns.append({"code": "W06", "detail": "%s 的面元 %s 不在 schema 内" % (f, k)})
-                continue
-            if not C.valid_value(fcmap[k], v):
-                errs.append({"code": "E06", "detail": "%s 面元 %s=%r 不在 allowed_values/pattern 内" % (f, k, v)})
-            if C.filled(v):
-                s = (e.get("field_sources") or {}).get(k) or {}
-                ok, scope = C.evidence_ok(fcmap[k], v, s, idx["texts"], f)
-                if scope in ("path", "judgment"):
-                    continue
-                total += 1
-                hit += 1 if ok else 0
-                if not ok:
-                    errs.append({"code": "E05", "detail": "%s 面元 %s 的 quote 未命中 %s (scope=%s)"
-                                 % (f, k, s.get("locator"), scope)})
-    rel_ok = set((idx["spec"].get("reconciliation") or {}).get("relations") or [])
-    dec_ok = set((idx["spec"].get("reconciliation") or {}).get("decisions") or [])
-    bas_ok = set((idx["spec"].get("reconciliation") or {}).get("bases") or [])
-    decided = set()
-    for d in draft.get("reconciliation") or []:
-        fs = tuple(sorted(C.norm(x).lstrip("./") for x in (d.get("files") or [])))
-        if fs:
-            decided.add(fs)
-        for fld, ok_set in (("relation", rel_ok), ("decision", dec_ok), ("basis", bas_ok)):
-            if d.get(fld) not in ok_set:
-                errs.append({"code": "E07", "detail": "对账 %s 的 %s=%r 不在 %s 内"
-                             % (list(fs)[:2], fld, d.get(fld), sorted(ok_set))})
-        if not d.get("evidence_locator") or not d.get("rollback_action"):
-            errs.append({"code": "E07", "detail": "对账 %s 缺 evidence_locator/rollback_action" % (list(fs)[:2],)})
-    for p in idx["pairs"]:
-        if tuple(sorted(p["files"])) not in decided:
-            errs.append({"code": "E08", "detail": "候选对未裁决: %s (%s/%s)"
-                         % (" , ".join(p["files"]), p["relation_hint"], p["basis_hint"])})
-    tpl = draft.get("naming_template") or (idx["spec"].get("naming") or {}).get("template")
-    ph = set(re.findall(r"\{(\w+)\}", tpl or ""))
-    if not ph:
-        errs.append({"code": "E10", "detail": "命名模板缺失或没有占位符"})
-    elif not ph <= PH:
-        errs.append({"code": "E10", "detail": "未知占位符: %s" % sorted(ph - PH)})
-    elif not ph & {"first_author", "short_title", "identifier_tail", "original_stem"}:
-        errs.append({"code": "E10", "detail": "模板需含 first_author/short_title/identifier_tail 之一"})
-    if not (case.get("output_contract") or {}):
-        warns.append({"code": "W11", "detail": "case.json 无 output_contract，build 只写信封字段"})
-    rep = {"draft_status": derr or "ok", "schema_origin": origin, "files_indexed": len(docs),
-           "entries_in_draft": len(got), "missing_files": missing, "quote_total": total, "quote_hit": hit,
-           "quote_hit_rate": round(hit / max(1, total), 4), "pairs_detected": len(idx["pairs"]),
-           "pairs_decided": len(decided), "errors": errs, "warnings": warns}
-    C.wjson(Path(ctx["work"]) / "check_report.json", rep)
-    print("[check] schema=%s entries=%d/%d quote=%d/%d pairs=%d/%d err=%d warn=%d"
-          % (origin, len(got), len(docs), hit, max(1, total), len(decided), len(idx["pairs"]), len(errs), len(warns)))
-    for e in errs[:30]:
-        print("  %s %s" % (e["code"], e["detail"]))
-    for w in warns[:10]:
-        print("  %s %s" % (w["code"], w["detail"]))
-    print("  结论：%s" % ("可 build。" if not errs else "先修 draft.json（见 §7）；build 会兜底出 partial"))
-    res["result"] = {"check": rep}
-    res["degradations"] = [d for d in res["degradations"] if d.get("stage") != "check"]
-    if derr:
-        res["degradations"].append({"stage": "check", "code": derr.split(":")[0], "detail": derr})
-    prev, _ = C.ljson(Path(ctx["out"]) / "result.json")
-    if isinstance(prev, dict) and prev.get("result", {}).get("entries"):
-        prev.setdefault("result", {})["check"] = rep            # keep the built result, add the check
-        prev["degradations"] = (prev.get("degradations") or []) + res["degradations"]
-        C.wjson(Path(ctx["out"]) / "result.json", prev)
-    else:
-        finalize(ctx, "partial")
+        to = str(e.get("to") or "")
+        if not to:
+            add("FIX", "rename_empty", str(e.get("from")), "rename target empty")
+            continue
+        if re.search(r'[\\/:*?"<>|]', to):
+            add("FIX", "rename_illegal_char", to, "contains a reserved file-name character")
+        if len(to) > 180:
+            add("WARN", "rename_too_long", to, "%d chars; truncate the title segment" % len(to))
+        if not os.path.splitext(to)[1]:
+            add("WARN", "rename_no_ext", to, "extension dropped")
+        if to.lower() in seen:
+            add("WARN", "rename_collision", to, "same target name as %s" % seen[to.lower()])
+        seen[to.lower()] = str(e.get("from"))
+        if e.get("template") and not e.get("degradation") and e.get("to"):
+            rec = L.find_rec(recs, e.get("from"))
+            if rec and not all((rec.get("meta") or {}).get(f) for f in ("title", "year")):
+                add("WARN", "degradation_undocumented", str(e.get("from")),
+                    "template used with missing metadata but no degradation record")
+    by_sha = {r["sha256"] for r in recs if r.get("sha256")}
+    for g in draft.get("dedupe") or []:
+        if not isinstance(g, dict):
+            continue
+        sha = g.get("sha256")
+        if sha and sha not in by_sha:
+            add("FIX", "dedupe_hash_unknown", str(g.get("keep")), "sha256 not present in the index")
+        for p in (g.get("archive") or []):
+            rec = L.find_rec(recs, p)
+            if not rec:
+                add("FIX", "dedupe_member_unknown", str(p), "archived member not in the index")
+            elif sha and rec["sha256"] != sha:
+                add("FIX", "dedupe_hash_mismatch", rec["rel"], "member hash differs from the group hash")
+    for c in draft.get("versions") or []:
+        if not isinstance(c, dict):
+            continue
+        if c.get("relationship") not in L.RELATIONSHIPS:
+            add("FIX", "relationship_enum", str(c.get("chain_id")),
+                "relationship %r not in %s" % (c.get("relationship"), list(L.RELATIONSHIPS)))
+        if len(c.get("members") or []) < 2:
+            add("FIX", "chain_too_small", str(c.get("chain_id")), "a version chain needs >= 2 members")
+        ev = str(c.get("evidence") or "")
+        if c.get("relationship") in ("preprint", "accepted", "published", "supplement", "revision") and not ev:
+            add("FIX", "chain_evidence_missing", str(c.get("chain_id")),
+                "relationship claimed without an evidence locator")
+        if ev.startswith("note:"):
+            ok, qt = resolve_locator(recs, ev)
+            if not ok:
+                add("FIX", "chain_locator_unresolved", ev, "evidence locator not found")
+            elif c.get("quote") and T.hit_level(str(c.get("quote")), qt) == "none":
+                add("FIX", "chain_quote_not_found", ev, "quote absent from the cited note line")
+    answered = {str(a.get("question_id")) for a in (draft.get("answers") or []) if isinstance(a, dict)}
+    for q in ((idx.get("rules") or {}).get("questions") or []):
+        if q["question_id"] not in answered:
+            add("FIX", "question_unanswered", q["question_id"], q["question"][:120])
+    for s in draft.get("skipped") or []:
+        if isinstance(s, dict) and str(s.get("reason") or "") not in L.SKIP_CODES:
+            add("WARN", "skip_reason_unknown", str(s.get("path")), "reason %r not in the reason table"
+                % str(s.get("reason")))
+    return finish_check(work, issues, len(recs))
 
 
-# ------------------------------------------------------------------ all
-def cmd_all(ctx):
-    """One-shot pipeline: index then build (no draft needed)."""
-    cmd_init(ctx)
-    ctx["idx"] = load_index(ctx)
-    ctx["draft"], ctx["draft_err"] = load_draft(ctx)
-    import build_core
-    build_core.cmd_build(ctx, {"no_materialize": True})
+def finish_check(work, issues, n_files):
+    fix = [i for i in issues if i["level"] == "FIX"]
+    warn = [i for i in issues if i["level"] == "WARN"]
+    rep = {"files": n_files, "issues": len(issues), "FIX": len(fix), "WARN": len(warn),
+           "verdict": "ready_for_build" if not fix else "fix_before_build", "items": issues[:120]}
+    C.dump_json(work / "check_report.json", rep)
+    print("check: %d file(s) indexed, FIX=%d WARN=%d -> %s" % (n_files, len(fix), len(warn), rep["verdict"]))
+    for i in issues[:40]:
+        print("  [%s] %-22s %s :: %s" % (i["level"], i["code"], i["path"], i["detail"]))
+    if len(issues) > 40:
+        print("  ... %d more in %s" % (len(issues) - 40, work / "check_report.json"))
+    print("report: %s" % (work / "check_report.json"))
+    return rep
 
 
-# ------------------------------------------------------------------ main
-def main(argv=None):
-    ap = argparse.ArgumentParser(prog="main.py", description="facet-catalog-curator: 文献资料自动分类（面元目录）")
-    ap.add_argument("cmd", choices=["all", "init", "show", "check", "build", "selfcheck"],
-                    help="主路径 init->show->写 draft.json->check->build->selfcheck")
-    ap.add_argument("--input", help="输入根（默认 /input）")
-    ap.add_argument("--work", help="工作目录（默认 /app/work）")
-    ap.add_argument("--output", help="输出目录（默认 /app/output）")
-    ap.add_argument("--limit", type=int, default=30, help="show 打印的文件条数")
-    ap.add_argument("--no-materialize", action="store_true", help="build 只出清单与视图，不复制文件")
-    a = ap.parse_args(argv)
-    t0 = time.time()
-    ind, work, out = C.roots(a)
-    case, cerr, _ = C.read_case(ind) if ind.exists() else ({}, "case_json_missing", None)
-    spec, overrides, spec_err = C.load_spec(case)
-    res = C.envelope(case, ind, out)
-    ctx = {"ind": ind, "work": work, "out": out, "case": case, "spec": spec, "res": res,
-           "overrides": overrides, "case_id": case.get("case_id"), "cmd": a.cmd, "finalize": finalize, "load_index": load_index}
-    res["runtime"]["command"] = a.cmd
-    if cerr:
-        res["degradations"].append({"stage": "init", "code": "case_json_missing" if cerr == "case_json_missing"
-                                    else "case_json_invalid", "detail": cerr})
-    if spec_err:
-        res["degradations"].append({"stage": "init", "code": "spec_load_failed", "detail": spec_err})
-    for ov in overrides:
-        res["degradations"].append({"stage": "init", "code": "config_override", "detail": "case.json 覆盖 %s" % ov})
-    try:  # a legal partial result.json exists before any heavy work (never clobber a finished one)
-        if a.cmd == "init" or not (out / "result.json").exists():
-            C.wjson(out / "result.json", res)
-    except Exception:  # noqa: BLE001
-        pass
+def fallback(args, err):
+    """Last resort: a legal partial result.json, so the case never ends as an empty directory."""
     try:
-        if a.cmd == "all":
-            cmd_all(ctx)
-        elif a.cmd == "init":
-            cmd_init(ctx)
-        elif a.cmd == "show":
-            if not (work / "index.json").exists():
-                C.wjson(work / "index.json", build_index(ctx))
-            cmd_show(ctx, a.limit)
-        elif a.cmd == "check":
-            cmd_check(ctx)
-        elif a.cmd == "build":
-            import build_core
-            ctx["idx"], ctx["draft"], ctx["draft_err"] = load_index(ctx), *load_draft(ctx)
-            build_core.cmd_build(ctx, {"no_materialize": a.no_materialize})
-        elif a.cmd == "selfcheck":
-            import build_core
-            build_core.cmd_selfcheck(ctx)
-    except Exception as exc:  # noqa: BLE001 - never crash the harness
-        res["errors"].append({"stage": a.cmd, "code": "unhandled",
-                              "detail": "%s: %s" % (type(exc).__name__, exc),
-                              "traceback": traceback.format_exc(limit=4)[-1200:]})
-        print("[%s] error: %s: %s -- degraded, result.json still written" % (a.cmd, type(exc).__name__, exc))
+        inp, work, out = C.paths(args)
+        case = {}
         try:
-            finalize(ctx, "partial")
-        except Exception:  # noqa: BLE001
-            pass
+            case, _ = C.load_case(inp)
+        except Exception:
+            case = {}
+        keys = C.contract_keys(case) if isinstance(case, dict) else []
+        errs = [{"stage": "fatal", "detail": "%s: %s" % (type(err).__name__, str(err)[:300]),
+                 "trace": traceback.format_exc()[-900:]}]
+        result = {"inventory": [], "classification": [], "renames": [], "duplicates": [], "versions": [],
+                  "operations": [], "skipped": [], "answers": [],
+                  "coverage": {"files_expected": 0, "files_processed": 0, "skipped": 0},
+                  "note": "the driver failed before producing artifacts; no result is claimed"}
+        prev, _ = C.load_json(os.path.join(str(out), "result.json"))
+        if isinstance(prev, dict) and isinstance(prev.get("result"), dict):
+            prev.setdefault("errors", []).extend(errs)
+            prev.setdefault("degradations", []).append(
+                "this command aborted before writing new artifacts; the previous result.json is kept intact")
+            C.write_result(out, prev)
+            print("fatal handled: previous result.json kept, error appended (%s)" % errs[0]["detail"][:120])
+            return 0
+        doc = C.envelope(case.get("case_id"), "partial", result, keys, errs,
+                         ["internal error; deliverable is an honest empty skeleton"],
+                         ["no analysis was produced in this run"], [], "fatal fallback path",
+                         [{"action": "fallback"}])
+        C.write_result(out, doc)
+        print("fatal handled: legal partial result.json written to %s" % (out / "result.json"))
+    except Exception as e:
+        print("fatal and fallback failed: %s" % e)
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="main.py",
+        description="library-curator: classify, rename, de-duplicate and version-repair a research document "
+                    "library into a reversible curated tree with a contract-compliant result.json.",
+        epilog="Sequence: init -> show -> (write /app/work/draft.json) -> check -> build -> selfcheck. "
+               "Exit code is always 0.")
+    ap.add_argument("command", nargs="?", default="init",
+                    choices=["init", "show", "check", "build", "selfcheck"])
+    ap.add_argument("--input", help="input dir (/input, /app/input, ./input)")
+    ap.add_argument("--work", help="work dir (/app/work, ./work)")
+    ap.add_argument("--output", help="output dir (/app/output, ./output)")
+    ap.add_argument("--draft", help="accepted for compatibility; the draft is <work>/draft.json")
+    ap.add_argument("--target", help="curated tree root (default <work>/library)")
+    ap.add_argument("--max-files", type=int, default=4000, dest="max_files")
+    ap.add_argument("--max-depth", type=int, default=8, dest="max_depth")
+    ap.add_argument("--show-limit", type=int, default=24, dest="show_limit")
+    ap.add_argument("--note-lines", type=int, default=14, dest="note_lines")
+    ap.add_argument("--head", type=int, default=220, help="characters of page-1 text printed per object")
+    args = ap.parse_args(argv)
     try:
-        sanitize_out(out, work)
-    except Exception:  # noqa: BLE001
-        pass
+        if not OK:
+            return fallback(args, RuntimeError("kernel import failed: " + LIBERR))
+        inp, work, out = C.paths(args)
+        if args.command == "init":
+            run_init(inp, work, out, args)
+        elif args.command == "show":
+            cmd_show(args)
+        elif args.command == "check":
+            cmd_check(args)
+        elif args.command == "build":
+            B.cmd_build(args)
+        else:
+            B.cmd_selfcheck(args)
+    except Exception as e:
+        return fallback(args, e)
+
     try:
-        rj, _ = C.ljson(out / "result.json")
-        if isinstance(rj, dict):
-            rj.setdefault("runtime", {})["elapsed_s"] = round(time.time() - t0, 3)
-            C.wjson(out / "result.json", rj)
-    except Exception:  # noqa: BLE001
+        import finalize
+        finalize.run(out)
+    except Exception:
         pass
     return 0
 
 
 if __name__ == "__main__":
     try:
-        sys.exit(main())
-    except KeyboardInterrupt:
-        sys.exit(0)
-    except Exception:  # noqa: BLE001
-        traceback.print_exc()
-        sys.exit(0)
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        print("soft failure: %s" % exc)
+    sys.exit(0)
