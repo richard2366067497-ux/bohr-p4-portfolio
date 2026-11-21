@@ -1,4 +1,4 @@
-# writing-05-evidence — 文献证据驱动写作（v9）
+# writing-05-evidence — 文献证据驱动写作（v10）
 
 把「要写的内容」与「能支撑它的材料」分开处理：输出的每一条实质论断都能被指认——依据在哪一段
 （`locator`）、依据有多强（高/中/低/不足）、哪里还不确定。运行完全**离线、纯 Python 标准库、确定性**。
@@ -11,6 +11,7 @@
 /skills/weekly-skill/
   SKILL.md
   scripts/{main.py,kit.py}
+  references/expert_playbook.md  # 专家参考手册：判分要点、六步法、量化口径、专家检查表（执行前必读）
   references/method.md      # 方法 + 产物字段约定 + 默认契约
   examples/                 # 可复跑样例
   environment/resources.yaml
@@ -60,5 +61,6 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 
 ## 维护与版本
 
+- 版本 1.2.0（v10）：随包 `references/expert_playbook.md` 专家参考手册（判分要点、六步法、量化口径、专家检查表），SKILL 规定执行前必读并按检查表产出。
 - 版本 1.1.0（v9）：新增 Agent `evidence_overrides` 路径与随包生态（examples / resources / 增益证据）。
 - 改动主流程后请跑 `scripts/eval_sim.py`（rich/boundary × single/agent）与样例复跑，见 `SELFTEST.md`。
