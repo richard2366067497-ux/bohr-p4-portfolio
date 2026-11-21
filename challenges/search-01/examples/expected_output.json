@@ -1,0 +1,30 @@
+{
+  "_note": "FICTIONAL schematic output for the packaged example only. It is not an official result, not a benchmark score and not a submitted answer. It mirrors the shape written by `python3 -B scripts/main.py --input examples --output /tmp/out --work /tmp/work`.",
+  "case_id": "demo-search-answered",
+  "status": "answered",
+  "output_contract": {
+    "case_id": "demo-search-answered",
+    "status": "answered",
+    "candidates": [
+      {"object_id": "O0001", "rank": 1, "locator": "M01#1", "doi": "10.0000/demo.1",
+       "title": "Multi-round query planning improves recall in literature retrieval",
+       "relevance": {"score": 1.0, "basis": "keyword overlap with the research question"},
+       "duplicate_of": ["O0002"]},
+      {"object_id": "O0003", "rank": 2, "locator": "M01#3", "doi": "10.0000/demo.2",
+       "title": "Deduplication and provenance for candidate sets",
+       "relevance": {"score": 0.2, "basis": "keyword overlap with the research question"}}
+    ],
+    "queries": [
+      {"query_id": "Q1", "query": "\"query\" AND \"planning\" AND \"recall\"",
+       "intent": "core concepts co-occur", "source": "local_snapshot_replay"}
+    ],
+    "coverage": {"target_k": 2, "candidates_found": 2, "distinct_after_dedup": 3, "excluded": 1,
+                 "sources_indexed": 1, "quotable_lines": 0,
+                 "scope_note": "scoped to the supplied snapshot; no live remote coverage is claimed"},
+    "missing": [{"item": "key reference", "reason": "the supplied snapshot did not include it"}],
+    "sources": [{"id": "M01", "name": "materials/sample-records.json", "kind": "json",
+                 "parse_status": "parsed", "records": 4, "lines": 0}],
+    "uncertainty": ["only the supplied snapshot was searched; remote coverage is not claimed"],
+    "change_records": [{"step": 1, "action": "scan", "result": "1 file(s) indexed"}]
+  }
+}
