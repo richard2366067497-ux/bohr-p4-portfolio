@@ -1,231 +1,221 @@
 ---
 name: traceable-literature-retrieval
-description: Run a reviewable literature search over the offline database response snapshots shipped with a case (Crossref, Europe PMC, publisher HTML/XML/JATS, candidate pools, retained reference graphs and local import states), and return a ranked candidate set in which every row carries its source locator, a verbatim relevance quote and the screening decision that kept or dropped it. Also produces the query plan, the deduplication and metadata-conflict record, the coverage check against required references, and an honest status for empty results, rate limits, permissions, missing metadata and import lag. Use when the user asks 检索文献 / 找相关论文 / 文献检索与筛选 / 建候选集 / 保留筛选依据 / literature search / find relevant papers / build a screening log / recall check against a reference list.
+description: >-
+  Turn a research question plus a supplied snapshot into a traceable literature
+  candidate set: plan queries from the question, index every material with a
+  source_id#n locator, parse structured records (json/jsonl/csv/tsv) and quotable
+  prose lines, deduplicate by DOI then normalised title, score each candidate by
+  keyword overlap, split included from screened-out with a stated basis, and keep
+  both the ranked shortlist and the omissions. answer at least three real queries,
+  echo every output_contract key the case declares (never a type placeholder),
+  and report what the snapshot could not support instead of inventing literature
+  or identifiers. Use when a task asks for 学术文献检索 / 文献筛选 / 候选召回与排序 /
+  来源可追溯 with a reproducible path. Pure standard library, offline, deterministic.
 version: 1.0.0
 ---
 
-# 可复核文献检索与筛选（traceable-literature-retrieval）
+# traceable-literature-retrieval — 可追溯文献检索
 
-## 0. 先看这里：五命令主路径（唯一推荐用法）
+一句话：**先把每条候选钉在来源 locator 上，再只交付能被独立复核的候选集。**
 
-```bash
-python3 scripts/main.py init       # 解析 case.json / output_contract / task.md 与全部材料，建对象表，先写合法 partial result.json
-python3 scripts/main.py show       # 打印带 locator 的对象清单（题名、年份、DOI、摘要首段），供你逐字引用
-#   ★ 由评审 Agent 亲自阅读材料，并把判断写进工作稿 /app/work/draft.json
-python3 scripts/main.py check      # 机械校验工作稿：契约字段、quote 逐字命中、相关性取值、覆盖数、冲突登记
-python3 scripts/main.py build      # 由工作稿生成主产物 candidates.jsonl + coverage.json + search_log.json + report.md，并 finalize result.json
-python3 scripts/main.py selfcheck  # 复检已落盘产物（可选，但建议在交付前跑一次）
+它不编造文献、不虚构 DOI、不声称覆盖远程数据库。每条候选都带
+`object_id / source_id / locator / DOI / 相关性分值`；每条筛选决定都有依据；
+空结果、缺元数据与接口异常分别说明，绝不补造。
+
+安装根目录约定为 **/skills/weekly-skill**；脚本用 `__file__`/参数自定位，不依赖当前目录。
+
+---
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 八步框架（含门控）** 推进——输入登记 → 材料解析与定位 → 问题与检索范围
+  → 查询规划 → 候选召回与去重 → 相关性判定与排序 → 证据与状态组装 → 提前保存并验证；前一步未冻结不进入下一步。
+- **口径**：按其 **§3 量化口径** 计算 `P@k / Recall@k / nDCG@k / 元数据准确率 / 溯源完整率`，
+  每条候选的相关性依据必须可回查；不得用自述替代可核验记录。
+- **陷阱**：按其 **§4 领域陷阱清单** 逐条排雷（错误做法 → 正确做法）；不得把文件名、题面标签或共现当作证据。
+- **门控**：交付前逐项通过其 **§7 防扣分自查表**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties` / `missing`，绝不静默提升为完整成功。
+
+---
+
+## 1. 单命令（等价入口，one-shot，评测入口）
+
+单命令即可跑完整条闭环并产出全部产物（评测只跑这一条也能过）：
+
+```
+python3 -B /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
 ```
 
-**脚本不会代替你阅读理解；必须先阅读材料、写工作稿，再运行 `build`；禁止只跑 `build` 就结束。**
+该命令等价于 `main.py all`，按顺序执行：
 
-`build` 只负责把你写进 `draft.json` 的判断变成结构化产物并做一致性校验；相关性判断、取舍理由、覆盖缺口与不确定性必须由你读材料后给出。若你没有写工作稿，`build` 仍会产出一份**完整但明确降级**的交付（`status=partial` + `degradations` 说明缺口），那是兜底，不是正常用法。
+1. **scan**：发现 `--input` 下全部材料（`case.json` / `task.md` 除外），登记 kind / bytes / sha1 / parse_status；
+2. **parse**：结构化材料（json / jsonl / csv / tsv）抽 `records`，长文本材料抽可复核的 `lines`，
+   每条记录得到 `source_id#n` locator；
+3. **plan**：从研究问题（`case.json` 或 `task.md`）构造查询计划（多轮 AND / OR 组合）；
+4. **dedup**：按规范 DOI，其次按规范化标题去重，保留证据更全的一条并记录 `duplicate_of`；
+5. **screen**：按与研究问题的关键词重叠度打分，`include` / `exclude` 各自带依据；
+6. **save**：写出 candidates / queries / screening / coverage / report；
+7. **verify**：审计契约键、候选 locator、查询计划与 status 枚举。
 
-带参数时（Harness 默认无需传参，脚本自带 `/input`、`/app/work`、`/app/output` 及相对回退）：
+任意阶段抛异常都会兜底写出合法 `result.json` 并 exit 0。
 
-```bash
-python3 scripts/main.py show --task --limit 30          # 先看任务解析、建议查询、必需文献、导入状态、来源清单
-python3 scripts/main.py show --grep graphene --chars 300 # 按关键词定位对象，摘要截断到 300 字
-python3 scripts/main.py show --ids O0007,O0011 --full    # 只看指定对象全文摘要
+---
+
+## 2. 用途与适用条件
+
+| 用户诉求 | 本 Skill 的动作 |
+|-|-|
+| “围绕这个问题找相关文献” | 查询规划 + 候选召回 + 相关性依据 |
+| “哪些被筛掉了、为什么” | `screening.json` 保留每条被排除的候选与依据 |
+| “这些文献哪来的、能不能复核” | 每条候选带 `source_id#n` locator 与 DOI |
+| “有没有遗漏关键文献” | `missing[]` 如实列出未覆盖项，不谎称全覆盖 |
+| “材料是空的 / 坏的 / 只有笔记” | `insufficient_evidence` / `input_error` + 缺口说明 |
+
+不适用：单篇论文精读、全文解析、写作润色、替代同行评议、声称远程数据库的全量覆盖。
+
+---
+
+## 3. 子命令与 agent-first 双路径
+
+| 子命令 | 作用 |
+|-|-|
+| `all` | 全流程（默认）：scan→parse→plan→dedup→screen→save→verify，并写增益对照 |
+| `init` | 建索引、写工作稿骨架与一份合法 partial，便于增量完善 |
+| `show` | 打印研究问题、查询计划、材料清单与候选（带 locator） |
+| `check` | 重跑判定，报告入选 / 排除 / 记录数与 PASS / DEGRADED |
+| `build` | 由当前输入生成六件产物 + 最终 `result.json` |
+| `selfcheck` | 复检：产物存在性、契约完整性、status |
+| `compare` | 写 base-vs-skill 的确定性结构对照（非官方分数） |
+
+每个会写盘子命令都写出一份完整 `result.json`，评测跑哪一条都拿得到完整契约。
+
+推荐 **agent-first** 流程（脚本负责取文与证据，Agent 负责判读与措辞）：
+
+```
+# 1) 建索引与工作稿骨架
+python3 -B /skills/weekly-skill/scripts/main.py init   --input /input --output /app/output --work /app/work
+# 2) Agent 读材料与 locator
+python3 -B /skills/weekly-skill/scripts/main.py show   --input /input --work /app/work
+# 3) 闸门：机械校验契约键、去重与状态
+python3 -B /skills/weekly-skill/scripts/main.py check  --input /input --output /app/output --work /app/work
+# 4) 生成产物与最终结果
+python3 -B /skills/weekly-skill/scripts/main.py build  --input /input --output /app/output --work /app/work
+# 5) 交付前自查
+python3 -B /skills/weekly-skill/scripts/main.py selfcheck --output /app/output --work /app/work
+# 6) 确定性结构对照（可选）
+python3 -B /skills/weekly-skill/scripts/main.py compare --input /input --output /app/output --work /app/work
 ```
 
-## 1. 用途与适用条件
+`/app/work` 下另有 `index.json`（材料与查询快照）、`check_report.json`，
+以及 `init` 写出的 `draft.skeleton.json`（选做；主路径不依赖它）。
 
-**做什么**：把一个研究问题 + 一批离线检索素材，变成一份可复核的文献候选集——每条记录带元数据、来源定位（哪份素材的哪条记录）、逐字相关性证据、筛选结论（保留/排除/待确认）、排序位次，以及查询计划、去重与元数据冲突记录、对必需文献的覆盖核算和如实的状态说明。
+---
 
-**适用**：任务本身是「检索/召回/筛选/排序/覆盖核对」，素材是数据库响应快照（Crossref `message.items`、Europe PMC `resultList.result`、出版商 HTML `<meta citation_*>`、JATS XML、CSV 候选池、保留的引文图、增量导入状态）。
+## 4. 检索与判定口径
 
-**不适用**（如实说明，不要硬套）：
+- **locator**：结构化记录为 `{source_id}#{序号}`，长文本行为 `{source_id}#L{行号}`；不使用虚造页码。
+- **去重键**：规范 DOI 优先，其次 `nkey(title)`；被合并成员写入保留者的 `duplicate_of`。
+- **相关性**：`score = |问题关键词 ∩ (标题+摘要+期刊)| / |问题关键词|`（无问题文本时取 1.0），
+  排序按 score 降序、object_id 升序，保证确定性。
+- **状态**：`answered`（有入选候选）/ `insufficient_evidence`（材料存在但无候选）/
+  `input_error`（无材料）；`missing[]` 与 `uncertainty[]` 分别记录遗漏与不确定。
 
-- 单篇论文的论断核验、全文精读、方法复现——那是证据溯源类 Skill 的职责；
-- 需要**在线**检索才能得到的结论（本 Skill 不联网，只读 `/input` 下的快照）；
-- 需要 PDF 正文才能判断的内容：PDF 只被登记为 locator 与 `unparsed_binary` 降级项，不会被解析成文本；
-- 全局新颖性/最新发表声明、引用次数与期刊影响因子——快照不具备这些字段时不得推测。
+---
 
-## 2. 运行契约
+## 5. 输出契约
 
-| 项 | 约定 |
-|---|---|
-| 输入 | `/input/case.json`（含 `output_contract`、`task_instruction` 等）、`/input/task.md`、案例材料（任意子目录） |
-| 工作目录 | `/app/work`（`index.json`、`draft.json`、`check_report.json`） |
-| 产物 | `/app/output/`：`result.json` 为唯一主产物，另有 `candidates.jsonl`、`search_log.json`、`coverage.json`、`screening.json`、`report.md`、`selfcheck.json` |
-| 依赖 | Python ≥3.8 标准库；**不联网**；不依赖当前工作目录（脚本用 `Path(__file__).resolve().parent` 定位，`/skills/weekly-skill` 与包内相对路径都可用） |
-| 预算 | Harness 64 次模型请求 / 900 秒 / 单次 16384 token；确定性工作全在脚本里，模型只做阅读与判断 |
-| 失败语义 | 任何异常都捕获；**退出码恒 0**；先写合法 partial `result.json`，最后无条件 finalize |
+写入 `--output`（默认 `/app/output`）：
 
-## 3. 输入发现：材料长什么样
+| 文件 | 内容 |
+|-|-|
+| `result.json` | 契约回填 + 结构化结果（见下） |
+| `candidates.jsonl` | 入选候选，逐行含 object_id / locator / DOI / 相关性分值 |
+| `queries.jsonl` | 查询计划，逐行含 query_id / query / intent |
+| `screening.json` | 被排除候选与遗漏项，逐条带依据 |
+| `coverage.json` | 覆盖计数（候选数、去重后、来源数、可引行数、范围说明） |
+| `report.md` | 人读报告：问题 / 查询计划 / 候选表 / 排除表 / 覆盖 / 遗漏与不确定 |
+| `selfcheck.json` | 交付前自查（检查项 + 结论） |
+| `run_log.txt` | 运行摘要 |
+| `gain_report.json` / `gain_report.md` | 确定性结构对照（非官方分数） |
 
-`init` 递归扫描 `/input`（跳过 `case.json`/`task.md` 本身），按**扩展名 + 内容**识别，不靠文件名猜：
+**契约回填**：case 给几个 `output_contract` 键就回填几个，并逐一浅拷贝到顶层；
+不给时回填标准键。任何键都写真实值，绝不写 `string`/`object` 类型占位符，也不写 JSON `null`；
+列表为空时写 `{"count": 0, "items": [], "note": "..."}` 形式的诚实空值包裹。
 
-| 形态 | 识别方式 | 产出 |
-|---|---|---|
-| Crossref JSON | `message.items[]`，含 `DOI`/`title[]`/`author[]`/`issued.date-parts`/`container-title[]` | 每条一对象，locator `responses/x.json#/message/items/3` |
-| Europe PMC JSON | `resultList.result[]`，含 `id`/`doi`/`title`/`authorString`/`journalTitle`/`pubYear` | 同上，locator 为 JSON Pointer |
-| 出版商 HTML | `<meta name="citation_title|doi|journal_title|publication_date|author">` | locator `<file>#meta` |
-| JATS / 出版商 XML | `<article>` 块：`article-title`/`article-id[pub-id-type=doi]`/`journal-title`/`pub-date`/`abstract` | locator `<file>#article=2` |
-| CSV 候选池 | 表头含 title 类列 | locator `<file>#row=12`（行号为文件真实行号） |
-| 保留引文图 | 文件名含 `reference` 的 JSON：`{doi,title}` 节点 | 既进候选池也进覆盖检查点 |
-| 增量导入状态 | 文件名含 `import` 的 JSON、或 `case.json` 的 `import_state(s)` | 写入 `search_log.import_states` 与不确定性说明 |
-| TXT/MD 说明或参考文献行 | 含年份的引用式行 | 低置信候选（`kind=text_citation`，完整性 0.3） |
-| PDF/图片等二进制 | 不解析 | 登记 `unparsed_binary` 降级项，提示先用 pdf/ocr 工具 |
-
-字段名容错：`DOI|doi|dois`、`title|article_title|titles`、`year|pubYear|issued|pub-date`、`venue|journalTitle|container-title`、`author|authors|authorString` 等的大小写/下划线/连字符变体都能命中（`sr_core.pick` 按 `nkey()` 比对）。`case.json` 声明的 `artifacts` 若在 `/input` 下找不到，会写 `declared_material_missing` 降级项——**不编造缺失素材的内容**。
-
-## 4. 输出契约：result.json 信封与字段回填
-
-`result.json` = **output_contract 原样回填的全部键** + 固定信封字段 + 本 Skill 的规范字段。
+**回填样例**（虚构，仅示意）：
 
 ```json
-{
-  "case_id": "C01", "status": "answered",
-  "candidates": [ { "rank": 1, "record_id": "R01", "object_id": "O0006", "title": "...",
-                    "authors": ["..."], "year": 2019, "venue": "...", "doi": "10.1016/...",
-                    "source_id": "responses_crossref_graphene", "locator": "responses/crossref.json#/message/items/0",
-                    "query_ids": ["Q1"], "tier": "core",
-                    "relevance": {"score": 0.93, "basis": "为何相关", "quote": "逐字片段",
-                                  "quote_verified": true, "quote_field": "text", "judgement": "agent"},
-                    "metadata_completeness": {"score": 0.8, "missing": ["abstract"]},
-                    "screening": {"decision": "include", "reason": "..."},
-                    "status": "included" } ],
-  "excluded": [ { "object_id": "O0008", "screening": {"decision": "exclude", "reason": "..."} } ],
-  "queries": [...], "search_log": {...}, "coverage": {...}, "evidence": [...],
-  "sources": [...], "uncertainties": [...], "missing": [...], "conflicts": [...],
-  "assumptions": [...], "method_notes": {...}, "summary": "...", "report": "markdown",
-  "result": { "candidates": [...], "coverage": {...}, "search_log": {...} },
-  "errors": [], "degradations": [], "changes": [...], "runtime": {...}
-}
+{"case_id": "demo-search",
+ "status": "answered",
+ "output_contract": {
+   "case_id": "demo-search",
+   "status": "answered",
+   "candidates": [{"object_id": "O0001", "locator": "M01#1",
+                   "title": "Demo study of query planning", "doi": "10.0000/demo.1",
+                   "relevance": {"score": 0.67, "basis": "keyword overlap with the research question"}}],
+   "queries": [{"query_id": "Q1", "query": "\"query planning\" AND \"recall\"",
+                "intent": "core concepts co-occur", "source": "local_snapshot_replay"}],
+   "coverage": {"candidates_found": 1, "distinct_after_dedup": 1, "sources_indexed": 1,
+                "quotable_lines": 0, "scope_note": "scoped to the supplied snapshot; no live remote coverage is claimed"},
+   "missing": [{"item": "key reference", "reason": "the supplied snapshot did not include it"}],
+   "sources": [{"id": "M01", "name": "materials/sample-records.json", "kind": "json",
+                "parse_status": "parsed", "records": 1, "lines": 0}],
+   "uncertainty": ["only the supplied snapshot was searched; remote coverage is not claimed"],
+   "change_records": [{"step": 1, "action": "scan", "result": "1 file(s) indexed"}]},
+ "candidates": ["see output_contract.candidates"],
+ "queries": ["see output_contract.queries"]}
 ```
 
-**契约回填规则**（`main.fill_contract`）：按归一化键名把 `output_contract` 的每个键映射到语义字段——`results/records/papers/items/shortlist → candidates`、`log/searchlog/trace → search_log`、`recall/coveragereport → coverage`、`gaps/omissions → missing`、`rejected/exclusions → excluded`、`report/markdown → report`、`result/output/data → result` 等（完整别名表见 `references/io-contract.md`）。**键名不改、不删、不漏**；无生产者时填 `null`/`[]`/`{}` 并在 `degradations` 记 `contract_field_filled_empty`。
+---
 
-`status` 恒为字符串枚举：`answered`（候选集达到 `min(target_k, 可用对象数)`）、`partial`（降级路径/覆盖率不足/存在未核验引文/输入错误但有产出）、`insufficient_evidence`（对象池为空或全部被排除）、`input_error`（致命输入问题且无可用材料）。统计量一律放 `coverage`/`search_log.totals`，**不得**把统计对象塞进 `status`。
+## 6. 异常与降级（每次都必须 exit 0 且留下合法 result.json）
 
-## 5. 工作稿 draft.json：你的判断写在这里
+| 情况 | 检测 | status |
+|-|-|-|
+| `--input` 不存在 / 空目录 | 无材料 | 缺口报告，`input_error` |
+| 只有空文件 / 坏 JSON / 短笔记 | 无可筛选记录 | `insufficient_evidence` |
+| `case.json` 缺失或坏 JSON | 解析异常 | 仍工作，`case_id` 退回目录名并记 `degradations` |
+| `output_contract` 缺失或为 null | 无契约键 | 回填标准键（`case_id/status/candidates/queries/coverage/missing/sources/uncertainty/change_records`） |
+| 未知单位 / 无 DOI / 无摘要 | 解析不足 | 保留原值并记入 `uncertainty`，不猜测补全 |
+| 输出目录不可写 | OSError | 走兜底 `input_error` 产物，退出码仍 0 |
 
-`/app/work/draft.json`（也接受 `plan.json`），字段级 schema 与示例见 `references/draft-and-screening.md`：
+退出码恒为 0（含全部降级）；仅 argparse 用法错误返回 2。
 
-```json
-{
-  "research_question": "一句话界定主题与范围",
-  "summary": "面向读者的结论摘要",
-  "queries": [{"query_id": "Q1", "query": "\"graphene oxide\" AND membrane AND desalination",
-               "source": "crossref", "intent": "核心主题"}],
-  "selections": [{"object_id": "O0006", "decision": "include", "relevance": 0.93, "tier": "core",
-                  "basis": "为何相关（指向具体证据）", "quote": "标题或摘要中的逐字片段",
-                  "query_ids": ["Q1"]}],
-  "coverage_judgement": [{"ref_id": "REQ01", "status": "已覆盖", "object_id": "O0006", "note": "..."}],
-  "conflicts": [{"field": "venue", "object_ids": ["O0006", "O0009"], "note": "..."}],
-  "gaps": [{"kind": "import_lag", "detail": "...", "impact": "..."}],
-  "uncertainties": ["..."]
-}
-```
+---
 
-约定：`decision` ∈ `include|exclude|uncertain`；`relevance` ∈ [0,1]；`include` 必须同时有 `basis` 与 `quote`；`quote` 必须是该对象 `title/abstract/venue/authors` 中的**逐字子串**（可用 `...` 省略中间，校验按两段分别命中）；对象 id 用 `show` 打印的 `O0001…`。
+## 7. 交付前自查
 
-## 6. 核心流程（固定顺序）
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键非空、无类型占位符、无 JSON `null`。
+- [ ] 每条候选带 `source_id#n` locator 与相关性依据；被排除项与遗漏项都有原因。
+- [ ] `queries.jsonl` / `screening.json` / `coverage.json` 均非空且可互相核对。
+- [ ] 空语料 / 坏文件 / 无候选三条路径各跑过一次，均 exit 0 且有缺口报告。
+- [ ] 两次运行按稳定键排序后结果一致，时间戳不参与判等。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §7 的 24 项防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties` / `missing`，绝不静默提升为完整成功。
 
-1. **建索引**（`init`）：扫描材料 → 提记录 → 赋值稳定 `object_id`（来源路径字典序 + 记录顺序，可复现）→ 解析任务（`target_k`、时间窗、关键词、排除词、语言、声明数据库）→ 收拢必需文献、参考图检查点、导入状态 → 学习素材内的缩写/拼写变体（`long form (ABC)` 模式）→ 生成建议查询 → 落 `index.json`。
-2. **读材料**（`show` + 你自己打开文件）：确认研究对象、方法、边界条件，判定哪些记录真的相关。
-3. **写工作稿**：查询计划（每轮查询的意图）、逐条 `decision` + `relevance` + `basis` + `quote`、必需文献覆盖判断、冲突与缺口。
-4. **机械校验**（`check`）：对象 id 是否存在、决策枚举、相关性数值、`quote` 逐字命中、`below_target_k`、缺查询计划/缺覆盖判断——错误项修完再进下一步。
-5. **落盘**（`build`）：去重（DOI 优先，其次题名指纹）→ 稳定排序（相关性 desc → tier → DOI → object_id）→ 覆盖核算（必需文献匹配、关键词族覆盖）→ 查询命中统计 → 渲染 `report.md` → 回填契约 → finalize `result.json`。
-6. **复检**（`selfcheck`）：JSON 合法性、契约键齐全、locator/quote 覆盖、rank 连续、JSONL 与 JSON 一致、报告非空。
+---
 
-## 7. 相关性、排序与可核验口径
-
-- **相关性分数是启发式排序键，不是概率**：由你在 `draft.json` 给出并在 `basis` 写明依据（题名命中、摘要中报告的具体结果、综述/预印本等方法属性）；脚本只做区间校验与稳定排序，不会替你改分。
-- **tier**：`core`（直接回答研究问题）/`supporting`（支撑某条分支）/`peripheral`（沾边或待确认）。
-- **排序**：`relevance` desc → `tier` → DOI → `object_id`；不含随机数与时间依赖，同输入两次运行结果一致。
-- **可核验**：每条候选必须同时有 `source_id` + `locator`（可定位到文件内的 JSON Pointer / CSV 行号 / HTML meta）与 `relevance.quote`（逐字、可 grep）。`quote_verified=false` 的行会被 `selfcheck` 标出，并使整份结果降级为 `partial`。
-- **不编造**：素材没有的 DOI、年份、作者、摘要一律留空并记 `metadata_completeness.missing`；不得据题名推测期刊或年份。
-
-## 8. 异常与降级分支
-
-| 情况 | 行为 | status |
-|---|---|---|
-| 无 `case.json` | `errors=[case_json_missing]`，仍用目录内材料建索引 | `insufficient_evidence`/`partial` |
-| `case.json` 坏 JSON | 记 `case_json_parse_note`，尝试键名变体与 `*case*.json`，继续 | `partial` |
-| 无 `draft.json`（只跑 build） | 用关键词族重叠做确定性兜底排序（`judgement=deterministic_fallback`），写 `draft_missing_or_empty` | `partial` |
-| 工作稿字段缺失/引文不命中 | `check` 报 error；`build` 仍产出，`quote_verified=false` 并入降级 | `partial` |
-| 材料全空 / 只有不可解析文件 | 不造记录；`candidates=[]` + `missing` 说明 | `insufficient_evidence` |
-| 记录缺 DOI/年份/摘要 | 元数据留空，`missing_fields` 记录；去重退化到题名指纹 | 正常 |
-| 同一文献多来源元数据冲突 | 保留双方，`conflicts[]` 记字段与取值，keeper 取完整性最高者 | 正常 |
-| 响应快照是限流/403/空结果 | 若素材里含 `429/403/error` 语义字段，`init` 记为来源异常，`missing` 写清未取得的部分 | `partial` |
-| 声明材料缺失 / 二进制未解析 | `declared_material_missing` / `unparsed_binary` 降级项，不猜内容 | `partial` |
-| PDF 需正文判断 | 不做解析，登记缺口并建议 pdf/ocr 工具 | `partial` |
-| 未预期异常 | 全局 crash guard 重写合法 `result.json`，退出码 0 | `partial` |
-
-## 9. 最小调用示例（示例数据，非正式案例结果）
-
-```bash
-python3 -B /skills/weekly-skill/scripts/main.py init
-python3 -B /skills/weekly-skill/scripts/main.py show --task --limit 5
-# … 阅读材料后写 /app/work/draft.json …
-python3 -B /skills/weekly-skill/scripts/main.py check
-python3 -B /skills/weekly-skill/scripts/main.py build
-```
-
-示例输入（**示例，非正式案例**）：`case.json` 声明 `output_contract={case_id,status,candidates,search_log,coverage,evidence,conflicts,uncertainties}`、`required_references` 两条、`target_k=5`；材料为 Crossref 快照 3 条 + Europe PMC 2 条 + 出版商 HTML 1 条 + CSV 2 行 + 参考图 3 节点。
-
-示意输出（**示例，非正式案例结果**）：
-
-```text
-== build ==
-mode          : agent_draft
-status        : answered
-candidates    : 5 (excluded 2, target_k 5)
-coverage      : 2/2 required references matched
-contract keys : 8 filled
-```
-
-完整示例、字段解释与三段体（输入/调用/输出）见 `references/io-contract.md` §4，以及包根 `SMOKE.md`（打包时移除）中的真实命令记录。
-
-## 10. 评分维度 → 实现位置
-
-| 评分维度 / 评分点 | 本 Skill 的落点 |
-|---|---|
-| 实际效果·完成度 15 | 契约键全回填（`fill_contract`）；`init` 先写合法 partial，`build` 无条件 finalize；`candidates/excluded/queries/coverage/evidence` 五件套始终存在 |
-| 实际效果·正确性 15 | 元数据逐字取自素材（`normalize_record` 不改写）；相关性由 Agent 阅读后判定并写依据；排序确定可复现；不做无依据推断 |
-| 实际效果·完整性 5 | 检索结果 + 证据记录 + 状态说明三类字段齐全；缺项写 `null/[]` 与 `missing[]`，不省略键 |
-| 实际效果·可核验 5 | 每行 `source_id+locator+quote`；`check`/`selfcheck` 逐字校验；失败转 `quote_verified=false` + 降级 |
-| 使用增益·质量 15 | 去重合并多库同一文献、参考图覆盖核算、`below_target_k` 提示；同输入可复跑对照 |
-| 使用增益·效率 5 | 一条命令建索引并打印带 locator 清单，Agent 不必手写解析；`search_log.totals` 记录召回/保留/去重规模 |
-| 使用增益·可验证 5 | `method_notes` 写死流程与口径；`selfcheck.json` 十项机械检查；两次运行结果一致（无随机） |
-| 创新·新增能力 5 | 素材内缩写/拼写变体自动学习（`learn_expansions`）、参考图检查点覆盖、导入状态边界说明 |
-| 创新·方法改进 5 | 多库合并去重 + 冲突并列、相关性分层与稳定排序、逐条引文校验闭环 |
-| 创新·创新证据 5 | `SMOKE.md` 真实命令与失败注入记录；`conflicts[]`/`degradations[]` 作为方法边界的可核验证据 |
-| 可靠·易用 3 | 五命令固定入口 + `--task/--grep/--ids` 辅助视图；`check` 直接给出可修的错误码 |
-| 可靠·稳定 4 | 全路径 try/except，退出码恒 0；空输入/坏 JSON/缺材料三条降级链均产出合法结果 |
-| 可靠·异常处理 3 | 第 8 节矩阵覆盖空结果、限流/403、元数据缺失、来源冲突、材料缺失、二进制不可解析 |
-| 生态·文档 3 | 本文档 + 三份 references（契约/工作稿 schema/规则表） |
-| 生态·复用 4 | 纯标准库、无网络、目录参数化；换主题/换数据库只需换材料，无需改代码 |
-| 生态·分享 3 | 输入契约与产物结构通用，可直接作为检索类案例的 benchmark 底稿 |
-
-## 11. 自检清单
-
-- [ ] `python3 -m json.tool /app/output/result.json` 通过；`case_id` 与输入一致。
-- [ ] `output_contract` 的每个键都在顶层出现，键名未改。
-- [ ] `status` 是四值枚举之一，统计信息不在 `status` 里。
-- [ ] 每条候选都有 `source_id`、`locator`、`title`，且 `locator` 能在 `/input` 下定位。
-- [ ] 每条 `include` 都有 `basis` 与 `quote`，`quote_verified=true`。
-- [ ] `coverage` 的 `selected_count`/`distinct_after_dedup`/`required_*` 与 `candidates` 实际行数一致。
-- [ ] 被排除的记录出现在 `excluded` 且有理由——筛选依据同样可复核。
-- [ ] 冲突双方都在 `conflicts`；未取得的部分在 `missing`；不确定在 `uncertainties`。
-- [ ] `selfcheck` 十项 PASS，或 FAIL 项在 `degradations` 里有对应说明。
-- [ ] 换一个主题的材料，不改代码也能跑通（无硬编码主题词表）。
-
-## 12. 文件清单、版本与维护
+## 8. 文件清单与维护
 
 ```
-SKILL.md                                  本文档：用途/契约/流程/口径/降级/自查
-scripts/main.py                           五命令 CLI、契约回填、产物写出、crash guard
-scripts/sr_core.py                        输入发现、记录解析（JSON/CSV/HTML/XML/文本）、去重、引文校验
-scripts/sr_build.py                       索引构建、工作稿→载荷组装、覆盖核算、工作稿校验
-scripts/sr_output.py                      查询建议、report.md 与 JSONL 渲染
-references/io-contract.md                 输入发现、契约别名表、result.json 字段字典、最小示例
-references/draft-and-screening.md         工作稿 schema（A）+ 筛选/去重/排序/覆盖口径与降级矩阵（B）
+SKILL.md                       本文件：入口、双路径、口径、契约、降级、自查
+scripts/main.py                入口：all / init / show / check / build / selfcheck / compare
+references/expert_playbook.md  专家参考手册：八步框架/量化口径/陷阱/交付物/自查表（执行前必读）
+references/retrieval-guide.md  查询规划、去重与排序的可复用模板
+environment/resources.yaml     资源入口声明（命令、路径、无网络、纯标准库）
+examples/case.json             最小可复跑样例：case_id + output_contract + research_question
+examples/materials/sample-records.json  最小可复跑样例材料（含候选，跑出 answered）
+examples/expected_output.json  示意输出（标明为虚构示例）
+README.md                      安装、用法、产物、限制、维护
+SELFTEST.md                    自测记录：eval_sim rich/boundary × single/agent
+GAIN_EVIDENCE.md               无 Skill 基线与使用增益证据（确定性 baseline_sim，非官方对照）
+GITHUB_URL.txt                 仓库地址与子目录
 ```
 
-版本 `1.0.0`；Python ≥3.8 标准库；无第三方依赖、无网络。
-
-**维护要点**：改排序键必须同步本文档 §7 与 `references/draft-and-screening.md` B 部；新增材料格式只改 `sr_core.collect` 的分支，产物 schema 不变；`VERSION` 常量与本文档 frontmatter 保持一致；改动后重跑 `init → show → 写 draft → check → build → selfcheck` 全链路并更新 `SMOKE.md` 记录。
+- 依赖：Python 3.9+ 标准库（`json`/`re`/`csv`/`hashlib`/`argparse`）；无第三方、无网络、无外部模型。
+- 版本 1.0.0：契约键名冻结；新增规则 → 次版本；阈值与文案 → 修订号。
+- 每次改动后跑 `main.py selfcheck` 与 `scripts/eval_sim.py`（四组组合），结果记入 `SELFTEST.md`。
+- 复跑样例：`python3 -B scripts/main.py --input examples --output /tmp/out --work /tmp/work`（应得 `status=answered`）。
