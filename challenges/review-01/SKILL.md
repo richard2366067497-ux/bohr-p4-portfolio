@@ -23,6 +23,27 @@ version: 1.0.0
 - **门控**：交付前逐项通过其 **§7 防扣分自查表**；任一项未过则 `status=partial` 并把未决项写入
   `uncertainties` / `unchecked_items`，绝不静默提升为完整成功。
 
+## 结果契约（默认 7 键）
+
+`case.json` / `task.md` 提供 `output_contract` 时，以其键名为准原样回填；未提供时按下列默认 7 键产出：
+
+```json
+{
+  "output_contract": {
+    "case_id": "value",
+    "status": "value",
+    "summary": "value",
+    "severity_summary": "value",
+    "coverage": "value",
+    "uncertainties": "value",
+    "report_path": "value"
+  }
+}
+```
+
+每个键都必须回填为**诚实的非空值**（`report_path`→真实报告路径，`coverage`→覆盖表，`summary`/`severity_summary`→
+真实统计文本，`uncertainties`→不确定性说明），不留 `null`、不写类型串；详见 §2 输入契约与 §3 输出契约回填。
+
 ## 0. 五命令主路径（先看这里）
 
 ```bash
@@ -71,19 +92,12 @@ python3 scripts/main.py selfcheck   # 复检（可选）
 - `/input/task.md`：题面，摘要写入 `result.json.task_instruction`。
 - `/input/**` 其它：正文、补充材料、回复信、参考文献、图片、数据表。递归扫描，跳过隐藏文件与 >12MB 文件。
 
-解析链（逐级降级，`documents[].parser` 记实际引擎）：
-
-| 类型 | 顺序 |
-|---|---|
-| PDF | `pdftotext -layout` → `pypdf` → `PyPDF2` → `pdfminer` → 原始流 `FlateDecode` + `Tj/TJ`（质量差打 `raw_stream`） |
-| DOCX | ZIP 内 `word/document.xml`，段落→换行、制表/换行展开、去标签、反转义 |
-| 文本 | UTF-8（含 BOM）→ UTF-16（BOM）→ GB18030 → Big5 → utf-8 容错 |
-| 图片 | 只登记为材料缺口，不猜像素内容 |
+解析链（逐级降级，`documents[].parser` 记实际引擎）：PDF `pdftotext -layout`→`pypdf`→`PyPDF2`→`pdfminer`→原始流
+（质量差打 `raw_stream`）；DOCX 读 `word/document.xml`；文本按 UTF-8(BOM)→UTF-16→GB18030→Big5 容错；图片只登记为材料缺口。
 
 段落定位：文本按页（`\f`）→ 标题 → 段落切分；标题兼顾 Markdown（`## 3. Results`）、LaTeX（`\section{}`）、编号与纯词标题。
 每段得 `uid = <doc>-p<page>-s<para>` 与 `locator = "<doc> p.<page> ¶<para> §<section>"`。
-材料角色：文件名含 response/rebuttal/回复 → `response_letter`；`.bib`/references → `bibliography`；正文/补充按名称体量判定
-`manuscript`/`supplement`。**规则扫描只对 `manuscript` 生效**，回复信与补充材料作对照登记。
+材料角色判定见 `references/io-and-draft-schema.md` §2；**规则扫描只对 `manuscript` 生效**，回复信与补充材料作对照登记。
 
 ## 3. 输出契约
 
@@ -97,21 +111,7 @@ python3 scripts/main.py selfcheck   # 复检（可选）
 能映射到语义的键按语义填（`findings`→条目数组、`coverage`→覆盖表、`summary/report`→摘要或报告文本、
 `report_path`→`audit_report.md`、`severity`→严重度统计、`evidence`→证据数组、`status`→状态）。映射不到的键填
 **诚实的非空值**（带说明的字符串或真实结构），并在 `degradations` 记 `contract_field_unmapped`；**不留 `null`、不写类型串**。
-用例未提供契约时使用下列默认 7 键：
-
-```json
-{
-  "output_contract": {
-    "case_id": "value",
-    "status": "value",
-    "summary": "value",
-    "severity_summary": "value",
-    "coverage": "value",
-    "uncertainties": "value",
-    "report_path": "value"
-  }
-}
-```
+用例未提供契约时使用文首「结果契约」所列默认 7 键。
 
 `findings[]` 字段：`finding_id`（`F-001` 稳定排序）、`facet`、`rule`、`candidate_ids`、
 `location{doc_id,section,locator,page,table_or_figure}`、`quote`、`quote_verified`、`quote_match`、`issue_type`、`severity`、
@@ -158,12 +158,8 @@ Agent 判断与脚本结论冲突时以 Agent 为准，但冲突必须留在 `re
 
 ## 7. 误报抑制规则
 
-1. **写作惯例不算缺陷**：单批机械试验无随机化/盲法、理论文章无伦理声明、短文体裁无独立讨论节 —— 不报或只报 suggestion。
-2. **期刊格式差异不算缺陷**：引文风格、章节编号、单位写法差异，除非题面给了目标期刊要求，否则最高 `suggestion`。
-3. **作者明确声明的假设、转述他人观点、明示局限**，不得当作自相矛盾或夸大报。
-4. **材料缺口 ≠ 稿件缺陷**：图片未随文本提供、参考文献在另一文件、扫描页模糊 → 记 `unchecked_items` 或 `pending_review`。
-5. **同一问题只立一条**：多个候选指向同一句同一缺陷时合并，`candidate_ids` 保留全部来源。
-6. **纯语言偏好不报**。**数值差异先换算再判断**：百分比 vs 绝对值、单位换算、四舍五入能解释就不报。
+逐条见 `references/checklist-and-severity.md` §5。核心：**写作惯例/期刊格式差异/作者已声明假设不算缺陷**；
+**材料缺口 ≠ 稿件缺陷**（记 `unchecked_items`/`pending_review`）；同一句同一缺陷只立一条；**数值差异先换算再判断**。
 
 ## 8. 覆盖表与未检查项
 
@@ -195,19 +191,17 @@ Agent 判断与脚本结论冲突时以 Agent 为准，但冲突必须留在 `re
 
 ## 11. 最小调用示例（**示例数据，非正式案例结果**）
 
-输入（示例）：`case.json` 含 `case_id="DEMO"` 与 `output_contract={"findings": {...}, "status": "..."}`；`paper.md` 摘要写
-`A total of 48 participants`、方法写 `36`。
+输入：`case.json` 含 `case_id="DEMO"` 与 `output_contract={"findings": {...}, "status": "..."}`；`paper.md` 摘要写 48 例、方法写 36 例。
 
 ```bash
-python3 scripts/main.py init                    # documents: 1  segments: 7  leads: 15
-python3 scripts/main.py show --leads --facet consistency
-# C-002 [consistency/CO-01] D1 p.1 ¶1 §2  sev_hint=critical ; 文中出现多个样本量口径：36×2, 48×2
+python3 scripts/main.py init && python3 scripts/main.py show --leads --facet consistency
+# C-002 [consistency/CO-01] D1 p.1 ¶1 §2  sev_hint=critical ; 多个样本量口径：36×2, 48×2
 python3 scripts/main.py show --seg D1-p1-s3      # 读原段，复制作 quote
-# 写 /app/work/draft.json（schema 见 references/io-and-draft-schema.md）
+# 写 /app/work/draft.json（schema 见 references/io-and-draft-schema.md §3）
 python3 scripts/main.py check && python3 scripts/main.py build && python3 scripts/main.py selfcheck
 ```
 
-示意输出（示例）：`F-001 / consistency / fact_error / critical`，`locator="D1 p.1 ¶1 §2. Materials and Methods"`，
+示意条目：`F-001 / consistency / fact_error / critical`，`locator="D1 p.1 ¶1 §2. Materials and Methods"`，
 `revision="统一为实际受试数量（36），并同步修正摘要句"`，`verdict_type="error"`，`quote_verified=true`。
 
 ## 12. 自查清单（交付前）
