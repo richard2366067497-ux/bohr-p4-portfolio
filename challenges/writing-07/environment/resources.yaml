@@ -1,7 +1,7 @@
 # environment/resources.yaml
 # Runtime contract for intro-relatedwork-writer (writing-07). Offline, standard library only.
 name: intro-relatedwork-writer
-version: 9.0.0
+version: 9.1.0
 entry_point: scripts/main.py
 python: ">=3.9"
 
@@ -27,6 +27,7 @@ bundled_files:
   - environment/resources.yaml
   - examples/case.json
   - examples/draft.json
+  - references/expert_playbook.md
   - templates/manuscript_template.md
   - scripts/main.py
   - scripts/core.py
@@ -35,6 +36,6 @@ bundled_files:
 dependencies: []          # pure standard library; no third-party packages
 network: none
 limits:
-  files: 12
+  files: 14
   bytes: 150000
   single_file_bytes: 30000
