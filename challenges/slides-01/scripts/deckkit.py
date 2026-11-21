@@ -38,8 +38,20 @@ def _pick(make, tries=600):
             return d
     return make(0)
 HEAD_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-SENT_RE = re.compile(r"[^.!?。；;]+[.!?。；;]?")
+SENT_SPLIT = re.compile(r"(?<=[.!?。；;])\s+")
+CAPTION_RE = re.compile(r"^(?:Figure|Table|Fig\.?)\s*\d+\s*[.:\-—]", re.IGNORECASE)
+
+
+def split_sentences(text):
+    """Split into sentences on end punctuation followed by whitespace (keeps '4.7 µm' intact)."""
+    out = []
+    for part in SENT_SPLIT.split(text or ""):
+        s = re.sub(r"\s+", " ", part).strip()
+        if s:
+            out.append(s)
+    return out
 NUM_RE = re.compile(r"(?<!\w)(\d+(?:[.,]\d+)?\s?(?:%|percent|fold|W/m2|µm|um|nm|eV|K|C|h|min|s|mV|mA)?)")
+FIG_RE = re.compile(r"\b(?:Figure|Table|Fig\.?)\s*\d+|\b[图表]\s*\d+")
 ROLE_KEYS = [
     ("outline", ("outline", "agenda", "目录", "contour")),
     ("question", ("question", "aim", "problem", "研究问题", "objective")),
@@ -162,8 +174,8 @@ def usable_sentences(idx):
     for m in idx.get("materials") or []:
         if not m.get("prose"):
             continue
-        for s in SENT_RE.findall(m.get("text") or ""):
-            if len(s.strip()) >= 15:
+        for s in split_sentences(m.get("text") or ""):
+            if len(s) >= 15 and not CAPTION_RE.match(s):
                 n += 1
     return n
 
@@ -213,9 +225,9 @@ def outline(mat):
 def sentences(body, limit=4, width=200):
     out = []
     for para in body:
-        for s in SENT_RE.findall(para):
+        for s in split_sentences(para):
             s = re.sub(r"\s+", " ", s).strip()
-            if len(s) >= 12:
+            if len(s) >= 12 and not CAPTION_RE.match(s):
                 out.append(s[:width])
     if not out and body:
         j = re.sub(r"\s+", " ", " ".join(body)).strip()
@@ -270,6 +282,17 @@ def build_plan(idx, max_slides=24):
     return title, plan, src_name
 
 
+def figure_refs(texts):
+    """Collect Figure/Table numbers mentioned in a page's text, in appearance order."""
+    out = []
+    for t in texts or []:
+        for m in FIG_RE.finditer(t or ""):
+            ref = m.group(0).strip()
+            if ref not in out:
+                out.append(ref)
+    return out
+
+
 def content_map(plan, mat):
     text = clean_text((mat or {}).get("text") or "")
     slides = []
@@ -280,9 +303,11 @@ def content_map(plan, mat):
             bts.append({"text": b, "quote": b if verified else "",
                         "locator": "%s#b%d" % (sl["source"], j),
                         "verified": verified})
+        refs = sl.get("figure_refs") or figure_refs([sl.get("claim", "")] + list(sl.get("bullets") or []))
         slides.append({"index": sl["index"], "n": sl["index"], "role": sl["role"],
                        "title": sl["title"], "claim": sl["claim"],
                        "source_locator": sl["source"], "evidence_quote": sl["claim"],
+                       "figure_refs": refs, "origin": "%s (%s)" % (sl["source"], sl["role"]),
                        "bullets": bts, "notes": sl.get("notes", ""),
                        "notes_chars": len(sl.get("notes", ""))})
     ev = [b for s in slides for b in s["bullets"] if s["role"] not in STRUCTURAL_ROLES]
@@ -304,6 +329,34 @@ def find_quotes(mat, plan):
                 quotes.append({"slide": sl["index"], "quote": b, "verified": ok, "locator": sl["source"]})
                 break
     return quotes, checked, matched
+
+
+def page_gold(plan, cm):
+    """Page-level gold standard: what a page must carry to be reviewable."""
+    by_index = {s["index"]: s for s in cm["slides"]}
+    slides = []
+    for sl in plan:
+        cm_s = by_index.get(sl["index"], {})
+        refs = sl.get("figure_refs") or figure_refs([sl.get("claim", "")] + list(sl.get("bullets") or []))
+        req = ["main_line_claim", "source_locator", "speaker_note"]
+        if sl.get("bullets"):
+            req.append("evidence_quote")
+        if refs:
+            req.append("figure_reference")
+        slides.append({
+            "index": sl["index"], "role": sl["role"], "title": sl["title"],
+            "claim": sl["claim"], "source_locator": sl["source"],
+            "evidence_quote": cm_s.get("evidence_quote", sl["claim"]),
+            "figure_refs": refs,
+            "origin": cm_s.get("origin", sl["source"]),
+            "notes_present": len(sl.get("notes", "")) >= 20,
+            "required_elements": req,
+        })
+    return {"pages": len(slides), "slides": slides,
+            "note": "each page lists the elements a reviewer can check against the material",
+            "with_locator": sum(1 for s in slides if s["source_locator"]),
+            "with_evidence": sum(1 for s in slides if "evidence_quote" in s["required_elements"]),
+            "with_figure_ref": sum(1 for s in slides if s["figure_refs"])}
 
 
 def compliance(idx, plan, quotes, extra=None):
