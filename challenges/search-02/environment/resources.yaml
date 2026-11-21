@@ -1,0 +1,73 @@
+# environment/resources.yaml - search-02 / rq-driven-retrieval (v10)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: rq-driven-retrieval
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 -B /skills/weekly-skill/scripts/main.py
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 -B /skills/weekly-skill/scripts/main.py init  --input /input --output /app/output --work /app/work
+    - "Agent: run show, read the materials with their M01#n locators, optionally write /app/work/draft.json"
+    - python3 -B /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py selfcheck --output /app/output --work /app/work
+  selftest: >-
+    python3 -B /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all (default) / init / show / check / build / selfcheck
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  case_json: "case.json provides case_id, research_question and output_contract (keys echoed verbatim)"
+  task_md: "task.md provides the research question when case.json does not"
+  materials: "any UTF-8 text material (md/txt/json/jsonl/tex/csv/tsv) under the input root; paragraphs get M01#pN locators"
+  records: "reference-like lines are indexed as candidate records with rid + M01#rN locators; no live database is queried"
+  unusable_files: "empty / corrupt / binary files are recorded and never quoted"
+
+required_outputs:
+  - result.json
+  - subquestions.json
+  - candidates.jsonl
+  - evidence_ledger.json
+  - coverage.json
+  - stop_decision.json
+  - search_log.json
+  - report.md
+
+reusable_templates:
+  - references/expert_playbook.md
+  - references/retrieval-contract.md
+  - examples/expected_output.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 300
+  max_output_files: 16
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, status, subquestions, candidates, evidence, coverage, search_log, stop_decision, report]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> challenges/<key>.json -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  placeholders: forbidden
+
+dependencies: []            # standard library only
+exit_code_policy: always 0 (usage error 2)
