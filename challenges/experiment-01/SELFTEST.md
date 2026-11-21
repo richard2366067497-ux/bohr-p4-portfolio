@@ -1,19 +1,19 @@
-# SELFTEST — plan-forge-experiment（experiment-01 v6）
+# SELFTEST — plan-forge-experiment（experiment-01 v10）
 
-本文件记录 **2026-11-20** 在仓库根目录用 `scripts/eval_sim.py` 对 rich / boundary 两个合成用例
+本文件记录 **2026-11-21** 在仓库根目录用 `scripts/eval_sim.py` 对 rich / boundary 两个合成用例
 × single / agent 两种模式做的本地评测结果，以及一个自带数值域的本地功能用例。所有评测均为
 **PASS，0 WARN，0 FAIL**。
 
 ## 复现命令
 
 ```bash
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-01 \
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-01 \
   --case work/p4/synth_cases/experiment-01/rich     --mode single
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-01 \
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-01 \
   --case work/p4/synth_cases/experiment-01/rich     --mode agent
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-01 \
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-01 \
   --case work/p4/synth_cases/experiment-01/boundary --mode single
-python scripts/eval_sim.py --pkg work/p4/v6/experiment-01 \
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-01 \
   --case work/p4/synth_cases/experiment-01/boundary --mode agent
 ```
 
@@ -63,3 +63,27 @@ result.json、plan_report.md、plan_revised.json、validation_report.json、arit
 evidence.json、version_diff.md、reproduce.md（共 8 个）。
 
 > 以上为本地模拟评测（`scripts/eval_sim.py`）结果，不代表平台正式分数；正式案例以平台 `/input` 为准。
+
+## v10 复跑与示例数字（examples/）
+
+随包最小样例 `examples/`（`case.json` + `params.json`：3 域 / 1 约束 / 4 资源 / 3 候选 / 2 对照 /
+5 步 / risk+confirm / budget 15000 / deadline 5）可直接复跑：
+
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：exit 0，`status=answered`，产物 **8** 文件；
+参数域 3、约束 1、资源 4、候选 3（全可行，0 硬违规 0 警告）；单次 2080、×5 = **10400** ≤ 15000，
+工时 **1035** min（2.16 天 ≤ 5）；4 项算术自检全过；`evidence_stats={total:19, hits:19, rate:1.0}`；
+推荐 **v1**（naoh=7, temperature=100, time=10）带 ±1 step 容差带；契约键 **8/8**；占位符 0；
+规范化哈希 **`e0b5c4f9a2ece55e`**。`eval_sim` rich/boundary × single/agent 四项全 **PASS**
+（rich 键 2/2 partial；boundary 8/8）。
+
+## v10 交付状态（专家手册嵌入）
+
+- **新增 `references/expert_playbook.md`**（专家参考手册：六步法/量化口径/风险等级/陷阱与单位/
+  自查表 C01–C17/完整案例）；`SKILL.md` 明确"执行前先读 references/expert_playbook.md，按其框架/
+  检查表/成本口径产出交付物"，并在 §9 自检清单加入"专家检查表逐项通过"。
+- **单命令入口未受影响**：无 draft 下仍产出全部 8 件产物 + 契约逐键回填，exit 0。
+- **`eval_sim.py` 四项全 PASS**；`selfcheck` 额外报告 `expert-checklist ok`。
