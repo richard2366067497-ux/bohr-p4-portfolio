@@ -24,14 +24,17 @@ version: 3.0.0
 
 ---
 
+单命令评测入口：
+
+```bash
+python3 -B /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 1. 入口命令（第一条，必须先看）
 
-单命令即可跑完整流程并产出全部产物（评测只跑这一条也能过）：
-
-```
-python3 -B /skills/weekly-skill/scripts/main.py \
-  --input /input --output /app/output --work /app/work
-```
+单命令即可跑完整流程并产出全部产物（评测只跑这一条也能过）；命令见文首「单命令评测入口」。
 
 该命令等价于 `main.py build`，按顺序执行：
 
