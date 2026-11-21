@@ -1,0 +1,17 @@
+{
+  "case_id": "example-db-query-workbook",
+  "title": "混凝土试块强度数据库查询工作簿（最小样例）",
+  "task_instruction": "从随包材料（samples.csv、batches.csv、dictionary.md）建立快照，发现库表与字段字典，派生并真实执行查询，导出每个结果集 CSV，做行数与跨表连接膨胀复核，产出 query_report.md 与 result.json。",
+  "output_contract": {
+    "case_id": "example-db-query-workbook",
+    "status": "string",
+    "deliverable": "string",
+    "queries": "string",
+    "results": "string",
+    "reconciliation": "string",
+    "field_dictionary": "string",
+    "join_ledger": "string",
+    "data_quality": "string",
+    "change_log": "string"
+  }
+}
