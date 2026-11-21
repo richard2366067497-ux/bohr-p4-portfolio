@@ -1,6 +1,6 @@
-# SELFTEST — field-contract-cleaner（analysis-01 · v9）
+# SELFTEST — field-contract-cleaner（analysis-01 · v10）
 
-自查分三层：① 命令级（恒 exit 0）② 产物级（`selfcheck` 的布尔检查表）③ 边界用例级（§16 的 7 条）。所有结论都可由命令重新产生。
+自查分三层：① 命令级（恒 exit 0）② 产物级（`selfcheck` 的布尔检查表）③ 边界用例级（本文件「边界用例」一节的 7 条）。所有结论都可由命令重新产生。
 
 ## 1. 冒烟（一次跑完）
 
