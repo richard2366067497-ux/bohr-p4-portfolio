@@ -131,3 +131,7 @@ python3 -B scripts/main.py selfcheck --input /input --output /app/output --work 
 | 可复用模板 / 页级大纲模板 / 证据映射表样例 | `templates/slide-plan-template.json`（页级大纲模板 + 证据映射字段） |
 
 参见 `references/slides-spec.md` 的机制说明。
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
