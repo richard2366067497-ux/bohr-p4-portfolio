@@ -6,6 +6,14 @@ version: 1.0.0
 
 # 候选文献筛选与可解释排序（literature-screening-ranker）
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 1. 用途与适用条件
 
 输入是一份**已经给定的候选文献集**（题名、摘要、年份、DOI、来源等元数据）加一个具体科研问题（可附纳排
