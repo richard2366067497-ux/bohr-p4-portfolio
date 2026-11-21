@@ -1,10 +1,13 @@
-# patent-search-dossier — search-11 (v9)
+# patent-search-dossier — search-11 (v10)
 
 把一个专利/文献材料集读成**可复核的检索档案**：定位每一条可引用的行并给出 `M#/p#` locator；
 用可追溯的规则链规范化公开号、申请号、授权号、优先权号；逐条记录法律状态的来源分级与 `as_of`；
 用绿/黄/红许可闸门给每个来源分级；族图只陈述观察到的链接、从不声称穷尽；把边界与缺口写清楚；
 每个数字与标签都保留其原始证据快照；并渲染一张族图 PNG。空/坏/占位材料诚实降级为
 `insufficient_evidence`。纯标准库、离线、确定性、退出码恒 0。
+
+> **执行前必读**：`references/expert_playbook.md`（七步框架 / 授权分级 / 指标公式 / 事实边界 /
+> 防扣分自查表）。产出前逐项过其 §8 自查表（26 项），任一项未过即 `status=partial`。
 
 ## 1. 一条命令（评测入口）
 
@@ -58,11 +61,15 @@ scripts/main.py                           # CLI 入口：all / init / show / che
 scripts/kglib.py                          # 引擎：扫描 / 号码规范化 / 状态 / 许可 / 边界 / 证据 / 结果
 scripts/render.py                         # io+渲染：token 规范化、安全写盘、标准库 PNG 图、markdown 渲染
 environment/resources.yaml                # 资源入口声明：入口命令、路径、输入约定、契约、运行时
+references/expert_playbook.md             # 专家参考手册：七步框架/授权分级/指标公式/事实边界/自查表（执行前必读）
 references/innovation-evidence.md         # 创新证据：与通用 Agent / 商用库的差异与价值边界
 references/query-templates.md             # 可复用检索式模板（号码式/主题式/申请人式/引证式/文献式）
 references/license-checklist.md           # 可复用授权核验清单与绿黄红分级判据
+examples/materials.md                     # 最小可复跑样例材料（编号/查询/状态/权利要求，虚构）
 README.md  SELFTEST.md  GAIN_EVIDENCE.md  GITHUB_URL.txt
 ```
+
+复跑样例：`python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work`。
 
 ## 7. 字段与口径（field contract）
 
