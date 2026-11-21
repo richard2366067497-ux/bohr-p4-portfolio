@@ -332,6 +332,12 @@ def main(argv=None):
                  res.get("coverage", {}).get("queries"), res.get("coverage", {}).get("checks_passed"),
                  res.get("coverage", {}).get("checks")))
         print("[%s] result -> %s" % (a.cmd, out / "result.json"))
+        if a.cmd == "selfcheck":
+            pb = base / "references" / "expert_playbook.md"
+            ok_pb = pb.is_file() and pb.stat().st_size > 0
+            print("[selfcheck] expert-checklist %s"
+                  % ("ok (references/expert_playbook.md present; DC-01..DC-17 to pass)" if ok_pb
+                     else "MISSING references/expert_playbook.md"))
     except Exception as exc:  # noqa: BLE001
         try:
             out.mkdir(parents=True, exist_ok=True)
