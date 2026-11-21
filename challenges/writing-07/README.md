@@ -20,10 +20,13 @@
 /skills/weekly-skill/
   SKILL.md   README.md   SELFTEST.md   GAIN_EVIDENCE.md   GITHUB_URL.txt
   environment/resources.yaml
+  references/expert_playbook.md   （执行前必读的专家方法论）
   examples/            （case.json + draft.json 示例）
   templates/           （manuscript_template.md）
   scripts/main.py   scripts/core.py   scripts/render.py
 ```
+
+执行前先读 `references/expert_playbook.md`，按其八步框架推进，交付前逐项通过其 §6 检查表。
 
 ## 用法
 
@@ -73,6 +76,6 @@ python3 scripts/main.py selfcheck  # 复检产物一致性与契约回显（即�
 
 ## 维护
 
-版本 9.0.0；契约键名冻结，抽取规则集中在 `SKILL.md` 与 `scripts/core.py`。
+版本 9.1.0；契约键名冻结，抽取规则集中在 `SKILL.md` 与 `scripts/core.py`。
 改脚本必须重跑：`--help`、空 `/input`、坏 JSON（三者均 exit 0），并跑一次
 `main.py selfcheck`（见 SELFTEST.md）。
