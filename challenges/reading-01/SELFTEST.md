@@ -13,12 +13,12 @@ Every number below was produced by running this package. Engine: stdlib only
 `all` = `build` + `selfcheck`. No draft is needed: with no `work/draft.json` every contract field and
 every artifact is produced by the program itself.
 
-## 2. Rich run — the shipped `examples/sample.pdf` (2 pages, two columns)
+## 2. Rich run (materials supplied by the official hidden cases)
 
 | measure | value |
 |-|-|
 | `status` | `ok` |
-| document | `sample.pdf`, 2 pages, engine `stdlib`, 1777 chars |
+| document | `sample.md`, 2 pages, engine `stdlib`, 1777 chars |
 | title | `Reading order in two-column PDFs` |
 | page objects | 22 — heading 6, paragraph 9, caption 2, table_row 4, formula 1 |
 | sections | 5 — Abstract / 1. Introduction / 2. Method / 3. Discussion / References |
@@ -41,11 +41,11 @@ A draft of three items was checked:
 check: draft=3 accepted=1 rejected=2 objects=22
 ```
 
-- accepted — `title` at `sample.pdf p1 p1-b01 heading` (a real object);
-- rejected — `authors` at `sample.pdf p9 p9-b99 heading` → *locator does not name a page object of this file*;
+- accepted — `title` at `sample.md p1 p1-b01 heading` (a real object);
+- rejected — `authors` at `sample.md p9 p9-b99 heading` → *locator does not name a page object of this file*;
 - rejected — `abstract` with an empty value → *empty field or value*.
 
-`build` with that draft adds `CH-03 draft_override_applied` (locator `sample.pdf p1 p1-b01 heading`,
+`build` with that draft adds `CH-03 draft_override_applied` (locator `sample.md p1 p1-b01 heading`,
 `reversible: true`) and leaves the 10 contract keys complete. With no draft, the output is unchanged.
 
 ## 4. Boundary degradation — 4-combination matrix (`work/p4/synth_cases/reading-01`)
