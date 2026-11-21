@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import kit as K  # noqa: E402
 
-VERSION = "1.1.0"
+VERSION = "1.3.0"
 SKILL = "writing-05-evidence"
 MAIN_FILE = "evidence_driven_draft.md"
 
@@ -287,7 +287,10 @@ def runtime_result(cid, status, lg, filled, main_text, claims, rows, facts, refs
                                                     / max(1, len(rows)), 3),
                        "claim_coverage": round(sum(1 for r in rows if r.get("source_id"))
                                                / max(1, len(claims)), 3),
-                       "pending_human_count": len(human), "overclaim_flags": len(changed)},
+                       "pending_human_count": len(human), "overclaim_flags": len(changed),
+                       "contract_keys_covered": "%d/%d" % (
+                           sum(1 for v in echo.values() if v not in (None, "", [], {})),
+                           max(1, len(echo)))},
            "sources": sources, "uncertainties": uncertainties, "change_records": change_log,
            "limits": limits, "human_review": human, "degradations": deg, "errors": errs,
            "runtime": {"script": "scripts/main.py", "version": VERSION, "python": sys.version.split()[0],
@@ -473,6 +476,48 @@ def run(args):
         status, len(claims), len(rows), sum(1 for r in rows if r.get("source_id")), len(refs), len(docs)))
 
 
+def run_baseline(args):
+    """Deterministic naive baseline used to reproduce the gain contrast.
+
+    Same input as the normal run, but the output is a verbatim concatenation of the
+    materials: no claim splitting, no source matching, no evidence grading, no
+    locator, and no ``result.json``. Exits 0. The numbers it reports are the metric
+    floor (all rates 0.0) that the normal run is compared against in
+    ``GAIN_EVIDENCE.md`` and the ``--baseline`` command documented in ``SKILL.md``.
+    """
+    ind = Path(args.input or "/input")
+    if not ind.is_dir():
+        ind = Path.cwd() / "input"
+    out = Path(args.output or "/app/output")
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        probe = out / ".probe"
+        probe.write_text("x", encoding="utf-8")
+        probe.unlink()
+    except Exception:
+        out = Path.cwd() / "output"
+        out.mkdir(parents=True, exist_ok=True)
+    case, _ = read_case(ind) if ind.is_dir() else ({}, "")
+    docs = K.discover(ind, case) if ind.is_dir() else []
+    body = K.baseline_concat(docs) or "(no readable material found under the input directory)"
+    K.write_text(out / "baseline_draft.md",
+                 "# Baseline (no Skill)\n\n"
+                 "> Verbatim concatenation of the input materials: no claim splitting, "
+                 "no source matching, no evidence grading, no locator, no result.json.\n\n" + body)
+    con = case.get("output_contract") if isinstance(case.get("output_contract"), dict) else {}
+    nkeys = len(K.contract_keys(con))
+    K.dump_json(out / "baseline_metrics.json", {
+        "case_id": str(case.get("case_id") or case.get("id") or "UNKNOWN"),
+        "mode": "baseline", "documents_concatenated": len(docs),
+        "metrics": {"claims": 0, "evidence_rows": 0, "rows_with_source": 0, "references": 0,
+                    "downgrades": 0, "verified_quote_rate": 0.0, "claim_coverage": 0.0,
+                    "pending_human_count": 0, "overclaim_flags": 0,
+                    "contract_keys_covered": "0/%d" % nkeys},
+        "limits": ["Naive baseline mode: verbatim concatenation only; it does not split claims, "
+                   "match sources, grade evidence, emit locators or backfill the output contract."]})
+    print("baseline docs=%d" % len(docs))
+
+
 def _fail(path, exc):
     try:
         o = Path(path)
@@ -502,18 +547,26 @@ def _fail(path, exc):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="main.py",
                                  description="Evidence-driven writing: claims, evidence table, graded draft and result.json.")
+    ap.add_argument("command", nargs="?", default="all", choices=["all", "run"],
+                    help="'all' (default) runs the whole pipeline; the positional is accepted for compatibility.")
     ap.add_argument("--input", default="/input")
     ap.add_argument("--output", default="/app/output")
     ap.add_argument("--work", default="/app/work")
     ap.add_argument("--case", default=None)
     ap.add_argument("--draft", default=None)
     ap.add_argument("--lang", default=None)
+    ap.add_argument("--baseline", action="store_true",
+                    help="deterministic naive baseline: concatenate materials, no split/match/grade, no result.json")
     ap.add_argument("--version", action="version", version=SKILL + " " + VERSION)
     args = ap.parse_args(argv)
     try:
-        run(args)
+        if args.baseline:
+            run_baseline(args)
+        else:
+            run(args)
     except Exception as exc:  # noqa
-        _fail(args.output or "/app/output", exc)
+        if not args.baseline:
+            _fail(args.output or "/app/output", exc)
         import traceback
         traceback.print_exc()
     return 0
