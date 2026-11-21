@@ -1,0 +1,14 @@
+{
+  "case_id": "example-review-02",
+  "language": "zh",
+  "notes": "最小调用示例：把本文件与待审稿件、材料一起放进 --input 目录，再跑单命令入口。缺口径的案例也适用：契约缺失时包内标准字段集生效，仍产出全部交付物。",
+  "output_contract": {
+    "case_id": "string",
+    "deliverable": "path",
+    "evidence_map": "array",
+    "change_log": "array",
+    "coverage": "object",
+    "status": "string"
+  },
+  "task_instruction": "对输入材料中的稿件做引用与事实核验：逐条给出定位串、逐字原文、判定（S/P/N/U 或六维结论）、严重度与可执行修改建议；无法确认的标为待复核。"
+}
