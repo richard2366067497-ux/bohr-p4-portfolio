@@ -1,0 +1,23 @@
+# 运行环境与资源声明（writing-16 / source-faithful-retargeting）
+name: source-faithful-retargeting
+version: 10.0.0
+runtime:
+  install_root: /skills/weekly-skill
+  input: /input
+  output: /app/output
+  work: /app/work
+  python: ">=3.9"
+entry:
+  single: "python3 scripts/main.py all --input /input --work /app/work --output /app/output"
+  agent: "python3 scripts/main.py init|show|check|build|selfcheck"
+  exit_code: 0
+dependencies:
+  third_party: []
+  standard_library: [argparse, csv, hashlib, json, os, re, sys, zipfile, html.parser, unicodedata]
+  optional_external: [pdftotext]   # 缺失时回退内置 PDF 流解析并标 builtin-pdf-lowconf
+network: false
+time_budget_seconds: 900
+files:
+  max_files: 14
+  max_total_kb: 150
+  max_single_kb: 30
