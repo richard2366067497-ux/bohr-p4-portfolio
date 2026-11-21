@@ -11,11 +11,15 @@ description: 把一篇论文（PDF 或纯文本）转成原子化、绑定证据
 本技能**不写综述**：它产出的是一份评审一分钟内可抽检的证据台账——翻到该页、看那段 span、
 判断断言是否被支撑。
 
-## 1. 入口命令（单条命令跑完全流程）
+单命令评测入口：
 
 ```bash
-python3 scripts/np_build.py --input /input --out /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/np_build.py --input /input --out /app/output --work /app/work
 ```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+## 1. 入口命令（单条命令跑完全流程）
 
 这一条命令完成：清单 → 抽文本（`work/corpus.json`）→ 自动拆分断言（或读 `--draft`）→ 定位与检查
 （`work/lint-report.md`）→ 构建（内容哈希 id、AIDA、契约映射）→ 门禁复核 → 写
