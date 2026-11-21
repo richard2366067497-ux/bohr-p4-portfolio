@@ -63,6 +63,8 @@ Agent 仍可补充查询意图，但评估器只跑第一条命令也能拿到�
 一条命令跑完 连接 → 发现库表 → 字段字典 → 派生查询 → 真实执行 → 导出 CSV → 行数/连接复核
 → 报告 → 回填全部 `output_contract` 键 → 写 `result.json`：
 
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
