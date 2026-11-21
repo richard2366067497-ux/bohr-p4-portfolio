@@ -1,4 +1,4 @@
-# experiment-interpretation-dossier — 实验结果解释与异常分析（experiment-05 v6）
+# experiment-interpretation-dossier — 实验结果解释与异常分析（experiment-05 v10）
 
 把一批实验结果材料整理成**可逐条复核的解释案卷**：五段可检查结论（趋势 / 异常点 / 可能原因 /
 复核步骤 / 后续实验建议），每条都回指到 `locator` 与**逐字 quote**；从材料中索引筛查规则
@@ -23,9 +23,17 @@ R1–R9、单位字典与阈值常量；在固定夹具上按定义复算均值/
 ```
 /skills/weekly-skill/
   SKILL.md
+  references/expert_playbook.md
   scripts/main.py   scripts/extract.py   scripts/engine.py   scripts/render.py
-  README.md  SELFTEST.md  GITHUB_URL.txt
+  environment/resources.yaml
+  examples/case.json   examples/notes.md   examples/readout.csv
+  README.md  SELFTEST.md  GAIN_EVIDENCE.md  GITHUB_URL.txt
 ```
+
+**执行前必读**：`references/expert_playbook.md`（专家参考手册）。先按其 §2 的 S1–S6 六步法与门控
+解析材料，再按其 §3 统计口径逐条复算（趋势斜率/R²/拐点/平台期；Z/修正 Z/IQR/Grubbs 阈值；
+功效重复数），按其 §3.4 给原因候选标 A/B/C 强度，按其 §4 排雷（AU 量程、pH 对数、°C→K、R²≠因果、
+n=3 功效、precision≠accuracy），交付前逐项通过其 §5 的 SC-01…SC-20 自查表并用 §7 排雷。
 
 ## 用法
 
@@ -78,3 +86,27 @@ python3 scripts/main.py selfcheck  # 复检产物一致性与契约回显
 
 版本 2.6.0；契约键名冻结，抽取规则集中在 `SKILL.md` 与 `scripts/extract.py`。
 改了脚本必须重跑：空 `/input`、坏 JSON（均 exit 0），并跑一次自测（见 SELFTEST.md）。
+
+## 随包最小样例（examples/，可直接复跑）
+
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+# exit 0；9 件产物；rules=6, thresholds=7, units=6, series=2, candidates=1(R1, M03#L6, high)
+# checks 4/4；evidence 19/19 (rate 1.0)；契约 12/12；status=partial（无 draft，如实记 2 条降级）
+
+python3 scripts/main.py build --input examples --output /tmp/out2 --work /tmp/work   # draft 就位后
+# exit 0；status=answered；trends=1, dossiers=1(A-001, high), causes=1(B)；契约 12/12
+```
+
+样例输入：`examples/case.json`（12 键契约 + 题面）+ `examples/notes.md`（筛检规则 R1–R9 pipe 表、
+单位与量纲字典、判据阈值常量）+ `examples/readout.csv`（8 点时间序列，含一个 148.3 mg/L 离谱读数）。
+使用增益对照见 `GAIN_EVIDENCE.md`（含确定性 `baseline_sim` 说明，非官方对照）。
+
+## 随包文件（v10 新增）
+
+```
+references/expert_playbook.md  专家参考手册（S1–S6 六步法/统计口径 §3/陷阱与单位 §4/自查表 SC-01…SC-20/完整案例）
+environment/resources.yaml     运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                      最小可复跑样例（case.json + notes.md + readout.csv）
+GAIN_EVIDENCE.md               无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+```
