@@ -6,6 +6,14 @@ version: 1.1.0
 
 # 科研文件库定位检索（research-file-locator）
 
+单命令评测入口：
+
+```bash
+python3 -B /skills/weekly-skill/scripts/main.py all --input /input --out /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 0. 本包声明的契约（output_contract）与单命令入口
 
 `result.json` 必须回填下面每个键（键名不改、不并、不删）；案例自带 `case.json → output_contract` 时以案例为准，本声明只在案例未声明契约时生效（见 §7）。
@@ -17,11 +25,7 @@ version: 1.1.0
   "impact": "string"}}
 ```
 
-**单命令入口**（single command / 一次性跑完全管道）——不写任何工作稿也能一次产出全部交付物与完整契约回填：
-
-```bash
-python3 -B /skills/weekly-skill/scripts/main.py all --input /input --out /app/output --work /app/work
-```
+**单命令入口**（single command / 一次性跑完全管道）——不写任何工作稿也能一次产出全部交付物与完整契约回填，命令见文首「单命令评测入口」。
 
 `all` 依次做 `init`（建索引 + 先写合法 partial `result.json` + 生成候选工作稿）→ `build`（裁决 → 全部交付物 + 最终 `result.json`）→ `selfcheck`（契约键/产物/异常路径复检），恒 exit 0；缺 `draft.json` 时走 §8 兜底，产出「完整但降级」，绝不产出空目录。等价入口是 `build`。
 
