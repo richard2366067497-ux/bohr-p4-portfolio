@@ -22,6 +22,19 @@ template, and a selfcheck re-reads every quote at its locator to report the hit 
 When the input has no screenable record the run degrades to an honest no-data result
 instead of inventing literature.
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 求解框架与门控** 推进——读取与校验 → 定义筛选协议 → 文献筛选 → 主题归纳
+  → 证据组织 → 综述草稿 → 自检打包；前一步未冻结不进入下一步。
+- **口径/公式**：按其 **§3 量化口径与公式** 逐项核验——纳入率、主题覆盖率、主题重叠率、证据密度、
+  回链率、引用支持率、空白具体率、冲突呈现率、效率增益，并按其 §3.2 数字示例复算。
+- **陷阱**：按其 **§4 领域陷阱** 逐条排雷（错误做法 → 正确做法）：事实性错误、单位/量纲、文献依据。
+- **门控**：交付前逐项通过其 **§6 防扣分自查表（原 20 项）**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties`，绝不静默提升为完整成功。
+
 ## 0. result.json contract
 
 Every key below is echoed both at the top level of `result.json` and inside its
@@ -134,3 +147,13 @@ The screener still runs regardless, so a wrong draft cannot fabricate a record.
 - A quote that does not match its locator verbatim is reported `verbatim=False` in the
   audit report rather than being passed as grounded.
 - No network, no third-party package, no invented literature.
+
+## 7. 交付前自查清单
+
+- [ ] `result.json` 可解析，`case_id` 与输入一致，契约键（顶层 + `output_contract`）逐键非空、无占位符。
+- [ ] `screening_log.csv` / `evidence_matrix.json` / `coverage_report.json` / `conflicts_and_gaps.md` /
+  `audit_report.md` / `draft.md` / `run_log.txt` 均已写出且可互相核对。
+- [ ] 每条证据带 `source_id` + `locator` + 逐字 `quote`；`audit_report.md` 的逐字命中率如实报告。
+- [ ] 纳排标准先于筛选记录存在，重复 / 仅摘要 / 低相关 / 元数据不全逐条给出可复核理由。
+- [ ] 空输入 / 坏 JSON / 占位文本三条降级路径各跑过一次，均 exit 0 且有结构化 no-data。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §6 的 20 项逐项勾选通过；任一项未过则修正后重出，不得静默提升 status。
