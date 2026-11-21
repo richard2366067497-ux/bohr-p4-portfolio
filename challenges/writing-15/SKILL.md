@@ -18,6 +18,14 @@ chapter and a discussion chapter disagree. This skill turns the supplied chapter
 **index, six ledgers, a set of findings, and annotations that can be removed again**. It never
 rewrites the author's sentences and it never invents a reference.
 
+## 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册给出任务本质
+与判分要点、错误做法→正确做法、6 步求解框架、量化口径与公式（事实-来源匹配率 / 术语一致性 /
+引用缺失率 / 编号连续性 / 修改可追溯率）、领域知识与单位陷阱、交付物清单与专家检查表、完整虚构
+案例与交付前门控。执行顺序固定为：先读手册 → 再按求解框架逐阶段落盘冻结产物 → 交付前逐项勾选
+手册 §5.2 专家检查表。手册与本文冲突时，契约键名与入口命令以本文为准，方法与判分口径以手册为准。
+
 ## 0. result.json contract
 
 Every key below is echoed both at the top level of `result.json` and inside its `output_contract`
@@ -172,3 +180,10 @@ reported one block applied to the affected paragraph, and `sha` reported the 16-
   `revised_manuscript.md` is stable for unchanged input.
 - **Known failure modes** and a test matrix are in `references/rules-and-failure-modes.md`. Reusable
   glossary, citation and chapter-check templates are in `templates/`.
+
+## 9. 交付前自查
+
+- [ ] **`references/expert_playbook.md` §5.2 专家检查表逐项通过**（未通过项先修复再交付）。
+- [ ] `result.json` 可解析，逐键回填 `output_contract`，`case_id` 与输入一致。
+- [ ] `revised_manuscript.md` 可移除批注块还原原文，`preserved_facts.json` 与回滚校验一致。
+- [ ] 空输入 / 仅占位符 / 坏 JSON / 二进制四条降级路径各跑过一次，均 exit 0 且写出合法 `result.json`。
