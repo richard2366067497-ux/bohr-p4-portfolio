@@ -1,13 +1,13 @@
 # SELFTEST — reading-client v3.0.0
 
-自测日期 2026-11-20；解释器 Python 3.12.14（纯标准库，无第三方、无网络）。
-被测包路径 `work/p4/v6/reading-05`；用例 `work/p4/synth_cases/reading-05/{rich,boundary}`；
+自测日期 2026-11-21；解释器 Python 3.12.14（纯标准库，无第三方、无网络）。
+被测包路径 `work/p4/v10/reading-05`；用例 `work/p4/synth_cases/reading-05/{rich,boundary}`；
 驱动器 `scripts/eval_sim.py`（只读，未修改）。
 
 ## 1. 四组组合结果
 
 ```
-python scripts/eval_sim.py --pkg work/p4/v6/reading-05 \
+python scripts/eval_sim.py --pkg work/p4/v10/reading-05 \
   --case work/p4/synth_cases/reading-05/<rich|boundary> --mode <single|agent>
 ```
 
@@ -61,15 +61,21 @@ boundary 实跑：`status=partial docs=3 paragraphs=1 selections=0 claims=1`（�
 
 三条路径都写出合法 `result.json`，`output_contract` 为标准五键且无空值。
 
-## 5. 复跑要点
+## 5. 专家手册门控
+
+- 执行前阅读 `references/expert_playbook.md`；交付前逐项过其 §9 防扣分自查表（23 项）。
+- 未过项一律记 `status=partial` 并写入 `uncertainties`，不静默提升为 `answered`。
+
+## 6. 复跑要点
 
 - 入口恒为单命令：`python3 -B /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work`；
   agent-first 走 `build → check → selfcheck`，每个子命令都重写完整 `result.json`。
 - 顶层 `--input/--output/--work` 与子命令共用同一组参数（`parents=[common]`），
   因此扁平入口与子命令入口的退出码都为 0；仅 argparse 用法错误返回 2。
-- 复跑前确认包内无 `__pycache__`、无历史 `_t/` 输出目录（交付件应恰为 8 个文件）。
+- 最小样例：`python3 -B scripts/main.py --input examples --output /tmp/out --work /tmp/work`（应得 `status=answered`）。
+- 复跑前确认包内无 `__pycache__`、无历史 `_t/` 输出目录（交付件应恰为 12 个文件）。
 
-## 6. 已知边界
+## 7. 已知边界
 
 - HTML 页面每个开标签都带显式属性，材质文件里的裸标签不会被原样复制到产物。
 - 不做语义改写：段落锚点与引文按材料原文逐字保留（仅去空白）。
