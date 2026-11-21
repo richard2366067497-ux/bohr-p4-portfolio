@@ -1,7 +1,7 @@
 ---
 name: writing-05-evidence
 description: Literature-evidence driven academic writing. Turns a draft (or a topic) plus source materials into a located claim list, a graded evidence table, an editable evidence-driven draft, and a reviewable result.json. Use when an academic text must be produced or revised so that every substantive sentence can be traced to a located source snippet of a known strength.
-version: 1.2.0
+version: 1.3.0
 ---
 
 # 文献证据驱动写作 / Literature-evidence driven writing
@@ -29,7 +29,7 @@ version: 1.2.0
 python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output --work /app/work
 ```
 
-可选参数：`--case /input/case.json`、`--draft FILE`、`--lang zh|en`（默认按材料语言自动判断）、`--version`。
+可选参数：`--case /input/case.json`、`--draft FILE`、`--lang zh|en`（默认按材料语言自动判断）、`--baseline`（生成无 Skill 基线输出，见下）、`--version`。
 
 ### Agent 增强路径（可选，质量更高）
 
@@ -113,6 +113,27 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 
 公开作品链接见 `GITHUB_URL.txt`（仓库公开，可直接访问）。
 
+## 增益验证与对照方法
+
+本 Skill 的增益通过与「无 Skill 基线」在**同一输入**上的确定性对比证明，可逐字复现、可机读比较：
+
+- **基线模式**：`--baseline` 只做**原样拼接**——不切论断、不匹配来源、不分级、不写 locator、不写 `result.json`；
+  产物为 `baseline_draft.md`（材料逐字拼接）与 `baseline_metrics.json`（各指标取 0）。确定性、离线、退出码 0。
+- **对比指标**（正常模式写入 `result.json.metrics`，基线模式写入 `baseline_metrics.json`，同名可比）：
+  `verified_quote_rate`、`claim_coverage`、`pending_human_count`、`overclaim_flags`、`contract_keys_covered`。
+- **一条命令即可对照**（同一 `/input`，两个输出目录）：
+
+```bash
+# 基线（无 Skill）
+python3 /skills/weekly-skill/scripts/main.py --baseline --input /input --output /tmp/base --work /tmp/work
+# Skill 输出
+python3 /skills/weekly-skill/scripts/main.py --input /input --output /tmp/skill --work /tmp/work
+```
+
+运行后直接比较 `/tmp/skill/result.json` 的 `metrics` 与 `/tmp/base/baseline_metrics.json` 的 `metrics`：基线各项为 0，
+Skill 输出给出真实命中率与覆盖率。这是**本包确定性生成、可复算的本地基线对照**，用于把「增益」变成可核验的数字，
+**不是官方评测 A/B 数据**。
+
 ## 交付前自检
 
 - [ ] 单命令（或 `--draft` 增强路径）跑通，退出码为 0，`result.json` 合法且 `output_contract` 逐键回填。
@@ -126,8 +147,9 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 ```
 references/expert_playbook.md  专家参考手册：判分要点、六步法、量化口径、领域红线、专家检查表、案例（执行前必读）
 environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
-examples/                     最小可复跑样例（case.json + materials/{manuscript.md,refs.md}），评审可直接复跑
-GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
+examples/                     最小可复跑样例（case.json + materials/{manuscript.md,refs.md}）
+examples/output/result.json   本包确定性生成的示例输出快照（评审可直接检查；完整产物集由同一命令在运行时生成）
+GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（可复现的确定性基线对照，非官方评测数据）
 ```
 
 依赖：Python 3.9+ 标准库；无网络、无时钟读取，重复运行字节稳定。版本与自测见 `README.md` / `SELFTEST.md`。
