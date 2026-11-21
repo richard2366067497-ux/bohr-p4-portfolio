@@ -1,0 +1,15 @@
+{
+  "case_id": "example-writing-11",
+  "language": "en-zh",
+  "materials_root": "materials",
+  "deliverable": "revised_manuscript.md",
+  "output_contract": {
+    "case_id": null,
+    "status": null,
+    "deliverable": "revised_manuscript.md",
+    "preserved_facts": [],
+    "evidence_map": [],
+    "change_log": [],
+    "uncertainties": []
+  }
+}
