@@ -1,10 +1,4 @@
 def auto_draft(ctx, index):
-    """单命令/无 draft 兜底：由 init 台账确定性抽取实质工作稿。
-
-    规则：每个要素（步骤/设置/参数/数据集/基线/评估/复现/限制）优先从材料逐字抽取
-    （带 source_id + locator + quote）；材料确实未提供的要素登记为可追溯的缺口条目，
-    绝不编造数值或来源。语言按 ctx["language"] 渲染。
-    """
     lang = ctx.get("language") or "zh"
     labels = STEP_LABELS[lang]
     cands = [c for c in index.get("candidates") or []
@@ -15,7 +9,6 @@ def auto_draft(ctx, index):
     facts, parameters, settings, datasets, steps = [], [], [], [], []
     baselines, evaluation, repro, limitations, gaps, conflicts = [], [], [], [], [], []
 
-    # (1) 事实：逐字校验通过的候选（无通过项时保留前 8 条并标注 unverified）
     for i, c in enumerate(cands[:24], 1):
         ok, _, _ = ledger.verify_quote(mat_path.get(c["source_id"]), c.get("quote"))
         facts.append({"fact_id": "F%d" % i,
@@ -70,7 +63,6 @@ def auto_draft(ctx, index):
                          "question": ("请确认 %s 采用哪个来源" % g["key"]) if lang == "zh"
                                      else ("Confirm which source to use for %s" % g["key"])})
 
-    # (3) 参数：从材料正文行按 数值+单位 抽取（含 pH、n 特例），逐条带 quote+locator
     seen_param = {(str(p.get("param") or "").lower(), str(p.get("value"))) for p in parameters}
     for sid, locs in _loclens(ctx, index).items():
         for (lineno, line) in locs:
@@ -110,7 +102,6 @@ def auto_draft(ctx, index):
                                    "source_kind": "material", "status": "verified",
                                    "conflict": False, "quote": line[:200]})
 
-    # (4) 步骤：把抽取到的操作按单位类别归入模板，构造可执行的有序步骤序列
     for p in parameters[:8]:
         if p.get("status") == "conflict":
             continue
@@ -133,7 +124,6 @@ def auto_draft(ctx, index):
         if len(steps) >= 8:
             break
 
-    # (5) 设置：包含数值条件或环境关键词的材料行（跨全部材料收集）
     for sid, locs in _loclens(ctx, index).items():
         for (lineno, line) in locs:
             if len(settings) >= 12:
@@ -160,7 +150,6 @@ def auto_draft(ctx, index):
                                       "material does not list a separate setup; first line used as scope"),
                              "quote": first[:200]})
 
-    # (6) 数据集：标题行/底物与版本行；材料确未命名数据集时登记缺口条目
     SIZE_RE = re.compile(r"(?<![\d.])\d+(?:[.,]\d+)?\s*(?:mg/L|mL|g/L|条|行|rows?|samples?|"
                          r"examples?|篇|个)")
     for sid, locs in _loclens(ctx, index).items():
@@ -188,7 +177,6 @@ def auto_draft(ctx, index):
         if len(datasets) >= 3:
             break
 
-    # (7) 基线：材料提到的对照方法；否则登记缺口条目
     for sid, locs in _loclens(ctx, index).items():
         for (lineno, line) in locs:
             if baselines:
@@ -202,7 +190,6 @@ def auto_draft(ctx, index):
         if baselines:
             break
 
-    # (8) 评估：响应指标（百分比/降解率/收率等），沿用材料原始单位
     for p in parameters:
         unit = str(p.get("unit") or "")
         name_l = str(p.get("param") or "").lower()
@@ -220,7 +207,6 @@ def auto_draft(ctx, index):
                                     else "material states no metric or statistics; author must confirm"),
                            "status": "gap", "source_ids": [], "locator": ""})
 
-    # (9) 复现：能给出取值的项（重复次数、条件、时长）
     for p in parameters:
         if _unit_class(p.get("unit")) in ("rep", "time", "cond") and len(repro) < 10:
             repro.append({"item": p.get("param"),
@@ -228,7 +214,6 @@ def auto_draft(ctx, index):
                                              (" " + str(p.get("unit"))) if p.get("unit") else ""),
                           "source_ids": [p.get("source_id")], "locator": p.get("locator")})
 
-    # (10) 限制：材料中的限制/失效表述
     for sid, locs in _loclens(ctx, index).items():
         for (lineno, line) in locs:
             if len(limitations) >= 4:
@@ -245,7 +230,6 @@ def auto_draft(ctx, index):
         if len(limitations) >= 4:
             break
 
-    # (11) 六要素兜底：材料确实未提供的要素登记为可追溯缺口条目（不编造内容）
     elem_specs = [
         ("steps", steps, "STEPS_MISSING", "步骤序列" if lang == "zh" else "step sequence", "steps"),
         ("settings", settings, "SETTINGS_MISSING", "实验设置" if lang == "zh" else "experimental setup", "settings"),
@@ -325,7 +309,6 @@ def index_rel(index, sid):
     return sid
 
 def fallback_draft(ctx, index):
-    """极端兜底：连抽取都失败时，仍给出一份合法、可解释、带缺口的骨架工作稿。"""
     lang = ctx.get("language") or "zh"
     draft = auto_draft(ctx, index)
     draft["gaps"].insert(0, {
@@ -507,7 +490,6 @@ def cmd_selfcheck(ctx, args):
     return 0
 
 def cmd_run(ctx, args):
-    """单命令全流程：init（材料盘点与来源编号）→ build（抽取/渲染/finalize）→ selfcheck。"""
     core.cmd_init(ctx, args)
     cmd_build(ctx, args)
     cmd_selfcheck(ctx, args)
