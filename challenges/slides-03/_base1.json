@@ -1,0 +1,128 @@
+﻿{
+  "pkg": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\v10\\graphics-03",
+  "case": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\synth_cases\\graphics-03\\rich",
+  "mode": "single",
+  "entry": {
+    "cmd": "python3 scripts/main.py init",
+    "cmds": [
+      "python3 scripts/main.py init",
+      "python3 scripts/main.py show",
+      "python3 scripts/main.py check",
+      "python3 scripts/main.py build",
+      "python3 scripts/main.py selfcheck"
+    ],
+    "assign": {},
+    "kind": "first",
+    "context": " 一张机制图不是插画，而是一份能被逐条质疑的陈述。因此本 Skill 的产物不是\"一张好看的图\"， 而是**图 + 每个实体/每条边的逐字出处 + 一组能从磁盘重算的一致性断言**。  分工只有一句话：**Agent 判断生物学，脚本当尺子和笔。**  ---  ## 1 五命令主路径（这是第一件事，务必按序执行）  "
+  },
+  "sandbox": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\graphics-03__rich__single",
+  "status": "WARN",
+  "contract": {
+    "keys": [
+      "errors",
+      "degradations",
+      "uncertainty",
+      "note",
+      "compliance_checks",
+      "overflow"
+    ],
+    "source": "case.json:output_contract",
+    "echo_required": true
+  },
+  "run": [
+    {
+      "cmd": "C:\\Users\\23660\\.dsh\\dsh-runtimes\\dsh-primary-runtime\\dependencies\\python\\python.exe D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\graphics-03__rich__single\\skills\\weekly-skill\\scripts\\main.py init --input D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\graphics-03__rich__single\\input --output D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\graphics-03__rich__single\\app\\output --work D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\graphics-03__rich__single\\app\\work",
+      "code": 0,
+      "seconds": 0.29,
+      "timeout": false,
+      "stdout_tail": "ontract: errors, degradations, uncertainty, note, compliance_checks, overflow\r\n      partial result.json → D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\graphics-03__rich__single\\app\\output\\result.json | case_id=synth-rich-graphics-03 | status=partial\r\n      next: run `show` to read the material, then write D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\graphics-03__rich__single\\app\\work\\draft.json\r\n",
+      "stderr_tail": ""
+    }
+  ],
+  "artifacts": [
+    {
+      "rel": "result.json",
+      "bytes": 1258,
+      "placeholder_hits": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ]
+    }
+  ],
+  "output_file_count": 1,
+  "work_file_count": 1,
+  "checks": [
+    {
+      "id": "exit_code",
+      "status": "PASS",
+      "detail": "exit 0 in 0.29s"
+    },
+    {
+      "id": "result_json",
+      "status": "PASS",
+      "detail": "valid JSON, 1258 bytes, keys=['case_id', 'changes', 'compliance_checks', 'content_map', 'contract_fields', 'degradations', 'editable_source', 'errors', 'exceptions', 'export_artifact', 'note', 'overflow']"
+    },
+    {
+      "id": "contract_echo",
+      "status": "WARN",
+      "detail": "no result.json.output_contract echo; 6/6 contract keys present at top level"
+    },
+    {
+      "id": "contract_values",
+      "status": "WARN",
+      "detail": "empty=['errors', 'uncertainty', 'note', 'overflow'] placeholder=[] missing-file=[]"
+    },
+    {
+      "id": "deliverables",
+      "status": "PASS",
+      "detail": "1 expected artifacts present: ['result.json']"
+    },
+    {
+      "id": "case_id",
+      "status": "PASS",
+      "detail": "case_id='synth-rich-graphics-03'"
+    },
+    {
+      "id": "placeholder_sweep",
+      "status": "WARN",
+      "detail": "1 output file(s) contain placeholder tokens: ['result.json']"
+    },
+    {
+      "id": "field:status",
+      "status": "PASS",
+      "detail": "result.status present"
+    },
+    {
+      "id": "field:sources",
+      "status": "PASS",
+      "detail": "result.sources present"
+    }
+  ],
+  "failures": [],
+  "warnings": [
+    "contract_echo: no result.json.output_contract echo; 6/6 contract keys present at top level",
+    "contract_values: empty=['errors', 'uncertainty', 'note', 'overflow'] placeholder=[] missing-file=[]",
+    "placeholder_sweep: 1 output file(s) contain placeholder tokens: ['result.json']"
+  ],
+  "suggestions": [
+    {
+      "priority": "P1",
+      "text": "Fill contract values: path keys must resolve to real non-empty files; scalar keys must not be null/placeholders."
+    },
+    {
+      "priority": "P1",
+      "text": "Remove leftover placeholder tokens ([待写]/null/pending/NOT_EXTRACTED) from delivered artifacts."
+    }
+  ],
+  "input_case_json": true,
+  "flags": {
+    "input": "--input",
+    "output": "--output",
+    "work": "--work",
+    "case": null
+  }
+}
+
