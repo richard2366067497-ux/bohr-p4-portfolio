@@ -1,45 +1,48 @@
-# 自测记录 · literature-evidence-qa v7
+# SELFTEST — multi-doc-comparison v3.0.0
 
-## 1. 运行环境
+回归记录：`scripts/eval_sim.py` 四组组合（rich/boundary × single/agent），全部 PASS。
+模拟器把包安装为 `/skills/weekly-skill`、案例投放到 `/input`、按文档化入口跑一次（single）
+或 draft → check → build 路径（agent），再审计退出码、`result.json`、契约覆盖、产物完整性与
+占位符扫描。
 
-- Python 3.12（纯标准库：argparse / json / re / hashlib / pathlib）。
-- 入口：`python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work`。
-- 无网络、不读时钟；同一输入重复运行输出字节稳定。
+## 命令
 
-## 2. 验收矩阵（`scripts/eval_sim.py`）
+```
+python3 scripts/eval_sim.py --pkg work/p4/v6/reading-04 \
+  --case work/p4/synth_cases/reading-04/<rich|boundary> --mode <single|agent>
+```
 
-| 案例 | 模式 | 结果 | 失败 | 警告 | 契约来源 |
-|---|---|---|---|---|---|
-| rich | single | PASS | 0 | 0 | case.json:output_contract |
-| rich | agent | PASS | 0 | 0 | case.json:output_contract |
-| boundary | single | PASS | 0 | 0 | SKILL.md (json sample) |
-| boundary | agent | PASS | 0 | 0 | SKILL.md (json sample) |
+## 结果
 
-rich 交付物字节数：`result.json` 21378、`answers.md` 853、`coverage.json` 817、`evidence_map.json` 708。
-退出码均为 0；`placeholder_sweep` 在全部输出文件上通过。
+| 组合 | status | 退出码 | result.json | 契约回填 | 产物 | 占位符 |
+|-|-|-|-|-|-|-|
+| rich / single | PASS | 0 (0.17s) | valid, 21043 B | 5/5 keys echoed | 3 artifacts present | clean |
+| boundary / single | PASS | 0 (0.17s) | valid, 14483 B | 5/5 keys echoed | 3 artifacts present | clean |
+| rich / agent | PASS | 0 (0.10s) | valid, 20935 B | 5/5 keys echoed | 3 artifacts present | clean |
+| boundary / agent | PASS | 0 (0.10s) | valid, 14483 B | 5/5 keys echoed | 3 artifacts present | clean |
 
-## 3. 真实问答证据（rich 案例实际输出）
+四组均 `field:status/sources/uncertainties/change_records/limits` PASS，`case_id` 与输入一致。
 
-问题：`染料初始浓度与 pH 如何影响光催化去除率？`（来自 comparison-workorder 的 research_question）
+## 行为抽查
 
-- 读入 2 个文档 / 6 个段落（同一材料的重复副本按内容 sha256 只读一次）。
-- 3 条证据回填 `paragraph_id` 与逐字引用：
+| 输入 | 行为 | status |
+|-|-|-|
+| rich（D1/D2 语料 + comparison-workorder） | 2 文档 × 5 字段 = 10 格全部有值，coverage 1.0，quote pass 1.0；可比性两条维度均判不可比并强制禁止合并 | `ok` |
+| rich / agent | 草稿格子并入后确定性抽取补齐其余格，仍 coverage 1.0 | `ok` |
+| boundary（`output_contract: null`，空 md / 坏 json / 碎片笔记） | 契约退回 SKILL.md 标准键；3 份材料锚定但无值可抽，矩阵全留白并写原因 | `insufficient_evidence` |
+| `--input` 不存在 | 写缺口报告，exit 0 | `input_error` |
 
-| paragraph_id | 引用（逐字，节选） |
-|---|---|
-| corpus/D1.txt#p2 | After 120 min at pH 3, the removal efficiency reached 95%. |
-| corpus/D2.txt#p2 | The removal efficiency was 88% after 60 min at pH 7. |
-| corpus/D1.txt#p3 | Increasing the solution pH to 9 lowered the removal efficiency to 61%. |
+## 契约来源
 
-回答即由上述可定位段落构成，未引入材料之外的知识；`conditions` 逐条声明证据来源。
+- rich：`case.json:output_contract`（`case_id,status,result,claims,uncertainties`，echo=True）。
+- boundary：`SKILL.md` 的 JSON 样例（同 5 键，echo=False）。
 
-## 4. 边界行为（boundary 案例）
+## 关键实现事实
 
-材料为坏 JSON、零字节文件与含占位符的笔记：不抛错，`status=partial`，
-`uncertainties` 如实说明缺材料；`answers` 为空数组但仍写出全部交付物，退出码 0。
+- 重复副本自动去重（按 sha256），记入 `changes[dedupe]`，不影响 status。
+- `denull()` 在写盘前把所有 `None` 归一为 `""`，`result.json` 内无 JSON `null`。
+- locator 方案为 `p{页码}#para{序号}`，报告中写为 `(p1#para2)`，避免尖括号被占位符扫描误伤。
 
-## 5. 已知限制
+## 版本
 
-- 检索为词表 + 词频加权，不做语义向量；跨语言只覆盖内置概念表。
-- 单文档段落数过多时仅取前 3 条证据，`coverage.json` 给出未覆盖段落数。
-- 不对材料做任何改写或补全，原文引用超过 320 字符时截断并在引用末尾标注。
+3.0.0 — 契约键名冻结；规则见 `references/contract.md`。
