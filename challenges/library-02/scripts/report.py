@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""report.py - candidate search glue, quote verification, draft assembly and self-check.
-
-Everything here is deterministic. The Agent's draft supplies judgement; this module
-turns it into locator-bearing, re-verifiable output and rejects anything that cannot
-be traced back to the indexed text.
-"""
-import json
+"""report.py - draft verification (verbatim quotes, locators), candidate fallback, assembly."""
 import re
 import sys
 import time
@@ -17,17 +11,15 @@ import core    # noqa: E402
 import rules   # noqa: E402
 from rules import search  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 T0 = time.time()
 
+# ---------------------------------------------------------------- quote location
 QSTAT = ("answered", "partially_answered", "not_found", "blocked_by_filter")
 STATUS_ALIAS = {"ok": "answered", "answer": "answered", "partial": "partially_answered",
                 "blocked": "blocked_by_filter", "empty": "not_found", "none": "not_found",
                 "insufficient": "partially_answered"}
-EV_KEYS = ("evidence", "citations", "refs", "locators")
 
-
-# ---------------------------------------------------------------- quote location
 def _norm_map(t):
     out, idx, prev_space = [], [], False
     for i, ch in enumerate(t):
@@ -56,15 +48,12 @@ def _hint(doc, quote):
         if sc > score:
             best, score = p, sc
     if not best:
-        return {"paragraph_id": None, "section": None, "page_physical": None,
-                "page_printed": None, "snippet": "该文档内无相似段落，可能引用了另一份文档",
-                "overlap": 0}
+        return {"paragraph_id": "", "section": "", "snippet": "该文档内无相似段落", "overlap": 0}
     return {"paragraph_id": best.get("pid"), "section": best.get("section"),
             "page_physical": best.get("page_physical"), "page_printed": best.get("page_printed"),
             "snippet": (best.get("text") or "")[:160], "overlap": score}
 
 def locate(doc, quote):
-    """Find a quote verbatim in a doc: exact -> whitespace-normalised -> spanning sections."""
     raw = str(quote or "")
     if len(core.norm_ws(raw)) < 4:
         return {"ok": False, "reason": "too_short"}
@@ -81,22 +70,80 @@ def locate(doc, quote):
     bysec = {}
     for p in doc.get("paragraphs") or []:
         bysec.setdefault(p.get("section_id"), []).append(p)
-    for sid, ps in bysec.items():
+    for _sid, ps in bysec.items():
         joined = "\n".join(x.get("text") or "" for x in ps)
         n, _idx = _norm_map(joined)
         if nq in n:
-            return _hit(ps[0], None, "spanning_paragraphs", doc)
+            return _hit(ps[0], 0, "spanning_paragraphs", doc)
     return {"ok": False, "reason": "not_found", "suggestion": _hint(doc, raw)}
 
 def _hit(p, pos, match, doc):
     pth = doc.get("path_input") or doc.get("path")
+    pg = p.get("page_physical")
     return {"ok": True, "match": match, "doc_id": doc.get("doc_id"), "path": pth,
             "version": doc.get("version"), "paragraph_id": p.get("pid"),
             "section_id": p.get("section_id"), "section": p.get("section"),
-            "page_physical": p.get("page_physical"), "page_printed": p.get("page_printed"),
+            "page_physical": pg, "page_printed": p.get("page_printed"),
             "source": p.get("source"), "char_start": pos,
-            "locator": f"{pth}#p{p.get('page_physical')}/{p.get('pid')}"
-                       f"@{pos if pos is not None else '?'}"}
+            "locator": "%s#p%s/%s@%s" % (pth, pg if pg is not None else "no-page",
+                                         p.get("pid"), pos if pos is not None else "?")}
+
+# ---------------------------------------------------------------- verification
+def verify_payload(payload, index):
+    contract = core.contract_keys(index.get("_contract") or {})
+    chat = payload.get("contract_keys") or []
+    keys = [k for k in (contract or chat) if k not in ("errors", "degradations", "changes")]
+    entries = payload.get("queries") or []
+    bad_q, bad_page, bad_quote, banned = [], [], [], []
+    banned_ids = {x.get("doc_id") for x in (index.get("excluded_evidence") or [])}
+    for en in entries:
+        if en.get("status") not in QSTAT:
+            bad_q.append(en.get("query_id"))
+        for ev in en.get("evidence") or []:
+            doc = core.doc_by_path(index, ev.get("path"))
+            if doc is None:
+                bad_quote.append({"query_id": en.get("query_id"), "path": ev.get("path"),
+                                  "reason": "doc_not_in_index"})
+                continue
+            if doc.get("doc_id") in banned_ids:
+                banned.append({"query_id": en.get("query_id"), "doc_id": doc.get("doc_id")})
+            loc = locate(doc, ev.get("quote"))
+            if not loc.get("ok"):
+                bad_quote.append({"query_id": en.get("query_id"), "path": ev.get("path"),
+                                  "reason": loc.get("reason")})
+            elif str(loc.get("page_physical")) != str(ev.get("page_physical")) or \
+                    str(loc.get("page_printed")) != str(ev.get("page_printed")):
+                bad_page.append({"query_id": en.get("query_id"), "paragraph_id": ev.get("paragraph_id"),
+                                 "reported": [ev.get("page_physical"), ev.get("page_printed")],
+                                 "index": [loc.get("page_physical"), loc.get("page_printed")]})
+    nf_scope = [en.get("query_id") for en in entries
+                if en.get("status") in ("not_found", "blocked_by_filter")
+                and not (en.get("search_scope") or "").strip()]
+    ev_total = sum(len(en.get("evidence") or []) for en in entries)
+    echo = payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+    checks = [
+        ("case_id_present", bool(payload.get("case_id")) or payload.get("status") == "failed"),
+        ("contract_keys_present", (all(k in echo for k in keys) and all(k in payload for k in keys))
+         if keys else True),
+        ("queries_covered", len(entries) == (payload.get("coverage") or {}).get("queries_expected", len(entries))),
+        ("status_enum_valid", not bad_q),
+        ("quotes_verbatim", not bad_quote),
+        ("pages_consistent", not bad_page),
+        ("no_banned_evidence", not banned),
+        ("not_found_has_scope", not nf_scope),
+        ("coverage_present", bool(payload.get("coverage"))),
+        ("dedupe_ledger_present", "excluded_evidence" in payload),
+        ("filters_ledger_present", "filters" in payload),
+        ("runtime_budget_present", bool((payload.get("runtime") or {}).get("budget"))),
+    ]
+    fails = [n for n, v in checks if not v]
+    return {"ok": not fails, "checks": [{"check": n, "ok": bool(v)} for n, v in checks],
+            "fails": fails, "queries": len(entries), "evidence": ev_total,
+            "unmatched_quotes": bad_quote[:5], "page_mismatch": bad_page[:5],
+            "banned_evidence": banned[:5], "missing_scope": nf_scope[:5],
+            "quote_hit_rate": round(ev_total / float(max(1, ev_total + len(bad_quote))), 3) if ev_total else 0.0,
+            "verified_at": core.now()}
+EV_KEYS = ("evidence", "citations", "refs", "locators")
 
 # ---------------------------------------------------------------- draft I/O
 def load_draft(args, work):
@@ -121,7 +168,6 @@ def row_evidence(row):
     return ev
 
 def match_row(queries, rows):
-    """Match draft rows to case queries by id, then by question text, then by order."""
     out, used = [], set()
     byid = {}
     for i, r in enumerate(rows):
@@ -148,7 +194,6 @@ def global_conds(case):
                                                "过滤", "过滤条件")))
 
 def query_conds(case, q):
-    """Global filters plus query filters; a query filter overrides the same key (not stacked)."""
     conds = global_conds(case)
     for c in rules.parse_filters(q.get("filters_raw")):
         conds = [x for x in conds if x["key"] != c["key"]] + [c]
@@ -170,13 +215,22 @@ def extra_syn(case):
     return out
 
 def verify_row(q, row, index, conds, fill_scope=False):
-    """Verify one draft row against the index. Returns an assembled query entry."""
     docs = index.get("docs") or []
     banned = {x.get("doc_id") for x in (index.get("excluded_evidence") or [])}
-    entry = {"query_id": q["query_id"], "question": q["question"], "answer": "",
+    qid = q["query_id"]
+    entry = {"query_id": qid, "question": q["question"], "answer": "",
              "status": "not_found", "filters_applied": [rules.filter_text(c) for c in conds],
              "evidence": [], "rejected_evidence": [], "excluded_docs": [],
              "search_scope": "", "notes": "", "locators": []}
+
+    def rej(reason, detail, **kw):
+        d = {"reason": reason, "detail": detail}
+        d.update(kw)
+        entry["rejected_evidence"].append(d)
+
+    def chg(what, change):
+        core.STATE["changes"].append({"item": f"{qid}:{what}", "change": change})
+
     if not isinstance(row, dict):
         entry["search_scope"] = "工作稿未提供该问的条目"
         return entry
@@ -186,7 +240,7 @@ def verify_row(q, row, index, conds, fill_scope=False):
     entry["status"] = st if st in QSTAT else "not_found"
     entry["search_scope"] = str(row.get("search_scope") or row.get("scope") or "").strip()
     entry["notes"] = str(row.get("notes") or "").strip()
-    allowed, blocked, ok_all = rules.apply_all(conds, docs)
+    allowed, blocked, _ok = rules.apply_all(conds, docs)
     allowed_ids = {d.get("doc_id") for d in allowed}
     seen = set()
     for ev in row_evidence(row):
@@ -194,72 +248,63 @@ def verify_row(q, row, index, conds, fill_scope=False):
         quote = ev.get("quote") or ev.get("text") or ev.get("snippet") or ""
         doc = core.doc_by_path(index, path)
         if doc is None:
-            entry["rejected_evidence"].append({"path": str(path), "reason": "document_not_found",
-                                               "detail": "该路径不在索引中"})
+            rej("document_not_found", "该路径不在索引中", path=str(path))
             continue
         if (quote, doc.get("doc_id")) in seen:
             continue
         seen.add((quote, doc.get("doc_id")))
         if doc.get("status") != "ok":
-            entry["rejected_evidence"].append({"path": doc.get("path"), "reason": f"document_{doc.get('status')}",
-                                               "detail": "该文档未能解析，不可引用"})
+            rej("document_" + str(doc.get("status")), "该文档未能解析，不可引用", path=doc.get("path"))
             continue
         if doc.get("doc_id") in banned and not ev.get("allow_non_representative"):
-            entry["rejected_evidence"].append({"path": doc.get("path"), "doc_id": doc.get("doc_id"),
-                                               "reason": "non_representative_document",
-                                               "detail": "副本或旧版本不得作为独立证据"})
+            rej("non_representative_document", "副本或旧版本不得作为独立证据",
+                path=doc.get("path"), doc_id=doc.get("doc_id"))
             entry["excluded_docs"].append(doc.get("doc_id"))
             continue
         if conds and doc.get("doc_id") not in allowed_ids:
             f = blocked.get(doc.get("doc_id")) or []
-            entry["rejected_evidence"].append({"path": doc.get("path"), "doc_id": doc.get("doc_id"),
-                                               "reason": "violates_filters",
-                                               "detail": "; ".join(x["filter"] for x in f) or "不满足过滤条件"})
+            rej("violates_filters", "; ".join(x["filter"] for x in f) or "不满足过滤条件",
+                path=doc.get("path"), doc_id=doc.get("doc_id"))
             continue
         loc = locate(doc, quote)
         if not loc.get("ok"):
-            entry["rejected_evidence"].append({"path": doc.get("path"), "reason": f"quote_{loc.get('reason')}",
-                                               "quote": quote[:160], "suggestion": loc.get("suggestion")})
+            rej("quote_" + str(loc.get("reason")), "引文无法逐字定位", path=doc.get("path"),
+                quote=quote[:160], suggestion=loc.get("suggestion"))
             continue
         if loc.get("match") == "spanning_paragraphs":
-            core.STATE["changes"].append({"item": f"{q['query_id']}:quote", "change":
-                                          "quote 跨段命中，已归到最前段落"})
+            chg("quote", "quote 跨段命中，已归到最前段落")
         ev_out = {"path": loc["path"], "doc_id": loc["doc_id"], "version": loc["version"],
                   "section_id": loc.get("section_id"), "section": loc.get("section"),
                   "page_physical": loc.get("page_physical"), "page_printed": loc.get("page_printed"),
                   "paragraph_id": loc.get("paragraph_id"), "char_start": loc.get("char_start"),
                   "source": loc.get("source"), "quote": quote,
                   "quote_verified": True, "match": loc.get("match"), "locator": loc["locator"]}
-        for k, v in (("page_printed", ev.get("page_printed")), ("page_physical", ev.get("page_physical"))):
+        for k in ("page_printed", "page_physical"):
+            v = ev.get(k)
             if v not in (None, "") and str(v) != str(ev_out[k]):
-                core.STATE["changes"].append({"item": f"{q['query_id']}:{k}",
-                                              "change": f"draft {v} -> index {ev_out[k]}"})
+                chg(k, f"draft {v} -> index {ev_out[k]}")
         if ev.get("paragraph_id") and str(ev["paragraph_id"]) != str(ev_out["paragraph_id"]):
-            core.STATE["changes"].append({"item": f"{q['query_id']}:paragraph_id",
-                                          "change": f"draft {ev['paragraph_id']} -> index {ev_out['paragraph_id']}"})
+            chg("paragraph_id", f"draft {ev['paragraph_id']} -> index {ev_out['paragraph_id']}")
         if ev.get("section") and str(ev.get("section")) != str(ev_out.get("section")):
             ev_out["section_reported"] = str(ev.get("section"))
         entry["evidence"].append(ev_out)
         entry["locators"].append(ev_out["locator"])
     if entry["status"] in ("answered", "partially_answered") and not entry["evidence"]:
         entry["status"] = "partially_answered"
-        core.degrade(f"{q['query_id']}:evidence", "no_verified_evidence",
-                     "声称作答但无可核验引文，已降为 partially_answered")
+        core.degrade(f"{qid}:evidence", "no_verified_evidence", "声称作答但无可核验引文，已降级")
     if entry["status"] == "not_found" and entry["evidence"]:
         entry["status"] = "partially_answered"
-        core.STATE["changes"].append({"item": f"{q['query_id']}:status",
-                                      "change": "not_found 却有核验通过的证据 → partially_answered"})
+        chg("status", "not_found 却有核验通过的证据 → partially_answered")
     if entry["status"] == "blocked_by_filter" and not conds:
-        core.STATE["changes"].append({"item": f"{q['query_id']}:status",
-                                      "change": "blocked_by_filter 但无过滤条件，保留并标注"})
+        chg("status", "blocked_by_filter 但无过滤条件，保留并标注")
     entry["scope_provided"] = bool(entry["search_scope"].strip())
     if not entry["scope_provided"] and entry["status"] in ("not_found", "blocked_by_filter"):
         entry["search_scope_unfilled"] = True
         if fill_scope:
             entry["search_scope"] = ("未提供检索范围（工作稿缺 search_scope）；"
-                                     f"已对 {len(allowed)}/{len(docs)} 个可检索文档执行过滤与检索")
-            core.degrade(f"{q['query_id']}:search_scope", "not_found_without_scope",
-                         "空结果未说明检索范围，已回填默认统计")
+                                     "已对 %d/%d 个可检索文档执行过滤与检索"
+                                     % (len(allowed), len(docs)))
+            core.degrade(f"{qid}:search_scope", "not_found_without_scope", "空范围已回填默认统计")
     return entry
 
 # ---------------------------------------------------------------- assemble / build
@@ -275,17 +320,44 @@ def assemble(ctx, draft, draft_err):
         if row is None:
             script_hits, _blocked, _ok = search(index, q["question"], conds, extra)
             hits_all.extend([dict(h, query_id=q["query_id"]) for h in script_hits[:5]])
-            entries.append({"query_id": q["query_id"], "question": q["question"], "answer": "",
-                            "status": "partially_answered", "filters_applied": [rules.filter_text(c) for c in conds],
-                            "evidence": [], "rejected_evidence": [],
-                            "candidates": [{k: h[k] for k in ("doc_id", "path", "section", "paragraph_id",
-                                                              "page_physical", "page_printed", "score")}
-                                           for h in script_hits[:3]],
-                            "search_scope": (f"脚本候选检索：检索了 {len(index.get('docs') or [])} "
-                                             f"个文档，未收到工作稿裁决"),
-                            "notes": "未经 Agent 裁决（倒底产物）"})
-            core.degrade(f"{q['query_id']}:answer", "draft_row_missing",
-                         "该问无工作稿条目，仅给出脚本候选定位")
+            n_par = sum(len(d.get("paragraphs") or []) for d in (index.get("docs") or []))
+            cands = [{k: h.get(k) for k in ("doc_id", "path", "section", "paragraph_id",
+                                            "page_physical", "page_printed", "score")}
+                     for h in script_hits[:3]]
+            auto = None
+            if script_hits:
+                para = None
+                doc0 = core.doc_by_path(index, script_hits[0].get("path"))
+                for p in (doc0 or {}).get("paragraphs") or []:
+                    if p.get("pid") == script_hits[0].get("paragraph_id"):
+                        para = p
+                        break
+                if para is not None:
+                    auto = {"query_id": q["query_id"], "status": "partially_answered", "answer": "",
+                            "filters_applied": [rules.filter_text(c) for c in conds],
+                            "search_scope": ("脚本兜底：过滤后检索 %d 个文档、%d 个段落，"
+                                             "取最高分候选段原文作为待核引文；未经 Agent 裁决"
+                                             % (len(index.get("docs") or []), n_par)),
+                            "notes": "candidate_evidence_only",
+                            "evidence": [{"path": script_hits[0].get("path"),
+                                          "quote": para.get("text")}]}
+            if auto is not None:
+                entry = verify_row(q, auto, index, conds, fill_scope=True)
+                entry["candidates"] = cands
+                core.degrade(f"{q['query_id']}:answer", "draft_row_missing",
+                             "该问无工作稿条目：已给出经逐字校验的候选引文，结论仍需 Agent 裁决")
+                entries.append(entry)
+            else:
+                entries.append({"query_id": q["query_id"], "question": q["question"], "answer": "",
+                                "status": "partially_answered",
+                                "filters_applied": [rules.filter_text(c) for c in conds],
+                                "evidence": [], "rejected_evidence": [], "candidates": cands,
+                                "search_scope": ("脚本候选检索：检索了 %d 个文档、%d 个段落，"
+                                                 "未检索到可核验段落，也未收到工作稿裁决"
+                                                 % (len(index.get("docs") or []), n_par)),
+                                "notes": "candidate_only"})
+                core.degrade(f"{q['query_id']}:answer", "draft_row_missing",
+                             "该问无工作稿条目，且脚本未找到可核验段落")
             continue
         entry = verify_row(q, row, index, conds, fill_scope=True)
         for h in search(index, q["question"], conds, extra)[0][:3]:
@@ -361,11 +433,12 @@ def assemble(ctx, draft, draft_err):
                      "label_source": (d.get("pages") or {}).get("label_source"),
                      "status": d.get("status"), "representative": d.get("representative")}
                     for d in docs],
-        "uncertainties": list(core.STATE["uncertainties"]) + list((draft or {}).get("uncertainties") or []),
+        "uncertainties": uncertainties_of(index, entries, draft),
         "errors": core.STATE["errors"], "degradations": core.STATE["degradations"],
         "changes": core.STATE["changes"], "counts": cnt,
         "method_notes": (draft or {}).get("method_notes") or {},
         "primary_result": "result.json",
+        "extra_terms": extra,
         "contract_keys": core.contract_keys(meta.get("output_contract")),
         "runtime": {"version": VERSION, "script_seconds": round(time.time() - T0, 2),
                     "model_requests_by_script": 0, "python": sys.version.split()[0],
@@ -381,11 +454,27 @@ def assemble(ctx, draft, draft_err):
              "impact": "仅倒底产物：无 Agent 判断，结论缺失"}]
     payload["status"] = overall_status(payload, draft is not None)
     payload["result"]["status"] = payload["status"]
-    return core.apply_contract(payload, meta.get("output_contract"))
+    return core.apply_contract(payload, meta.get("output_contract"), index)
+
+def uncertainties_of(index, entries, draft):
+    out = list(core.STATE["uncertainties"]) + list((draft or {}).get("uncertainties") or [])
+    docs = index.get("docs") or []
+    assumed = [d.get("path") for d in docs if (d.get("pages") or {}).get("label_source") == "assumed_equal"]
+    if assumed:
+        out.append({"item": "page_labels", "detail": "印刷页码由页脚推定（assumed_equal）的文档 %d 个，引用页码前建议复核" % len(assumed), "paths": assumed[:5]})
+    lowq = [d.get("path") for d in docs if d.get("status") == "low_text_quality"]
+    if lowq:
+        out.append({"item": "text_quality", "detail": "文本层质量过低而未纳入检索的文档 %d 个" % len(lowq), "paths": lowq[:5]})
+    cand = [e.get("query_id") for e in entries if (e.get("notes") or "") .startswith("candidate")]
+    if cand:
+        out.append({"item": "adjudication", "detail": "以下问题只有脚本候选定位、结论未定：%s" % ", ".join(cand[:8])})
+    if not index.get("excluded_evidence"):
+        out.append({"item": "dedupe", "detail": "未发现 sha256 完全相同的副本；人工副本或私下版本须写入工作稿 excluded_evidence"})
+    if not out:
+        out.append({"item": "coverage", "detail": "全部结论均回链到脚本核验过的引文，语义完备性未经人工复核"})
+    return out
 
 def overall_status(payload, draft_present):
-    """ok = draft adjudicated and fully traceable; partial = delivered but degraded;
-    failed = no usable case/input at all."""
     cnt = payload.get("counts") or {}
     if not payload.get("case_id") and not cnt.get("queries"):
         return "failed"
@@ -398,63 +487,3 @@ def overall_status(payload, draft_present):
     if not cnt.get("queries"):
         return "partial"
     return "ok"
-
-def verify_payload(payload, index):
-    """Re-check the emitted result from scratch. Used by build and selfcheck."""
-    case_ok = bool(payload.get("case_id"))
-    contract = core.contract_keys(index.get("_contract") or {})
-    chat = payload.get("contract_keys") or []
-    keys = [k for k in (contract or chat) if k not in ("errors", "degradations", "changes")]
-    entries = [e for e in (payload.get("queries") or []) if isinstance(e, dict)]
-    bad_q, bad_page, bad_quote, banned = [], [], [], []
-    banned_ids = {x.get("doc_id") for x in (index.get("excluded_evidence") or []) if isinstance(x, dict)}
-    for en in entries:
-        if en.get("status") not in QSTAT:
-            bad_q.append(en.get("query_id"))
-        for ev in en.get("evidence") or []:
-            doc = core.doc_by_path(index, ev.get("path"))
-            if doc is None:
-                bad_quote.append({"query_id": en.get("query_id"), "path": ev.get("path"),
-                                  "reason": "doc_not_in_index"})
-                continue
-            if doc.get("doc_id") in banned_ids:
-                banned.append({"query_id": en.get("query_id"), "doc_id": doc.get("doc_id")})
-            loc = locate(doc, ev.get("quote"))
-            if not loc.get("ok"):
-                bad_quote.append({"query_id": en.get("query_id"), "path": ev.get("path"),
-                                  "reason": loc.get("reason")})
-            elif str(loc.get("page_physical")) != str(ev.get("page_physical")) or \
-                    str(loc.get("page_printed")) != str(ev.get("page_printed")):
-                bad_page.append({"query_id": en.get("query_id"), "paragraph_id": ev.get("paragraph_id"),
-                                 "reported": [ev.get("page_physical"), ev.get("page_printed")],
-                                 "index": [loc.get("page_physical"), loc.get("page_printed")]})
-    nf_scope = [en.get("query_id") for en in entries
-                if en.get("status") in ("not_found", "blocked_by_filter") and not (en.get("search_scope") or "").strip()]
-    ev_total = sum(len(en.get("evidence") or []) for en in entries)
-    # contract keys may collide with envelope keys (a contract key named "coverage"/"runtime"
-    # declared as string/array must not break self-verification): coerce to the expected type
-    cov = payload.get("coverage")
-    cov = cov if isinstance(cov, dict) else {}
-    rt = payload.get("runtime")
-    rt = rt if isinstance(rt, dict) else {}
-    checks = [
-        ("case_id_present", case_ok or payload.get("status") == "failed"),
-        ("contract_keys_present", all(k in payload for k in keys) if keys else True),
-        ("queries_covered", len(entries) == cov.get("queries_expected", len(entries))),
-        ("status_enum_valid", not bad_q),
-        ("quotes_verbatim", not bad_quote),
-        ("pages_consistent", not bad_page),
-        ("no_banned_evidence", not banned),
-        ("not_found_has_scope", not nf_scope),
-        ("coverage_present", bool(cov) or bool(payload.get("coverage"))),
-        ("dedupe_ledger_present", "excluded_evidence" in payload),
-        ("filters_ledger_present", "filters" in payload),
-        ("runtime_budget_present", bool(rt.get("budget")) or bool(payload.get("runtime"))),
-    ]
-    fails = [n for n, v in checks if not v]
-    return {"ok": not fails, "checks": [{"check": n, "ok": bool(v)} for n, v in checks],
-            "fails": fails, "queries": len(entries), "evidence": ev_total,
-            "unmatched_quotes": bad_quote[:5], "page_mismatch": bad_page[:5],
-            "banned_evidence": banned[:5], "missing_scope": nf_scope[:5],
-            "quote_hit_rate": round(ev_total / float(max(1, ev_total + len(bad_quote))), 3) if ev_total else 0.0,
-            "verified_at": core.now()}
