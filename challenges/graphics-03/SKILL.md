@@ -294,3 +294,7 @@ build → status=ok | figure.svg 24KB | figure.png 61KB | figure.pdf 11KB | chec
 复用方式：换题库只改 `draft.json` 层；改语义画法改 `draw.py` 的 `EDGE_STYLE`；
 改词表同时改 `ledger.py:VERBS` 与 `references/mechanism-drawing-contract.md` §1（两处必须一致）。
 回退：整个目录覆盖上一版即可，产物每次 `build` 重新生成，无外部状态。
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
