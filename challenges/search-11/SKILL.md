@@ -20,6 +20,14 @@ page; a keyword hit is never promoted into a family link; and a source whose lic
 handled as the yellow tier, so only conclusions and locators leave the dossier. No network, no clock,
 no third-party package, no invented literature or numbers.
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -82,14 +90,8 @@ pass still runs regardless, so a thin draft cannot turn an unlocated number into
 
 ## 2. 单命令（等价入口，one-shot，评测入口）
 
-Run this single command; with no draft it still writes every artifact and a complete `result.json`, and
-exits 0:
-
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+Run this single command (it is the first code block at the top of this file); with no draft it still
+writes every artifact and a complete `result.json`, and exits 0.
 
 ## 3. agent-first 增强路径（可选，质量更高）
 
