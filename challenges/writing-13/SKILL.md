@@ -20,6 +20,17 @@ version: 2.0.0
 
 ---
 
+## 0. 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：任务本质与判分要点、错误做法→正确做法、求解框架（七要素对齐）、量化口径与公式
+（要素覆盖率 / 事实支持率 / 定位有效率 / 计划链覆盖率 / 状态准确率 / 数值复算）、领域知识清单、
+交付物清单与专家检查表、完整虚构案例、交付前门控。执行顺序固定为：先读手册 → 再按手册求解框架
+逐阶段落盘冻结产物 → 交付前逐项勾选手册 §5 专家检查表。手册与 `SKILL.md` 冲突时，契约键名与
+入口命令以 `SKILL.md` 为准，方法与判分口径以手册为准。
+
+---
+
 ## 1. 入口命令（第一条）
 
 单命令即可跑完全流程并产出全部关键产物（评测只跑这一条也能通过）：
@@ -180,6 +191,7 @@ discussion 题，`reference` → citation 题，`abstract` / `introduction` → 
 
 ## 9. 交付前自查
 
+- [ ] **`references/expert_playbook.md` §5 专家检查表逐项通过**（未通过项先修复再交付）。
 - [ ] `result.json` 可解析，`case_id` 在，`output_contract` 逐键回填且无占位符。
 - [ ] `tasks.jsonl` 每题六字段齐全，要点带 `locator` 与逐字 `quote`。
 - [ ] `anchors.md` 每题 ≥5 条锚点且覆盖 0/1/2 档。
@@ -194,6 +206,7 @@ SKILL.md                    本文件：入口、agent-first、六字段、锚�
 scripts/main.py             入口：init / check / build / run，产物编排与 result.json
 scripts/verify.py           确定性内核：发现、事实抽取、出题、锚点、双评、kappa、契约回填
 scripts/render.py           渲染层：题面/锚点/报告/复现/金标准/对照/版本
+references/expert_playbook.md  专家方法论：判分要点、公式、检查表、虚构案例
 README.md                   安装、最小示例、限制与维护
 SELFTEST.md                 自测记录：空/坏输入与 rich/boundary × single/agent 结果
 GITHUB_URL.txt              仓库位置
