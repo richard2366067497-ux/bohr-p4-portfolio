@@ -7,7 +7,7 @@ description: >-
   selfcheck）；没有模板时如实降级为默认版式并标 inferred，绝不伪造模板证据。
   Use for template migration, journal or thesis formatting, heading and citation style
   compliance, editable manuscript delivery, and format self-audit of a draft.
-version: 6.0.0
+version: 6.1.0
 ---
 
 # latex-free-format-adapter — 学术格式与模板适配
@@ -16,6 +16,17 @@ version: 6.0.0
 哪里、哪些值是推断的」逐条写进结果。它不改写正文事实，不增删文献，不编造材料外的数字。
 
 安装根目录约定为 **/skills/weekly-skill**；脚本用 `__file__` 自定位，不依赖当前目录。
+
+---
+
+## 0. 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：任务本质与判分要点、错误做法→正确做法、六步求解框架与门控、量化口径与公式（格式
+符合率、内容完整性、引用可回溯率、交叉引用一致率、字体嵌入率、效率/质量增益）、字号/行距/页面
+尺寸等领域陷阱、交付物清单与 20 项防扣分检查表、完整虚构案例。执行顺序固定为：先读手册 →
+再用 §1 单命令或 §3 agent-first 路径逐阶段落盘 → 交付前逐项勾选手册 §7 检查表。手册与 `SKILL.md`
+冲突时，契约键名、入口命令与产物文件名以 `SKILL.md` 为准，方法与判分口径以手册为准。
 
 ---
 
@@ -190,6 +201,7 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --output /
 
 ## 9. 交付前自查
 
+- [ ] **`references/expert_playbook.md` §7 专家检查表逐项通过**（未通过项先修复再交付）。
 - [ ] `result.json` 可解析，`case_id` 回填，`output_contract` 逐键非空。
 - [ ] `deliverable.md` / `deliverable.docx` / `format_spec.md` / `style_map.json` /
       `fidelity_report.json` / `pending_human.json` 均存在且非空。
@@ -225,10 +237,14 @@ scripts/main.py              入口：run / probe / build / check / selfcheck
 scripts/core.py              共享层：盘点、规格抽取、块解析、Markdown 重排、docx 写出
 scripts/adapter.py           校验与流水线：保真与证据、契约回填、run/probe/selfcheck/fail_soft
 references/format-spec.md    规格项、优先级、OOXML 映射与检查口径
+references/expert_playbook.md 专家方法论：判分要点、公式、领域陷阱、检查表、虚构案例
 README.md                    安装、用法、产物、限制与维护
 SELFTEST.md                  eval_sim 与脚本级降级的自测记录
+environment/resources.yaml   运行环境、入口命令、预算与依赖声明（离线、纯标准库）
+examples/                    最小可复跑样例（case.json + manuscript.md）
+GAIN_EVIDENCE.md             基线对照与使用增益说明（非官方对照）
 ```
 
-- 依赖：Python 3.9+ 标准库；无第三方包、无网络。包体 6 文件，单文件 ≤30KB，主脚本 ≤25KB。
-- 版本 6.0.0；新增规格项需同时更新 `DEFAULT_SPEC`、`EXTRACT` 与 `style_map()`；新增产物需同步 §7
+- 依赖：Python 3.9+ 标准库；无第三方包、无网络。单文件 ≤30KB，主脚本 ≤25KB。
+- 版本 6.1.0；新增规格项需同时更新 `DEFAULT_SPEC`、`EXTRACT` 与 `style_map()`；新增产物需同步 §7
   与 `selfcheck` 的文件清单。
