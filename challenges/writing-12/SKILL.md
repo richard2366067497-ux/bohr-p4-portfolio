@@ -55,9 +55,9 @@ license: MIT
 }
 ```
 
-## 1. 单命令入口（第一条命令）
+## 1. 单命令入口（第一条命令；评测入口，无 draft 时执行）
 
-单命令即可产出完整契约与全部关键产物（评测只跑这一条也能过）：
+单命令即可产出完整契约与全部关键产物（评测只跑这一条也能过）。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ```bash
 python3 /skills/weekly-skill/scripts/latex_build.py build --input /input --output /app/output --work /app/work --engine pdflatex
