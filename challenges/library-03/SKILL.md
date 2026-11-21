@@ -32,6 +32,16 @@ license: MIT
 
 `case.json` 给出 `output_contract` 时以它为准。主要产物：`result.json`、`inventory.csv`、`classification.jsonl`、`renames.json`、`dedupe_versions.json`、`rollback.json`、`operations.log`。
 
+## 单命令等价入口（single command — one shot，无 draft，评测入口）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+一条命令即跑完 init→build→selfcheck，直接产出完整契约与全部交付物：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --output /app/output
+```
+
 ## Agent 路径（五命令）
 
 ```bash
@@ -51,11 +61,7 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --work /ap
 
 ## 单命令等价入口（single command — one shot，无 draft）
 
-一条命令跑完 init→build→selfcheck，直接产出完整契约与全部交付物：
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py build --input /input --work /app/work --output /app/output
-```
+见文首「单命令等价入口（评测入口）」——同一条 `build` 命令，一条命令跑完整条流水线。
 
 ## 规则与约束
 
