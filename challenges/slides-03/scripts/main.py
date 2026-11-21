@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""slides-author (v6) -- build an academic slide deck from paper materials.
+"""slides-author (v10) -- build an academic slide deck from paper materials.
 
 Single command `all` plus the five-command workflow (init/show/check/build/selfcheck).
 `all`: scan -> outline -> slide plan -> content map -> compliance checks -> deck.md /
@@ -18,8 +18,10 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pptxkit as pk  # stdlib-only OOXML writer
+
 SKILL = "slides-author"
-VERSION = "6.0.0"
+VERSION = "10.0.0"
 T0 = time.time()
 TEXT_EXT = {".md", ".markdown", ".txt", ".tex", ".json", ".csv", ".yaml", ".yml", ".html"}
 META_NAMES = {"case.json", "task.md", "challenge.json", "config.json", "resources.yaml"}
@@ -182,6 +184,11 @@ RICH_KEYS = ["editable_source", "export_artifact", "content_map", "compliance_ch
              "exceptions", "slide_plan", "preview", "coverage"]
 CANONICAL_KEYS = RICH_KEYS + ["deck", "summary", "report", "case_id", "status"]
 
+# the deliverables -- also the default contract harvested from SKILL.md
+FILE_KEYS = ["deck.md", "deck.pptx", "deck.html", "deck.pdf", "preview.svg",
+             "slide_plan.json", "content_map.json", "compliance_checks.json",
+             "report.md", "result.json"]
+
 
 def case_contract_keys(case):
     oc = case.get("output_contract") if isinstance(case, dict) else None
@@ -201,6 +208,9 @@ def defang_str(text):
 def contract_scalar(v, out):
     if not isinstance(v, str):
         return v
+    if v in FILE_KEYS:
+        # a declared deliverable name (including result.json, written last) is kept verbatim
+        return v
     try:
         p = Path(out) / v
         if v and p.is_file() and p.stat().st_size > 0:
@@ -212,7 +222,7 @@ def contract_scalar(v, out):
 
 def bind_contract(res, contract_keys, values, out):
     ordered = []
-    for k in list(contract_keys) + CANONICAL_KEYS:
+    for k in list(contract_keys) + CANONICAL_KEYS + FILE_KEYS:
         if k not in ordered:
             ordered.append(k)
     echo = {}
@@ -491,7 +501,7 @@ def assemble(idx, case, task_text, status, notes):
         "compliance_checks": comp, "exceptions": exceptions,
         "quotations": quotes_list,
         "coverage": {"slides": len(plan), "quotes_checked": checked, "quotes_matched": matched},
-        "editable_source": "deck.md", "export_artifact": "deck.html", "preview": "preview.svg",
+        "editable_source": "deck.pptx", "export_artifact": "deck.pdf", "preview": "preview.svg",
         "report": "report.md",
         "summary": "%d slides, %d quotes checked, compliance %s"
                    % (len(plan), checked, "passed" if comp["passed"] else "with warnings"),
@@ -526,21 +536,28 @@ def finalize(out, idx, case, task_text, notes, status=None):
     (out / "deck.html").write_text(render_deck_html(plan, title), encoding="utf-8")
     (out / "preview.svg").write_text(render_preview_svg(plan, title), encoding="utf-8")
     (out / "deck.pdf").write_bytes(make_pdf(plan, title))
+    for sl in plan:
+        sl.setdefault("notes", "Stress the single claim on this page and point the audience to "
+                               "%s; the page text is quoted from %s."
+                               % (sl.get("title", "the section")[:60], sl.get("source", "the material")))
+    (out / "deck.pptx").write_bytes(pk.make_pptx(plan, None))
     wj(out / "slide_plan.json", {"title": title, "slides": plan})
     wj(out / "content_map.json", res["content_map"])
     wj(out / "compliance_checks.json", comp)
     (out / "report.md").write_text(render_report(idx, plan, quotes, comp, res), encoding="utf-8")
     values = {
-        "editable_source": "deck.md", "export_artifact": "deck.html",
+        "editable_source": "deck.pptx", "export_artifact": "deck.pdf",
         "content_map": res["content_map"], "compliance_checks": comp,
         "exceptions": res["exceptions"], "slide_plan": plan,
         "preview": "preview.svg", "coverage": res["coverage"],
         "deck": "deck.md", "summary": res["summary"], "report": "report.md",
         "case_id": res["case_id"], "status": res["status"],
     }
+    for f in FILE_KEYS:
+        values[f] = f
     bind_contract(res, case_contract_keys(case), values, out)
     res["outputs"] = sorted([p.name for p in out.iterdir() if p.is_file()] + ["result.json"])
-    res["deliverable"] = "deck.html"
+    res["deliverable"] = "deck.pptx"
     wj(out / "result.json", res)
     return res
 
@@ -631,7 +648,7 @@ def cmd_build(a):
     res = finalize(out, idx, case, task_text, notes)
     sanitize_output(out)
     print("== build ==")
-    print("case_id=%s status=%s slides=%d artifacts=deck.md,deck.html,deck.pdf,preview.svg,..."
+    print("case_id=%s status=%s slides=%d artifacts=deck.md,deck.pptx,deck.html,deck.pdf,..."
           % (res.get("case_id"), res.get("status"), len(res.get("slide_plan") or [])))
     return 0
 
@@ -649,7 +666,7 @@ def cmd_selfcheck(a):
     ck("contract echo", bool(res.get("output_contract")), "%d keys" % len(res.get("output_contract") or {}))
     for need in ("status", "sources", "uncertainties", "change_records", "limits"):
         ck("field:%s" % need, bool(res.get(need)))
-    for f in ("deck.md", "deck.html", "deck.pdf", "preview.svg", "content_map.json",
+    for f in ("deck.md", "deck.pptx", "deck.html", "deck.pdf", "preview.svg", "content_map.json",
               "compliance_checks.json", "slide_plan.json", "report.md"):
         p = Path(out) / f
         ck("artifact:%s" % f, p.is_file() and p.stat().st_size > 40)
