@@ -1,4 +1,4 @@
-# plan-choice-sensitivity — 方案比较多准则选择与敏感性（experiment-04 v6）
+# plan-choice-sensitivity — 方案比较多准则选择与敏感性（experiment-04 v10）
 
 把一批实验材料整理成**可逐条复核的方案比较与选择**：从材料中抽出准则字典（id/单位/方向/权重）、
 状态映射（0–4）、证据等级（A–D）、成本与周期公式、有限参数域，读入候选工作簿，做
@@ -21,9 +21,16 @@
 ```
 /skills/weekly-skill/
   SKILL.md
+  references/expert_playbook.md
   scripts/main.py   scripts/extract.py   scripts/engine.py   scripts/render.py
-  README.md  SELFTEST.md  GITHUB_URL.txt
+  environment/resources.yaml
+  examples/case.json   examples/params.json   examples/notes.md
+  README.md  SELFTEST.md  GAIN_EVIDENCE.md  GITHUB_URL.txt
 ```
+
+**执行前必读**：`references/expert_playbook.md`（专家参考手册）。先按其 §2.1 定义统一比较矩阵的
+7 类字段，再按其 §3 口径复算成本/时间/风险，按其 §3.4 评分与敏感性，交付前逐项通过其 §5 的 15 项
+自查表并用 §7 专家注意点排雷。
 
 ## 用法
 
@@ -75,3 +82,26 @@ python3 scripts/main.py selfcheck  # 复检产物一致性与契约回显
 
 版本 2.6.0；契约键名冻结，抽取规则集中在 `SKILL.md` 与 `scripts/extract.py`。
 改了脚本必须重跑：空 `/input`、坏 JSON（均 exit 0），并跑一次自测（见 SELFTEST.md）。
+
+## 随包最小样例（examples/，可直接复跑）
+
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+# exit 0；7 件产物；status=answered；winner=plan_A；
+# criteria=6（weight_sum=1.0）, candidates=3, cells 18/18；
+# 得分 A 84.4197 / C 55.0 / B 24.2857(infeasible)；台账 15/15；翻转阈值 2.890302；A2 stable
+```
+
+样例输入：`examples/case.json`（契约 + 指令）+ `examples/params.json`（3 个路线候选 × 6 准则取值、
+2 条硬约束、成本/工期台账、2 条敏感性假设、风险与 selected）+ `examples/notes.md`（准则字典 pipe 表：
+id/name/unit/direction/weight/why）。使用增益对照见 `GAIN_EVIDENCE.md`（含确定性 `baseline_sim`
+说明，非官方对照）。
+
+## 随包文件（v10 新增）
+
+```
+references/expert_playbook.md  专家参考手册（Step 0–5/统一矩阵 7 类字段/成本时间风险口径/敏感性/15 项自查表/完整案例）
+environment/resources.yaml     运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
+examples/                      最小可复跑样例（case.json + params.json + notes.md）
+GAIN_EVIDENCE.md               使用增益证据（无 Skill 基线对照 + 真实运行数字）
+```
