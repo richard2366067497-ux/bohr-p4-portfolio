@@ -1,0 +1,10 @@
+{
+  "case_id": "example-writing-07",
+  "task_understanding": "Example draft only. Rewrite the manuscript into four sections and bind every citation to the claim it supports.",
+  "claims": [
+    {"section": "background", "claim": "<paste a verbatim material sentence>", "locator": "materials/example.md#L1", "quote": "<verbatim>"}
+  ],
+  "gap_premises": [],
+  "contributions": [],
+  "uncertainties": ["example draft: fill from the actual /input materials, not from this file"]
+}
