@@ -9,7 +9,7 @@ description: >-
   reviewer comment is mapped to an applied change. Use when a task asks for
   引言与相关工作写作 / introduction and related work / 文献综述改写 / 引用与论断绑定 /
   研究空白推导 / 贡献与图表对齐. Pure standard library, offline.
-version: 9.0.0
+version: 9.1.0
 ---
 
 # intro-relatedwork-writer
@@ -20,6 +20,16 @@ and the verbatim quote of that line. Sentences that were not found in the materi
 are reported as absent, never written as if present. The `output_contract` keys are
 echoed both at the top level of `result.json` and inside its `output_contract`
 object, and `case_id` is passed through unchanged.
+
+## 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：任务本质与判分要点（立得住/分得清/说得实/对得上/可核验）、错误做法→正确做法、
+八步求解框架与门控、量化口径与公式（引用覆盖率、引用-论断绑定率、分组纯度、空白推导支持率、
+贡献-证据对齐率、元数据准确率、事实可回溯率、转述一致性、格式一致性）、领域陷阱、交付物清单
+与 20 项防扣分检查表、完整虚构案例。执行顺序固定为：先读手册 → 再用 §1 单命令或 §2 agent-first
+路径逐阶段落盘 → 交付前逐项勾选手册 §6 检查表。手册与 `SKILL.md` 冲突时，契约键名、入口命令与
+产物文件名以 `SKILL.md` 为准，方法与判分口径以手册为准。
 
 ## 0. result.json contract
 
@@ -134,3 +144,4 @@ An empty draft is legal; the engine then uses the rule-based derivation. Extra
 - 示例 draft + 示意输出 → `examples/`；模板 → `templates/manuscript_template.md`。
 - 可靠性自测 → `main.py selfcheck` + `SELFTEST.md`。
 - 失败分析与 benchmark → GAIN_EVIDENCE.md 与 `baseline_comparison.md`。
+- 专家方法论 → `references/expert_playbook.md`；每次交付前须**逐项通过其 §6 专家检查表**。
