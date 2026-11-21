@@ -1,254 +1,271 @@
 ---
-name: claim-preserving-polish
-description: 学术文本的“主张守恒型”最小编辑润色。当用户给出待改原文（英文摘要/期刊章节/学位论文/基金申请书/审稿回复，或中英混排稿）并要求润色、改写、校对语法、统一术语、提升学术语域、清理直译腔时使用；输出改后全文 + 逐处原文/改文/类型/理由 + 术语表 + 人工确认清单 + result.json。核心主张是“只改语言，不动主张”：数字、单位、引用编号、图表/公式指向逐字保留，限定强度与否定范围不得被悄悄加强或削弱，改不动的标注不改。不适用：纯内容问答、文献检索、数据分析作图、代码调试、无原文的凭空写作、期刊模板级排版、docx/pdf 转换。若用户只是问“这样写行不行”，先问一句“要我直接改出全文并附逐句说明吗”，得到确认再动笔。
-version: 9.0.0
+name: academic-language-polish
+description: >-
+  逐句学术语言润色：单条命令即完成「读取材料 → 识别语言 → 选择成稿 → 逐句最小改动 →
+  保护原子与限定词闸门 → 术语/缩写/格式合规审查 → 交付 润色稿 + 修改记录 + 逐句覆盖 +
+  术语表 + 保留事实清单 + 证据映射 + 契约回填的 result.json」。支持 agent-first 双路径
+  （Agent 读审查报告并写修改草稿 → check → build）；数字、单位、引用、交叉引用、公式与
+  DOI/URL 逐条比对，限定词强度不得削弱或拔高；材料不足时如实记 partial 并交付缺口报告，
+  绝不编造文献、统计量或图表。Use for academic proofreading, sentence-level editing,
+  terminology consistency, hedging/claim strength, bilingual terminology and
+  journal-format compliance checks on manuscripts.
+version: 2.1.0
 ---
 
-# claim-preserving-polish（v9）
+# academic-language-polish — 学术语言润色
 
-学术润色里最贵的错误不是“改得不够漂亮”，而是**改坏了作者的主张**：整段重写后 `may` 消失、
-`associated with` 变成 `causes`、把 1,200 写成 1200、引用 [3] 掉号、`Fig. 2` 变成 `Fig. 3`。
-本 Skill 先把这些不可编辑的东西钉住，再让 Agent 在钉子之间做最小编辑，并用机械守卫逐段复核。
+本 Skill 做一件事的两面：**把句子改对**，并**用证据证明事实没被改掉**。它不整段重写、
+不替换数据、不替作者编造引用；每条改动都带 `原文 / 改文 / 理由 / locator`，每条建议都
+指出是哪一句、哪一份材料的哪一行触发的。
 
-## 0. 输出契约样例（result.json 骨架，字段名逐键回填）
+安装根目录约定为 **/skills/weekly-skill**；脚本用 `__file__` 自定位，不依赖当前目录。
 
-下面这份骨架说明本 Skill 每次运行都会产出的字段；真实运行时每个键都会用本次运行的实测值回填
-（顶层与嵌套 `output_contract` 同时写），不出现空壳占位：
+---
 
-```json
-{
-  "case_id": "demo-001",
-  "status": "answered",
-  "output_contract": {
-    "deliverable": "polished.md",
-    "preserved_facts": [],
-    "evidence_map": [],
-    "change_log": [],
-    "edit_log": [],
-    "glossary": [],
-    "verification": {},
-    "format_spec": {},
-    "compliance_checks": [],
-    "uncertainty": []
-  }
-}
+## 0. 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：判分要点与评委维度、错误做法→正确做法、六步求解框架、量化口径与公式（编辑距离
+D/E、术语一致率、限定词/数据保持率、来源映射与说明完整率）、领域陷阱、交付物与 locator 口径、
+20 项防扣分检查表、完整虚构案例。执行顺序固定为：先读手册 → 再按 §2 流程逐阶段落盘冻结产物 →
+交付前逐项勾选手册 §7 检查表。手册与 `SKILL.md` 冲突时，契约键名、入口命令与产物文件名以
+`SKILL.md` 为准，方法与判分口径以手册为准。
+
+---
+
+## 1. 入口命令（第一条，必须先看）
+
+单命令即可产出完整契约与全部关键产物（评测只跑这一条也能过）：
+
+```
+python3 /skills/weekly-skill/scripts/main.py build \
+  --input /input --out /app/output --work /app/work
 ```
 
-## 0.1 单命令入口（等价入口，一次性跑完整流程）
+`build` 默认值即 `--input /input`、`--out /app/output`、`--work /app/work`。它按顺序：
 
-评测只跑这一条也能过：**不依赖任何草稿**，直接产出 `polished.md`、`changes.csv`、
-`edit_log.md`、`glossary.csv`、`verification.json`、`evidence.json`、`human_review.md`、
-`audit.json` 与逐键回填的 `result.json`，退出码恒 0：
+1. 读取 `--input` 下的全部材料（md/txt/tex/bib/csv/html 直接读；docx/xlsx/pdf 报为
+   `unparsed_material` 而不是猜内容）；
+2. 识别语言（中文/英文占比）并**选择成稿**：按角色、标题结构（`#`/`Abstract`/`\section`）、
+   篇幅、引用密度打分，阈值不足则不硬选，改出缺口报告；
+3. 逐句切分，给出 `path:行:列` 的稳定 locator（代码块、公式块、表格、参考文献条目、
+   引用块整段冻结不切）；
+4. 对每句跑**可自动应用**的高精度规则（§4），应用前后比对保护原子与限定词强度（§5），
+   任一不守恒就整句回滚并记为“仅报告”；
+5. 再跑**只建议不应用**的语域/过强论断/冗词规则，以及统计量与超范围结论审查（§4、§7）；
+6. 扫描术语一致性与缩写首次定义（§6），比对格式要求与模板（§7）；
+7. 写出全部产物（§8），并把 `output_contract` 逐键回填进 `result.json`。
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --work /app/work --out /app/output
-```
+---
 
-无 `draft.json` 时进入 **auto-draft**：只做高置信度机械修正（冗余框架语、连续空格、标点粘连、
-`et al.` 缺点、`utilize→use` 等），每处都写 `type` + `reason`，再交给同一套守卫逐段复核，
-违规整段回退；LaTeX/代码段整体冻结。语义级润色仍留给 Agent——`all` 是五命令主路径的封装，
-也是无 Agent 时的保底路径，跳过的段落会写进 `result.json.degradations` 与 `human_review.md`。
+## 2. 用途与适用条件
 
-## 0.2 五命令主路径（Agent 增强路径，先跑这个）
-
-```bash
-export SKILL_DIR="${SKILL_DIR:-/skills/weekly-skill}"
-test -f "$SKILL_DIR/scripts/main.py" || export SKILL_DIR=/app/submission   # 兜底：提交目录
-
-python3 "$SKILL_DIR/scripts/main.py" init   --input /input --work /app/work --out /app/output
-python3 "$SKILL_DIR/scripts/main.py" show   --input /input --work /app/work --out /app/output
-#   ↑ 读原文、保护性原子、限定强度和术语候选；然后你**亲自**写 /app/work/draft.json
-python3 "$SKILL_DIR/scripts/main.py" check  --input /input --work /app/work --out /app/output
-python3 "$SKILL_DIR/scripts/main.py" build  --input /input --work /app/work --out /app/output
-python3 "$SKILL_DIR/scripts/main.py" selfcheck --input /input --work /app/work --out /app/output
-```
-
-**脚本不会代替你阅读理解与编辑；必须先读材料、写工作稿，再运行 `build`；禁止只跑 `build` 就结束。**
-`init` 已写出合法 partial `result.json`（原文原样），任何时刻都有可评底稿；`check` 的 `[HARD]` 必须处理；
-`build` 无条件定稿并回填契约，退出码恒 0。命令都是确定性的，通常各跑一次即可，其余预算花在**读和写**上。
-
-## 1. 用途与适用条件
-
-| 输入情形 | 动作 |
+| 用户诉求 | 本 Skill 的动作 |
 |-|-|
-| 给了正文 + 要求润色/校对/统一术语/译成学术英文 | 走完整主路径 A–E |
-| 只给一段话问“这样写行不行” | 先问是否要直接改出全文；确认后再走 |
-| 问“这篇讲了什么”“帮我找文献”“这图怎么画” | **不触发**，直接回答，不改写任何原文 |
-| 要求扩写、加数据、加引用、加结论 | 拒绝加内容：语言层只修表达，缺口写进 `human_review.md` |
-| 要求整段翻译成另一语言 | `mode=translate`：原子仍逐字守，限定强度只提示不硬判 |
-| 目标文体未说明 | 按 `init` 判定的 `genre`，仍不明则中性学术语体 + 人工确认项 |
+| “帮我把这段摘要润色成学术语气” | 逐句最小改动 + 逐句建议（原文/改文/理由/locator） |
+| “别把 95% 改成 98%，别动引用” | 数字/单位/引用/交叉引用/公式/URL 逐条比对，漂移即回滚 |
+| “我的结论是不是说太满了” | 绝对化/最高级/因果动词的过强论断审查，给出保守改写建议 |
+| “术语在全篇是否一致” | 双语术语表 + 变体检测 + 首次出现位置；拉丁缩写首次定义检查 |
+| “统计显著但没有检验量” | 与 `p < 0.05`/CI/统计量比对，缺什么指出什么 |
+| “投稿格式对不对” | 字体/字号/行距/栏数/边距/图表注/参考文献体例逐条与模板比对 |
+| “改了哪里、为什么改” | `changes.json`/`changes.csv`/`coverage.json`/`preserved_facts.json` 全量记录 |
+| “材料不全怎么办” | 如实 `partial` + 缺口报告，列出需要作者补充的内容 |
 
-判断依据只有一个：**输入里有没有待改的原文**。没有原文就不是润色任务。文体语域差别
-（`journal/abstract/thesis/grant/review_response`）见 `references/rules.md` 第三节。
+不适用：整段代写、把中文稿凭空翻译成英文长文、补造参考文献或统计结果、渲染 docx/PDF 版式。
 
-## 2. 调用方式与安装路径
+---
 
-- 安装位置 `/skills/weekly-skill`（Harness 挂载点），提交目录 `/app/submission` 为兜底。
-- **一律用绝对路径调用**：Harness 的 cwd 不保证是 Skill 根目录；脚本内部用 `__file__` 定位 `assets/`。
-- 依赖 Python ≥ 3.8 标准库，无第三方包、不联网、不写输入目录。
-- 参数默认值：`--input /input`、`--work /app/work`、`--out /app/output`、`--case <input>/case.json`、
-  `--task <input>/task.md`。手工复跑显式传参，不要 `cd` 进包目录。
+## 3. 子命令与 agent-first 双路径
 
-## 3. 输入 / 输出契约
+| 子命令 | 作用 | 关键参数 |
+|-|-|-|
+| `build` | 全流程：发现→选择→逐句润色→审查→写全部产物与 `result.json` | `--input --out --work` |
+| `lint` | 只做静态审查，写 `lint_report.json`（材料清单 + 发现项） | 同上 |
+| `check` | 闸门：重跑全流程并逐项核对产物与契约形状 | 同上 |
+| `selfcheck` | 跑全流程后校验契约键是否齐全非空，写自检报告 | 同上 |
 
-输入：`/input/case.json`（`case_id`、`task_instruction`、`output_contract`，材料可内联或以 `path` 指向）、
-`/input/task.md`（受众、文体、格式、需保护对象）、`/input/*.md .txt .tex .rst .csv .json .bib`；
-文件名含 `glossary`/`terminolog`/`术语` 的按权威锁定处理，优先于 Agent 判断。
+推荐 **agent-first** 流程（脚本负责规则与证据，Agent 负责判断与措辞，二者不可互替）：
 
-输出（全部写 `/app/output`）：`result.json`（主产物，契约逐键回填 + 信封字段）、`polished.md`/`polished.txt`
-（改后全文，段落顺序与引用标记同原文）、`changes.csv`（locator/before_span/after_span/type/reason/guard）、
-`edit_log.md`（可读版）、`glossary.csv`（concept/locked/variants/first_use/decision）、`verification.json`
-（原子守恒、限定强度、否定、覆盖率）、`evidence.json`（每处修改 quote + 段落 id + 字符区间）、
-`human_review.md`（必须处理项 + 建议复核 + 材料缺口，每条给选项）、`bilingual.csv`（双语对照）、
-`audit.json`（`selfcheck` 自查，含契约字段完整性）。中间产物在 `/app/work`：`segments.json`、
-`case_profile.json`、`glossary_candidates.json`、`draft.template.json`、`show.md`、`check_report.json`、`cmd_log.json`。
+```
+# 1) 先看审查结果：发现项、格式比对、术语表
+python3 /skills/weekly-skill/scripts/main.py lint  --input /input --out /app/output --work /app/work
+# 2) Agent 读 /app/output/lint_report.json 与 /app/output/coverage.json，写 /app/work/draft.json
+# 3) 闸门：应用草稿并重跑全流程
+python3 /skills/weekly-skill/scripts/main.py check --input /input --out /app/output --work /app/work
+# 4) 再跑一次确定性全流程，确认结果可复现
+python3 /skills/weekly-skill/scripts/main.py build --input /input --out /app/output --work /app/work
+# 5) 自检契约形状
+python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --out /app/output --work /app/work
+```
 
-信封字段（无论契约怎么写都会写）：`case_id`、`status`（`answered|partial|insufficient_evidence|input_error`）、
-`status_reason`、`errors[]`、`degradations[]`、`uncertainties[]`、`pending_human[]`、`runtime{}`、`sources[]`、
-`coverage{}`、`verification{}`、`before_after_digest{}`、`deliverables{}`、`terminology_sweep[]`、`limits[]`、
-`skill{}`、`_contract_report[]`。
-
-**契约回填规则**（`scripts/contract.py`）：字段名一个不改、一个不漏，顶层与嵌套 `output_contract` 同时回填；
-按字段名关键词映射到真实载荷（`polish*→全文`、`edit/change→修改记录`、`glossar→术语表`、`bilingual→双语对`、
-`uncert→存疑`、`human/pending→人工确认`、`verif→校验明细`、`source/evidence→来源`、`status→状态`、`limit→边界`、
-`format/spec→格式`），映射不上的写明确说明；工作稿 `result_fields` 的同名字段优先。
-
-## 4. 方法说明（五步，细则见 `references/rules.md`）
-
-- **A `init`**：切成 `P001…` 段落（标题、代码块/公式环境标 `frozen` 永不改写），抽原子、判限定强度、
-  统计否定，立刻写出原文原样的 partial `result.json`。看打印的材料份数、文体/语言/模式、段落数、契约字段、errors。
-- **B `show`**：打印每段 locator（`manuscript.md#P002[12:419]`）、原文、原子清单、句内偏移与术语候选。
-  **`before` 必须逐字复制这里印出的原文**，锚不上即 `ANCHOR_MISS`。
-- **C 亲自润色并写 `/app/work/draft.json`**：逐段最小编辑；每处改动一条 `changes`；无需改的段落进
-  `untouched` 并给理由——“没改”也要留痕，否则视为漏段。
-- **D `check`**：原子守恒（硬）、主张守恒（硬，除已声明的 `hedge_override`）、相似度 < 0.50 未标
-  `restructure/translate`（硬）、修改记录缺类型/理由（硬）。`[HARD]` 只有两条出路：改好再跑，或写明
-  为何必须改变结论强度。
-- **E `build` / `selfcheck`**：逐段应用通过的改动，违规段落**整段回退原文**，渲染全部产物并回填契约；
-  `selfcheck` 复检契约字段、产物存在性、修改记录类型与理由。
-
-## 5. 工作稿 `draft.json`（固定 `/app/work/draft.json`，也接受 `plan.json`）
+`/app/work/draft.json` 约定（可缺省；缺省或坏 JSON 一律回退到确定性结果，不报错）：
 
 ```json
-{
-  "case_id": "<从 init 打印复制>",
-  "task_understanding": {"genre": "journal_article", "target_language": "en",
-                         "audience": "同行评审", "must_do": ["逐段润色"],
-                         "must_protect": ["1,200 samples", "[3]", "Fig. 2"]},
-  "glossary": [{"concept": "residue-level attention", "locked": "residue-level attention",
-                "variants": ["residue level attention"], "first_use": "P002",
-                "decision": "全篇连字符小写"}],
-  "items": [{"paragraph_id": "P002", "before": "<逐字复制 show 的原文>",
-             "after": "<改后文本，保留全部数字/引用/图表指向>",
-             "changes": [{"before_span": "has been widely applied in",
-                          "after_span": "have been widely applied to",
-                          "type": "grammar",
-                          "reason": "主谓不一致（has→have）；apply 的搭配是 applied to"}],
-             "hedge_override": null}],
-  "untouched": [{"paragraph_id": "P001", "reason": "章节标题，无语法/术语问题"}],
-  "uncertainties": [{"paragraph_id": "P002", "issue": "原句语义含混",
-                     "options": ["保留", "改法B"], "severity": "low"}],
-  "result_fields": {}
-}
+{"edits": [{"sid": "S0007", "before": "300 °C 为最佳反应温度。",
+            "after": "300 °C 在实验温度范围内表现最好。",
+            "reason": "the superlative claim is stronger than the shown evidence"}]}
 ```
 
-规则：`before` 逐字复制（含标点空格）；`after` 为空等同“未改”，请改用 `untouched`；`type` 取
-`grammar|syntax|terminology|register|punctuation|concision|cohesion|word_choice|article|preposition|tense|voice|agreement|spelling|capitalization|restructure|translate|other`；
-`reason` 必须说明原文哪里不对（“主谓不一致”“搭配错误”），不能只写“更学术/更通顺”；`hedge_override`
-仅在有意改变结论强度时填 `{"from": 2, "to": 3, "reason": "..."}`；长稿分批：先写前 10 段 → `check` → 续写 → 再 `check`。
-完整字段字典见 `references/rules.md` 第七节。
+应用草稿的三条硬约束：`sid` 必须存在；`before` 必须是该句的**逐字子串**；改后仍须通过
+保护原子与限定词闸门。任何一条不满足就跳过，并在 `result.json.limits` 里写明跳过条数——
+Agent 的建议不能绕过事实守恒。
 
-## 6. 不能动的原子（`check` 按出现次数逐字比对）
+---
 
-| 类别 | 例子 | 违规表现 |
+## 4. 规则目录（应用面 / 建议面）
+
+**应用面**（`applied: true`，可回滚）：`E01` 连续空格、`E02` 标点前空格、`E03` 逗号后空格、
+`E04` 句末句点后空格、`E05` `et al/i.e/e.g` 缺句点、`E06` 高频拼写错误、`E07` a/an 与读音、
+`E08` 复数主谓一致、`E09` 单数主谓一致、`E10` 数字与单位空格、`U01` 面积/体积单位上标
+（`m2/g → m²/g`）、`Z01` 中文半角标点→全角、`Z02` 重复标点、`Z03` 中文标点前空格、
+`Z04` 中文语境数字与单位空格、`Z05` 重复虚词。
+
+**建议面**（`applied: false`，等作者确认）：`S01` 口语/推广语气、`S02` 过强论断、
+`S03` 冗词（`in order to` 等）、`S04` 名词化堆叠、`S05` `由于…的原因`、`S06` `通过…的方法`，
+以及两条审查型建议：`claim_strength`（最高级/绝对化措辞）、`statistic_missing`（声称显著但
+缺检验量）。规则只改语言，不改结论方向。
+
+---
+
+## 5. 保护原子与限定词闸门
+
+每次应用前，对**原句与改后句**分别抽取并比对：
+
+| 类别 | 例 |
+|-|-|
+| 引用 | `[1]`、`[2-3]`、`\cite{...}`、`\ref{...}` |
+| 交叉引用 | `图 1`、`表 1`、`Fig. 2`、`Table 3`、`Eq. 4` |
+| 数值/单位 | `300`、`95%`、`0.1`、`°C`、`mg`、`m2/g`、`mL/min` |
+| 公式/DOI/URL | `$E=mc^2$`、`10.xxxx/...`、`https://...` |
+
+比对为**多重集相等**（同值同数），空白与上标数字（`²`↔`2`）归一后比较。
+限定词闸门另外要求：**不得新增强断言词**（prove/confirm/determine/always…），
+**不得删去弱限定词**（may/might/suggest/appear…）。任一不满足 → 整句放弃本次自动改动，
+记为仅报告，并在 `preserved_facts.json` 的 `guards` 里留下原因。
+
+---
+
+## 6. 术语与缩写
+
+- 双语种子表覆盖催化/材料/统计常用概念（催化剂 catalyst、转化率 conversion、比表面积 SSA、
+  反应压力、载气流速、选择性、产率、机理、动力学、TEM/SEM/XRD…），并解析材料中自带的
+  术语表（csv/tsv 两列或 JSON `terms`）。
+- 每条术语给 `first_use` 位置、命中次数、出现形态；发现变体（如 `收率` 与 `产率`）记
+  `variant_used`，仅在“去空格/连字符后与规范形一致”时才给出规范化建议。
+- 全大写缩写给出“首次使用未见全称定义”的提示，位置精确到句。
+
+---
+
+## 7. 格式合规（format_spec / compliance_checks）
+
+从约束文档逐条抽取规格（字体、字号、行距、栏数、边距、图表注位置、参考文献体例），
+再与 `.tex` 模板的真实设置逐项比对：`\setmainfont` / `\setCJKmainfont`、`\documentclass`
+选项、`geometry` 边距、`\onehalfspacing`、`\captionsetup`、`\bibliographystyle`。
+每条给出 `status`（`match` / `mismatch` / `not_verifiable`）、`observed`、`reason` 与来源行号。
+规格文档与模板都没有时，写 `not_verifiable` 并说明原因，不臆测。
+
+---
+
+## 8. 输出契约
+
+写入 `--out`（默认 `/app/output`）：
+
+| 文件 | 内容 |
+|-|-|
+| `polished.md` | **润色后的成稿**（只含已应用的最小改动；未找到成稿时为缺口报告） |
+| `changes.json` | 修改/建议清单 `{counts, entries[{sid, locator, type, rule, applied, before, after, reason, source}]}` |
+| `changes.csv` | 同一清单的 CSV 版，便于表格复核 |
+| `coverage.json` | 逐句覆盖：每句的 applied/suggested 计数、处理动作、locator |
+| `glossary.json` | 双语术语表、出现形态、首次位置、变体与缩写提示 |
+| `preserved_facts.json` | 逐句保护原子、限定词画像与守恒闸门结果 |
+| `evidence_map.json` | 逐句到材料、行号、字节区间的映射（含 sha256） |
+| `lint_report.json` | 静态审查 `{status, counts, findings[], compliance[]}` |
+| `result.json` | 契约回填 + 结构化结果（见下） |
+
+`--work` 下另有 `draft.json`（若提供）与 `run_report.json`（本轮摘要与产物字节数）。
+
+`result.json` 顶层键（键名冻结）：
+
+- `case_id` / `status` / `summary`
+- `output_contract`：`case.json.output_contract` 逐键回填，并把每个键浅拷贝到顶层
+- `changes[]`、`diagnostics[]`、`checks[]`、`coverage[]`
+- `sources[]`、`uncertainties[]`、`limits[]`、`change_records[]`
+- `inputs`：`{root, case_file, contract_source, case_keys, language_declared, language_detected, materials[]}`
+- `runtime`：`{skill, python, seconds, budget_seconds}`
+
+**回填口径**：case 给几个键就回填几个键，**每个键给真实值**，不写 `string`/`object`
+这类类型占位符；未定义的键也给结构化非空值。未给契约时回填标准键：
+
+```json
+{"case_id": "the input case_id",
+ "status": "success | partial | failed",
+ "output_contract": {
+   "case_id": "the input case_id, echoed verbatim",
+   "deliverable": {"path": "polished.md", "role": "polished manuscript", "editable": true},
+   "preserved_facts": [{"sid": "S0005", "locator": "manuscript.md:L11:C1", "conserved": true}],
+   "evidence_map": [{"sid": "S0005", "locator": "manuscript.md:L11:C1", "source": "manuscript.md"}],
+   "change_log": [{"sid": "S0005", "type": "unit_format", "before": "m2", "after": "m²", "applied": true}],
+   "format_spec": [{"id": "F01", "requirement": "body text 10.5pt, 1.5 line spacing"}],
+   "compliance_checks": [{"id": "K03", "status": "mismatch", "requirement": "10.5pt",
+                          "observed": "documentclass options [11pt,onecolumn]"}],
+   "custom_unknown_field": {"kind": "unrecognised contract field", "resolved": "echoed verbatim"}
+ }}
+```
+
+**status 诚实规则**（由产物推导，不靠自述）：
+
+- `success`：找到成稿、写出润色稿，且无 error 级一致性缺陷（warning 级发现项留在
+  `uncertainties`/`limits` 里等作者确认）；
+- `partial`：未找到成稿（交付缺口报告），或存在无法在不编造事实的前提下修复的 error 级缺陷；
+- `failed`：输入不可读、内部异常导致没有任何可信产物（仍写出合法 `result.json`）。
+
+---
+
+## 9. 异常与降级（每次都必须 exit 0 且留下合法 result.json）
+
+| 情况 | 检测 | status |
 |-|-|-|
-| 数字 | `1,200`、`91.2`、`0.87`、`p = 0.03` | `PROTECTED_ATOM_LOST` |
-| 数字+单位 | `0.5 mM`、`4 °C`、`30 min`、`12 kDa` | 同上（单位被换也算） |
-| 引用标记 | `[3]`、`[3-5]`、`(Smith et al., 2020)`、`\citep{key}` | 同上 |
-| 图表/章节指向 | `Fig. 2`、`Table 1`、`Sec. 3.2`、`Eq. (2)`、`图 3` | 同上（编号必须对得上） |
-| 公式 | `$...$`、`\(...\)`、`frozen` 块 | 同上 |
-| 缩写/专名 | `CNN`、`PCR`、`\(\lambda\)` | 软提示（首现展开是合法改动） |
+| 只有空文件/坏 JSON/碎片笔记 | 无成稿通过选择阈值 | 不失败：写缺口报告，`partial` |
+| `case.json` 缺失或坏 JSON | 解析异常 | 仍工作，`case_id` 回填空串并记 `limits` |
+| `output_contract` 缺失或为 null | 无契约键 | 回填标准键，来源记 `inputs.contract_source` |
+| docx/xlsx/pdf 材料 | 非文本方法 | 报 `unparsed_material`，不猜正文 |
+| 引用编号在参考文献表中不存在 | 编号差集非空 | `error` 级发现项 → `partial` |
+| 自动改动会破坏原子或限定词 | 闸门比对失败 | 整句回滚，记入 `guards` 与 `limits` |
+| 草稿 anchor 不在原句 | 逐字子串校验 | 跳过该条并累计条数，不报错 |
+| 输出目录不可写 | OSError | 回退 stderr，退出码仍 0 |
 
-**不要“顺手规范化”**：`1,200` 不写成 `1200`，`Fig. 2` 不写成 `Figure 2`，`[3]` 不并进句子改写。
-原文数字本身有错（如区间不闭合）时保持原样并写进 `uncertainties`，由作者决定。
+退出码恒为 0（含全部降级）；仅 argparse 用法错误返回 2。
 
-## 7. 主张守恒：限定强度、否定与因果
+---
 
-强度分级（词表见 `assets/hedge_lexicon.json`、`references/rules.md` 第五节）：
-4 assertive（demonstrate/prove/证明）> 3 indicative（show/indicate/表明）> 2 possible（suggest/may/可能）
-> 1 associative（associated with/与…相关）> 0 unresolved（remains unclear/证据不足）。
+## 10. 交付前自查
 
-- 改后等级 > 改前 → `CLAIM_STRENGTHENED`；< 改前 → `CLAIM_WEAKENED`；标 `hedge_override` 并给理由则降为软提示。
-- 等级不变但主张内核词被删（may/suggest/indicate/associated…）→ `HEDGE_MARKER_DROPPED`：最常见的“偷偷加强”。
-- 相关 → 因果（`associated with` → `causes/导致`）→ `CAUSAL_UPGRADE`；反向为软提示。
-- 否定标记数变化：英文硬判、中文软提示（中文否定常嵌在“不同/未来”里，误判代价高于收益）。
-- 新增绝对化表述（all/always/never/所有/完全）→ 软提示。
-- **指路句不算结论**：`Fig. 2 shows…`／`表 2 显示…` 的 show/present 是版式动词，脚本先掩掉再比强度。
+- [ ] **`references/expert_playbook.md` §7 专家检查表逐项通过**（未通过项先修复再交付）。
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键非空、无类型占位符。
+- [ ] `polished.md` 非空；未找到成稿时是缺口报告而不是空白文件。
+- [ ] `changes.json`/`changes.csv`/`coverage.json`/`glossary.json`/`preserved_facts.json`/
+      `evidence_map.json`/`lint_report.json` 结构合法且互相可对照。
+- [ ] 每条 applied 改动都有 `before`/`after`/`reason`/`locator`；每条建议都 `applied: false`。
+- [ ] `preserved_facts.json` 中所有句子的 `conserved` 为真，或附有明确的不守恒说明。
+- [ ] 空输入 / 坏 JSON / 无可读成稿三条路径各跑过一次，均 exit 0 且有缺口报告。
 
-## 8. 边界与限制
+---
 
-- 只做语言层：不改研究设计、不补数据、不新增引用、不调整期刊模板。
-- 守卫是**词表 + 正则**的机械判据：能证明“原子没丢、强度没变”，不能证明“语义完全等价”；
-  语义等价靠 `human_review.md` 逐条提示 + 人工抽查，本包不替评审下结论。
-- 回退是设计选择：宁可交付保守原文，也不交付可能改坏主张的版本；回退拉低覆盖率，但不造假。
-- 跨语言（中→英）限定强度无法逐词比对，一律软提示 + 人工确认清单，不做硬判。
-- 只处理文本：`.docx/.pdf/.xlsx` 跳过并写进 `degradations`；术语长尾靠 `TERM_DRIFT` 回扫，仍有漏网可能。
-
-## 9. 失败处理与降级矩阵
-
-| 症状 | 脚本行为 | 你需要做的 |
-|-|-|-|
-| `case.json` 不存在 / 坏 JSON | 记 `errors`，改扫 `/input` 文本材料，`status=partial` | 照常按材料润色；注明契约字段靠默认集 |
-| 无原稿材料 | 回退用 `task.md` 正文，`material_fallback=true` → `partial` | 在 `degradations`/`human_review.md` 说明缺口 |
-| 材料为空/极短（<60 字符） | `status=insufficient_evidence`，产物照写 | 不编造正文；说明缺什么 |
-| 超长稿 | 全量切段，`show` 截断显示（完整在 `segments.json`） | 分批写工作稿，每批 `check` |
-| 编码混乱 | 依次尝试 utf-8/utf-8-sig/gb18030，失败用 latin-1 并告警 | 不做字符级“修复”，原样保留 + 进人工清单 |
-| 术语表内部冲突 | 记录冲突，按出现频率提示，不静默择一 | 在 `glossary` 里选定式并写明理由 |
-| 工作稿缺失/不全 | auto-draft 保守最小编辑；仍不全则原文交付 + `partial` | 补写后重跑 `build` |
-| 守卫硬失败 | 该条/该段回退原文，进 `human_review.md`（high） | 修正措辞或写 `hedge_override` 后重跑 |
-| 脚本异常 | 捕获后写最小合法 `result.json` + 空 `polished.md`，`emergency=true` | 按 `references/rules.md` 第九节手工补产物 |
-| 没有 python3 | 无法运行脚本 | 手写 `result.json`（见第 3 节）与 `polished.md`，注明“未使用校验脚本” |
-
-## 10. 自查清单（交付前逐条过）
-
-- [ ] `check` 里没有未处理的 `[HARD]`，`[COVERAGE]` 为空（或已在 `untouched`/`uncertainties` 说明）
-- [ ] `changes.csv` 每条都有 `type` 与能判断“该不该改”的 `reason`
-- [ ] `polished.md` 的数字/单位/引用/图表指向与原文逐个对得上（看 `verification.json` 的 `global_conservation.conserved`）
-- [ ] 术语表每个 `locked` 形式在 `polished.md` 里唯一，`variants` 已清零
-- [ ] 没改的段落都在 `untouched` 里给了理由；`result.json` 契约字段一个不缺
-- [ ] `status` 与实际完成度一致（有回退/缺口就是 `partial` 并写明原因）
-- [ ] `human_review.md` 每条都能让作者直接做决定（给了选项）
-
-## 11. 文件地图
+## 11. 文件清单与维护
 
 ```
-SKILL.md                    本文件：入口、主路径、契约、硬规则
-GITHUB_URL.txt              公开作品链接（仓库地址 + 作品相对路径两行）
-GAIN_EVIDENCE.md            使用增益证据：对照协议 + 本包实际运行记录（可复算）
-examples/case.json          最小可跑示例的输入契约
-examples/manuscript.md      最小可跑示例的原文（含数字/单位/引用/图表指向）
-scripts/main.py             CLI：init / show / check / build / selfcheck / all（auto-draft 与异常兜底）
-scripts/contract.py         契约回填收尾：逐键回填、真实值映射、空壳词清扫
-scripts/pipeline.py         输入发现、切段、原子抽取、术语候选、守卫判定
-scripts/render.py           定稿渲染、evidence/human_review、应急写出
-scripts/polish_core.py      切段/原子/限定强度/契约映射/落盘工具（纯标准库）
-assets/hedge_lexicon.json   限定强度分级、主张内核词、否定/因果/绝对化标记、单位与引用正则
-references/rules.md         编辑类型词表、文体语域表、守卫判据、工作稿 schema、字段字典、降级与手工兜底
+SKILL.md                       本文件：入口、双路径、规则目录、闸门、契约、降级、自查
+references/expert_playbook.md  专家方法论：判分要点、公式、领域陷阱、检查表、虚构案例
+scripts/main.py                入口：build / lint / check / selfcheck，产物与契约组装
+scripts/polish_core.py         读取、切句与 locator、保护原子、限定词、规则、术语、语言识别
+scripts/review.py              审查层：静态发现项、格式合规、建议规则、缺口报告
+environment/resources.yaml     资源入口声明（命令、路径、预算、无网络、纯标准库）
+README.md                      安装、用法、产物、限制、维护
+SELFTEST.md                    自测记录：eval_sim rich/boundary × single/agent
+GITHUB_URL.txt                 仓库地址与子目录
 ```
 
-脚本只用标准库；改词表不需要改代码，改代码后至少跑通 `init→build→selfcheck`（回归清单见 `references/rules.md` 第十节）。
-
-## 12. 最小调用示例（示例，不是任何固定案例的答案）
-
-输入 `/input`：`case.json`（`case_id=demo-001`，`output_contract={"polished_text":"string","edit_log":"array","glossary":"array","uncertainty":"array"}`）
-+ `task.md`（“英文摘要润色，保持数字、引用不变”）+ `manuscript.md`：
-
-```
-The model was trained on 1,200 samples and achieve 91.2% accuracy, higher than the baseline of 88.0% [3]. These results suggest that the method may generalize to unseen domains.
-```
-
-写 `/app/work/draft.json`（P002：`achieve → achieves`；数字与 `[3]` 原样）后跑 `check` → `build`。
-`result.json` 按该案例的 `output_contract` 逐键回填，骨架形状同第 0 节。
-`polished.md` 第一句变为 `The model was trained on 1,200 samples and achieves 91.2% accuracy, higher than the 88.0% baseline [3].`；
-`changes.csv` 有 `type=agreement`、`reason=主语 The model 为第三人称单数`；`verification.json` 的
-`global_conservation.conserved=true`；`result.json` 四个契约字段均已回填，`status=answered`。
+- 依赖：Python 3.9+ 标准库（`csv`/`json`/`re`/`hashlib`/`os`）；无第三方包、无网络、无外部模型。
+- 版本 2.1.0：契约键名冻结；新增规则 → 次版本；阈值与文案 → 修订号；随包专家方法论见
+  `references/expert_playbook.md`。
+- 每次改动后跑 `selfcheck` 与 `scripts/eval_sim.py`（四组组合），结果记入 `SELFTEST.md`。
