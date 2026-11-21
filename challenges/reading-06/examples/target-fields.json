@@ -1,0 +1,68 @@
+{
+  "fields": [
+    {
+      "field_id": "yield_strength",
+      "field_name": "compressive yield strength",
+      "definition": "compressive yield strength of AZ91-T6 in MPa",
+      "expected_type": "number",
+      "unit_hint": "MPa",
+      "context_hint": "Table 1"
+    },
+    {
+      "field_id": "aging_temperature",
+      "field_name": "ageing temperature",
+      "definition": "temperature used for the T6 ageing treatment",
+      "expected_type": "number",
+      "unit_hint": "C",
+      "context_hint": "Methods"
+    },
+    {
+      "field_id": "sample_size",
+      "field_name": "number of specimens",
+      "definition": "number of specimens tested per condition",
+      "expected_type": "number",
+      "unit_hint": "specimens",
+      "context_hint": "Methods"
+    },
+    {
+      "field_id": "elongation_t6",
+      "field_name": "elongation in T6 condition",
+      "definition": "elongation at failure in the T6 aged condition",
+      "expected_type": "number",
+      "unit_hint": "%",
+      "context_hint": "Table 1"
+    },
+    {
+      "field_id": "elongation_as_cast",
+      "field_name": "elongation in as-cast condition",
+      "definition": "elongation at failure in the as-cast condition",
+      "expected_type": "number",
+      "unit_hint": "%",
+      "context_hint": "Table 1"
+    },
+    {
+      "field_id": "hardness",
+      "field_name": "Vickers hardness",
+      "definition": "Vickers hardness of the T6 condition",
+      "expected_type": "number",
+      "unit_hint": "HV",
+      "context_hint": "Table 1"
+    },
+    {
+      "field_id": "author_conclusion",
+      "field_name": "authors' conclusion",
+      "definition": "what the authors conclude about T6 ageing",
+      "expected_type": "text",
+      "unit_hint": "",
+      "context_hint": "Discussion"
+    },
+    {
+      "field_id": "ductility",
+      "field_name": "ductility assessment",
+      "definition": "any qualitative ductility assessment in the paper",
+      "expected_type": "text",
+      "unit_hint": "",
+      "context_hint": "Results or Discussion"
+    }
+  ]
+}
