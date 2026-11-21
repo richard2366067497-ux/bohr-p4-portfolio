@@ -1,0 +1,31 @@
+schema: resource-entry/v1
+name: research-01
+entry:
+  command: python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+  arguments: [--input, --output, --work]
+  exit_code_expected: 0
+alternatives:
+  - name: agent-path
+    command: python3 /skills/weekly-skill/scripts/main.py init --input /input --work /app/work --output /app/output
+    note: 五命令分步 init/show/check/build/selfcheck，check/build 前可写 work/draft.json
+references:
+  - path: references/expert_playbook.md
+    role: methodology
+  - path: examples/minimal.md
+    role: sample
+runtime:
+  language: python3
+  standard_library_only: true
+  network: false
+budget:
+  model_requests: 64
+  wall_seconds: 900
+  tokens_per_response: 16384
+limits:
+  max_output_files: 50
+  max_file_bytes: 512000
+  max_total_text_bytes: 2097152
+degradation:
+  empty_or_corrupt_materials: write a legal partial result.json and record skipped/failed items
+  no_draft: build fills a minimal valid draft from the rule table, marks status partial
+  missing_case_json: fall back to the built-in contact keys and record a degradation
