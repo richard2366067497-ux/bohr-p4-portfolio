@@ -25,6 +25,10 @@ ISSUE_TYPES = ("citation_unsupported", "citation_partially_supported", "overclai
 SEVERITIES = ("critical", "major", "minor", "suggestion")
 VERDICTS = ("full_support", "partial_support", "no_support", "undetermined")
 VERDICT_TYPES = ("fact_error", "insufficient_evidence", "compliance_issue", "suggestion")
+# Schema/placeholder keywords: a verbatim quote carrying them would turn a delivered artifact into a shell.
+SHELL_TOKENS = re.compile(r"\bnull\b|\bNone\b|\bTODO\b|\bTBD\b|\bFIXME\b|\bXXX\b|\bplaceholder\b|"
+                          r"\bNOT_EXTRACTED\b|\bnot[-_ ]?extracted\b|\bpending\b|\bN/?A\b|待写|待补充|待填写|"
+                          r"尚未|example\.com|lorem ipsum|<[A-Za-z_][\w /-]*>", re.I)
 BLOCKING = {"contract_missing", "unreadable_material", "no_reference_list", "units_truncated",
             "draft_unavailable", "draft_invalid", "draft_incomplete", "quote_unverified",
             "no_input_files"}
