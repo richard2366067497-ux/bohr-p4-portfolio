@@ -1,0 +1,569 @@
+{
+  "version": "1.0.0",
+  "purpose": "field-contract-cleaner 的可编辑词表与不变式。改这里扩充缺失码/单位/动作，不用改 scripts/cleanlib.py；未知键被忽略。",
+  "encodings": [
+    "utf-16",
+    "utf-8-sig",
+    "utf-8",
+    "gb18030",
+    "cp1252",
+    "latin-1"
+  ],
+  "mojibake_markers": [
+    "ï¿½",
+    "�",
+    "Ã",
+    "Â",
+    "â€",
+    "â€œ",
+    "â€™",
+    "ã€",
+    "å¤",
+    "ä¸",
+    "é‡",
+    "è¡¨"
+  ],
+  "missing_tokens": [
+    "",
+    "na",
+    "n/a",
+    "n.a.",
+    "nan",
+    "null",
+    "nil",
+    "none",
+    "-",
+    "--",
+    "---",
+    "—",
+    "–",
+    "?",
+    ".",
+    "/",
+    "-999",
+    "-999.0",
+    "-9999",
+    "-99",
+    "9999",
+    "nd",
+    "n.d.",
+    "n.d",
+    "bdl",
+    "未检出",
+    "未测",
+    "未检测",
+    "未测定",
+    "缺失",
+    "无",
+    "空",
+    "待测",
+    "待补",
+    "tbd",
+    "#n/a"
+  ],
+  "lod_tokens": [
+    "<lod",
+    "< loq",
+    "<loq",
+    "<l od",
+    "nd",
+    "n.d.",
+    "bdl",
+    "未检出",
+    "低于检出限",
+    "低于定量限",
+    "<检出限"
+  ],
+  "invalid_tokens": [
+    "?",
+    "??",
+    "#",
+    "#value!",
+    "#div/0!",
+    "err",
+    "error",
+    "void",
+    "inf",
+    "-inf",
+    "∞",
+    "n.a",
+    "n.a.",
+    "x",
+    "xx",
+    "***"
+  ],
+  "zero_policy": "0 是合法真值；仅当字典/工单显式声明 0 为缺失码时才按缺失处理。",
+  "action_enum": [
+    "keep",
+    "convert_unit",
+    "fix_encoding",
+    "convert_date",
+    "dedupe",
+    "mark_missing",
+    "mark_invalid",
+    "quarantine"
+  ],
+  "forbidden_actions": [
+    "impute",
+    "fill",
+    "fill_mean",
+    "fill_median",
+    "fill_mode",
+    "fill_forward",
+    "interpolate",
+    "dropna",
+    "drop_missing",
+    "replace_missing_with_zero",
+    "clip",
+    "cap",
+    "winsorize",
+    "smooth",
+    "overwrite_source"
+  ],
+  "flag_codes": {
+    "MISSING_BLANK": "单元格为空或仅空白",
+    "MISSING_CODE": "命中字典/工单声明的缺失码（如 -999、NA）",
+    "BELOW_LOD": "低于检出限/未检出的技术状态，不等于 0",
+    "NON_NUMERIC": "数值型字段出现无法解析的文本",
+    "OUT_OF_RANGE": "超出字典物理上下限，原值保留",
+    "UNIT_CONVERTED": "按契约完成单位换算，账本记录因子与逆映射",
+    "UNIT_UNKNOWN": "单位无法识别或与契约 from 不符，未换算",
+    "UNIT_ABSENT": "该值未带单位且无单位列，无法判定量纲",
+    "ENCODING_FIXED": "修复 mojibake/全角/多余空白，原串存账本",
+    "ENCODING_SUSPECT": "疑似编码损坏但无法可靠修复，原值保留",
+    "DATE_CONVERTED": "日期规范化为 ISO-8601，原始串存账本",
+    "DUP_DROPPED": "同一主键的次要记录，未删除，隔离保留",
+    "NO_USABLE_VALUE": "该行所有实质字段均缺失或无效"
+  },
+  "row_status": {
+    "kept": "无任何 flag",
+    "marked": "有 flag 但仍有可用数值，行保留",
+    "quarantined": "重复记录的次要行，或所有实质字段均不可用；留在表里不删除"
+  },
+  "units": {
+    "g/l": [
+      "mass_conc",
+      1.0,
+      0.0
+    ],
+    "mg/l": [
+      "mass_conc",
+      0.001,
+      0.0
+    ],
+    "ug/l": [
+      "mass_conc",
+      1e-06,
+      0.0
+    ],
+    "ng/l": [
+      "mass_conc",
+      1e-09,
+      0.0
+    ],
+    "pg/l": [
+      "mass_conc",
+      1e-12,
+      0.0
+    ],
+    "g/ml": [
+      "mass_conc",
+      1000.0,
+      0.0
+    ],
+    "mg/ml": [
+      "mass_conc",
+      1.0,
+      0.0
+    ],
+    "ug/ml": [
+      "mass_conc",
+      0.001,
+      0.0
+    ],
+    "ng/ml": [
+      "mass_conc",
+      1e-06,
+      0.0
+    ],
+    "mg/dl": [
+      "mass_conc",
+      0.01,
+      0.0
+    ],
+    "g/dl": [
+      "mass_conc",
+      10.0,
+      0.0
+    ],
+    "ug/dl": [
+      "mass_conc",
+      1e-05,
+      0.0
+    ],
+    "mol/l": [
+      "molar",
+      1.0,
+      0.0
+    ],
+    "mmol/l": [
+      "molar",
+      0.001,
+      0.0
+    ],
+    "umol/l": [
+      "molar",
+      1e-06,
+      0.0
+    ],
+    "nmol/l": [
+      "molar",
+      1e-09,
+      0.0
+    ],
+    "pmol/l": [
+      "molar",
+      1e-12,
+      0.0
+    ],
+    "m": [
+      "molar",
+      1.0,
+      0.0
+    ],
+    "mm": [
+      "molar",
+      0.001,
+      0.0
+    ],
+    "um": [
+      "molar",
+      1e-06,
+      0.0
+    ],
+    "nm": [
+      "molar",
+      1e-09,
+      0.0
+    ],
+    "%": [
+      "fraction",
+      0.01,
+      0.0
+    ],
+    "percent": [
+      "fraction",
+      0.01,
+      0.0
+    ],
+    "fraction": [
+      "fraction",
+      1.0,
+      0.0
+    ],
+    "ppm": [
+      "fraction",
+      1e-06,
+      0.0
+    ],
+    "ppb": [
+      "fraction",
+      1e-09,
+      0.0
+    ],
+    "k": [
+      "temperature",
+      1.0,
+      0.0
+    ],
+    "degc": [
+      "temperature",
+      1.0,
+      273.15
+    ],
+    "°c": [
+      "temperature",
+      1.0,
+      273.15
+    ],
+    "c": [
+      "temperature",
+      1.0,
+      273.15
+    ],
+    "degf": [
+      "temperature",
+      0.5555555555555556,
+      255.3722222222222
+    ],
+    "°f": [
+      "temperature",
+      0.5555555555555556,
+      255.3722222222222
+    ],
+    "pa": [
+      "pressure",
+      1.0,
+      0.0
+    ],
+    "kpa": [
+      "pressure",
+      1000.0,
+      0.0
+    ],
+    "mpa": [
+      "pressure",
+      1000000.0,
+      0.0
+    ],
+    "bar": [
+      "pressure",
+      100000.0,
+      0.0
+    ],
+    "atm": [
+      "pressure",
+      101325.0,
+      0.0
+    ],
+    "mmhg": [
+      "pressure",
+      133.322387415,
+      0.0
+    ],
+    "l": [
+      "volume",
+      1.0,
+      0.0
+    ],
+    "ml": [
+      "volume",
+      0.001,
+      0.0
+    ],
+    "ul": [
+      "volume",
+      1e-06,
+      0.0
+    ],
+    "dl": [
+      "volume",
+      0.1,
+      0.0
+    ],
+    "m3": [
+      "volume",
+      1000.0,
+      0.0
+    ],
+    "g": [
+      "mass",
+      1.0,
+      0.0
+    ],
+    "mg": [
+      "mass",
+      0.001,
+      0.0
+    ],
+    "kg": [
+      "mass",
+      1000.0,
+      0.0
+    ],
+    "ug": [
+      "mass",
+      1e-06,
+      0.0
+    ],
+    "ng": [
+      "mass",
+      1e-09,
+      0.0
+    ],
+    "h": [
+      "time",
+      1.0,
+      0.0
+    ],
+    "hr": [
+      "time",
+      1.0,
+      0.0
+    ],
+    "hour": [
+      "time",
+      1.0,
+      0.0
+    ],
+    "min": [
+      "time",
+      0.016666666666666666,
+      0.0
+    ],
+    "s": [
+      "time",
+      0.0002777777777777778,
+      0.0
+    ],
+    "sec": [
+      "time",
+      0.0002777777777777778,
+      0.0
+    ],
+    "d": [
+      "time",
+      24.0,
+      0.0
+    ],
+    "day": [
+      "time",
+      24.0,
+      0.0
+    ],
+    "cfu/ml": [
+      "count_conc",
+      1.0,
+      0.0
+    ],
+    "cfu/l": [
+      "count_conc",
+      0.001,
+      0.0
+    ],
+    "cells/l": [
+      "count_conc",
+      1.0,
+      0.0
+    ],
+    "copies/ml": [
+      "count_conc",
+      1.0,
+      0.0
+    ],
+    "iu/l": [
+      "enzyme",
+      1.0,
+      0.0
+    ],
+    "u/l": [
+      "enzyme",
+      1.0,
+      0.0
+    ],
+    "mu/l": [
+      "enzyme",
+      0.001,
+      0.0
+    ],
+    "iu/ml": [
+      "enzyme",
+      1000.0,
+      0.0
+    ]
+  },
+  "unit_aliases": {
+    "µg/ml": "ug/ml",
+    "μg/ml": "ug/ml",
+    "µg/l": "ug/l",
+    "μg/l": "ug/l",
+    "µmol/l": "umol/l",
+    "μmol/l": "umol/l",
+    "µm": "um",
+    "μm": "um",
+    "µg/dl": "ug/dl",
+    "μg/dl": "ug/dl",
+    "µl": "ul",
+    "μl": "ul",
+    "µg": "ug",
+    "μg": "ug",
+    "mol·l-1": "mol/l",
+    "mg·l-1": "mg/l",
+    "mg/l-1": "mg/l",
+    "w/v%": "%",
+    "v/v%": "%",
+    "ppth": "fraction",
+    "degree c": "degc",
+    "° c": "degc",
+    "celsius": "degc",
+    "℃": "degc"
+  },
+  "date_formats": [
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%d/%m/%Y",
+    "%m/%d/%Y",
+    "%Y.%m.%d",
+    "%Y年%m月%d日",
+    "%d-%m-%Y",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S"
+  ],
+  "numeric_clean": {
+    "thousands_pattern": "^[-+]?\\d{1,3}(\\.\\d{3})+(,\\d+)?$",
+    "superscripts": {
+      "⁰": "0",
+      "¹": "1",
+      "²": "2",
+      "³": "3",
+      "⁴": "4",
+      "⁵": "5",
+      "⁶": "6",
+      "⁷": "7",
+      "⁸": "8",
+      "⁹": "9",
+      "⁻": "-",
+      "⁺": "+"
+    },
+    "comparator_prefix": "^(<=|>=|<|>|≤|≥|~|≈|=)\\s*"
+  },
+  "qc_invariants": [
+    "raw_rows == kept_rows + marked_rows + quarantined_rows",
+    "sum(ledger.rows_affected for value-changing actions) == count(flags with that action)",
+    "report_counts == recount(cleaned_table.__flags)",
+    "sha256(source) before == sha256(source) after",
+    "no field value replaced where action in {mark_missing, mark_invalid}"
+  ],
+  "rubric_map": {
+    "任务完成度": [
+      "cleaned_table.csv",
+      "data_quality_report.md",
+      "五类处理各有 ledger 落点"
+    ],
+    "结果正确性": [
+      "每个动作有 basis/workorder_ref",
+      "单位换算双路径互校",
+      "不填补/不推断总体"
+    ],
+    "结果完整性": [
+      "field_issues.csv 覆盖全部字段",
+      "unresolved 与 pending_human 明列"
+    ],
+    "结果可核验性": [
+      "ledger 逐格可逆",
+      "报告数字可回算",
+      "locator 指向原始行/行号"
+    ],
+    "使用增益": [
+      "五命令确定性链路",
+      "契约外置为 draft.json",
+      "改词表不改脚本"
+    ],
+    "创新增益": [
+      "契约×账本×对账三方互锁",
+      "标记不改值的降级策略",
+      "报告-表回算自检"
+    ],
+    "可靠体验": [
+      "恒 exit 0",
+      "坏 JSON/空表/无字典兜底",
+      "编码打分回退"
+    ],
+    "生态贡献": [
+      "rules.json 可编辑",
+      "guide.md 字段字典与 schema",
+      "guide.md 复用与维护指引",
+      "产物可直接交给下游统计"
+    ]
+  }
+}
