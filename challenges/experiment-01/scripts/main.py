@@ -515,8 +515,14 @@ def cmd_selfcheck(args):
             ok = False
     else:
         ok = False
-    print("[selfcheck] artifacts_missing=%s contract_keys=%d all_non_empty=%s"
-          % (missing, len(keys), ok))
+    playbook = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "references", "expert_playbook.md")
+    ok_playbook = os.path.isfile(playbook) and os.path.getsize(playbook) > 0
+    print("[selfcheck] artifacts_missing=%s contract_keys=%d all_non_empty=%s "
+          "expert-checklist=%s"
+          % (missing, len(keys), ok,
+             "ok (references/expert_playbook.md present; C01-C17 to pass)"
+             if ok_playbook else "MISSING references/expert_playbook.md"))
     return 0
 
 
