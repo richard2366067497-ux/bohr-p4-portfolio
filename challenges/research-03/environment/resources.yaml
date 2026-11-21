@@ -1,0 +1,69 @@
+# environment/resources.yaml — research-03 / systematic-review (v10)
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟。
+skill: systematic-review
+version: 10.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init      --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py show      --input /input --work /app/work --grep screen --limit 40
+    - "Agent: 读题录与 locator，写 /app/work/draft.json（逐题 decision，见 SKILL.md 分步五命令）"
+    - python3 /skills/weekly-skill/scripts/main.py check     --input /input --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build     --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI：all / init / show / check / build / selfcheck（单命令 all = 全流程）；引擎层（索引/筛选/评价/契约回填）
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  material_roles_by_extension:
+    ".json": "结构化材料（case.json 的 output_contract/criteria；其余 JSON 键不进契约）"
+    ".md"/".markdown"/".txt"/".tex"/".bib"/".csv"/".tsv": "文本材料；含年份/DOI 的题录行被识别为 records，逐条带 locator（M<两位>#r<序号>）"
+  discovery: "walk 输入目录（跳过 case.json/task.md 等元文件）；无可读文本材料时降级并记 degradations，仍 exit 0"
+
+required_outputs:
+  - result.json
+  - prisma_flow.json
+  - screening_ledger.jsonl
+  - appraisal.json
+  - criteria.json
+  - report.md
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 120
+  max_output_files: 24
+  max_output_bytes: 4194304
+
+contract:
+  keys: [design_fit, risk_of_bias, sample_or_data_adequacy, reporting_completeness, directness,
+         identified, screened_title_abstract, excluded_title_abstract, exclude, full_text_assessed,
+         excluded_full_text, included, include, excluded, unresolved, not_screened, excluded_by_reason,
+         records, screening, appraisal, criteria, summary, report, case_id, status]
+  keys_from: "case.json:output_contract -> task.md -> SKILL.md json 样例 -> 默认产物键"
+  echo: "每个契约键既写在顶层，也写进 result.json.output_contract；status 取 input_error/insufficient_evidence/partial/screened 之一"
+  placeholders: forbidden
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
