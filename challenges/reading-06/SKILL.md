@@ -23,6 +23,19 @@ version: 3.0.0
 
 ---
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按手册的求解框架（含每步冻结产物与门控）推进；前一步未冻结不进入下一步。
+- **口径**：按手册的字段、单位与统计口径逐项核验；`scalar`/`unit` 保留原文，换算另存 `converted_value`，条件与数值同源绑定。
+- **陷阱**：按手册的领域陷阱清单逐条排雷（错误做法 → 正确做法）。
+- **门控**：交付前逐项通过手册 **§9 防扣分自查表**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties`，绝不静默提升为成功。
+
+---
+
 ## 1. 入口命令（第一条，必须先看）
 
 单命令即可跑完整流程并产出全部产物（评测只跑这一条也能过）：
@@ -175,6 +188,8 @@ python3 -B /skills/weekly-skill/scripts/extract.py --stage selfcheck --input /in
 - [ ] 每个 `status == "reported"` 的字段都有非空 `quote` 与 `locator`，且引文在索引里逐字命中。
 - [ ] `coverage` 四类状态之和等于字段总数；`not_reported` 每条都有搜索范围证据。
 - [ ] 空输入 / 坏 JSON / 无字典三条路径各跑过一次，均 exit 0 且有缺口报告。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §9 的防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties`，绝不静默提升为成功。
 
 ---
 
@@ -185,6 +200,7 @@ SKILL.md                       本文件：入口、双路径、落位口径、�
 scripts/extract.py             入口：prepare / run / finalize / selfcheck，索引与契约组装
 scripts/checkkit.py            语料索引、字段落位、草稿合并、逐字闸门、CSV 渲染
 references/extraction_rules.md 状态与 claim 规则、locator 方案、字段字典口径
+references/expert_playbook.md  专家参考手册：口径、公式、陷阱、案例、§9 防扣分自查表
 environment/resources.yaml     资源入口声明（命令、路径、预算、无网络、纯标准库）
 README.md                      安装、用法、产物、限制、维护
 SELFTEST.md                    自测记录：eval_sim rich/boundary × single/agent
