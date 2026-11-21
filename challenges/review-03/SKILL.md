@@ -148,3 +148,7 @@ factual-verification check, and `scripts/main.py check` prints the facet and dim
 into `work/check_report.json` so a gap is visible before `build`. The `natures` field of each issue type (in
 `references/defect_types_and_severity.md`) is what maps a defect to its dimension, so a new issue type
 cannot be added without naming the dimension it audits.
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
