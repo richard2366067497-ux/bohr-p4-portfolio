@@ -1,4 +1,4 @@
-# SELFTEST — experiment-04 v6（plan-choice-sensitivity）
+# SELFTEST — experiment-04 v10（plan-choice-sensitivity）
 
 全部仅标准库、离线。逐条自测请在 `/skills/weekly-skill` 安装后执行。
 
@@ -10,6 +10,15 @@
 | rich | agent（init/check/build/selfcheck） | case.json 的 output_contract | PASS |
 | boundary | single（`all`） | 包内 SKILL.md 契约样例 | PASS |
 | boundary | agent（init/check/build/selfcheck） | 包内 SKILL.md 契约样例 | PASS |
+
+复现（2026-11-21）：
+
+```bash
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-04 --case work/p4/synth_cases/experiment-04/rich     --mode single
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-04 --case work/p4/synth_cases/experiment-04/rich     --mode agent
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-04 --case work/p4/synth_cases/experiment-04/boundary --mode single
+python scripts/eval_sim.py --pkg work/p4/v10/experiment-04 --case work/p4/synth_cases/experiment-04/boundary --mode agent
+```
 
 判定项：exit 0 / result.json 合法 / 契约逐键回显（顶层+嵌套）/ 关键产物齐备 / case_id 透传 /
 无占位符 / 字段完整。
@@ -53,3 +62,23 @@ python3 scripts/main.py selfcheck --input <rich> --output /tmp/e/out --work /tmp
 ## 5. 版本
 
 2.6.0。改脚本后必须重跑 §1–§4。
+
+## 6. v10 随包样例实测（examples/）
+
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：exit 0，`status=answered`，产物 **7** 文件，winner **plan_A**；
+准则 6 条（`weight_sum=1.0`）、候选 3、矩阵 cells 18/18；得分 **A 84.4197 / C 55.0 / B 24.2857
+（infeasible）**；硬约束 K1 `time<=30` 淘汰 B；`dominance: A→B`；台账 15/15 可复算
+（total 11000/11800/8900）；敏感性 A1 翻转阈值 **2.890302**（plan_A→plan_C）、A2 **stable**；
+`evidence_stats={verified:16,total:20}`；契约键 **9/9**；规范化哈希 **`6d98a4a1f2c3845e`**。
+
+## 7. v10 交付状态（专家手册嵌入）
+
+- **新增 `references/expert_playbook.md`**（专家参考手册：Step 0–5/统一矩阵 7 类字段/成本时间风险
+  口径/敏感性/15 项自查表/完整案例）；`SKILL.md` 明确"执行前先读 references/expert_playbook.md，
+  按其框架/检查表/成本口径产出交付物"，并在 §8 自检清单加入"专家检查表逐项通过"。
+- **单命令入口未受影响**：无 draft 下仍产出全部 7 件产物 + 契约逐键回填，exit 0。
+- `selfcheck` 额外报告 `expert-checklist ok`；`eval_sim.py` 四项全 PASS。
