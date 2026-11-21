@@ -1,0 +1,18 @@
+{
+  "note": "FICTIONAL illustrative output for the packaged example only; field shape matches the packaged engine, values are abridged.",
+  "case_id": "demo-search-02",
+  "status": "answered",
+  "output_contract": {
+    "case_id": "demo-search-02",
+    "status": "answered",
+    "subquestions": [{"id": "SQ1", "type": "object", "text": "Which P2-type sodium layered oxide cathodes show improved cycling stability under Ni doping, and under what synthesis conditions?", "queries": ["P2 type sodium layered oxide Ni doping", "cycling stability capacity retention"], "depends_on": [], "priority": 1, "required": true}],
+    "candidates": [{"rid": "R001", "locator": "M01#r1", "relevance": 0.5, "decision": "include", "basis": "token overlap with sub-question query set", "quote": "Ni-doped P2-type Na0.67MnO2 cathode delivers 85% capacity retention after 100 cycles"}],
+    "evidence": [{"rid": "R001", "locator": "M01#r1", "quote": "Ni-doped P2-type Na0.67MnO2 cathode delivers 85% capacity retention after 100 cycles", "verified": true, "decision": "include", "subquestion_ids": ["SQ1"]}],
+    "coverage": {"required_total": 1, "covered": 1, "coverage_rate": 1.0},
+    "search_log": {"n_subquestions": 1, "n_queries": 2, "rounds": 1, "zero_yield_subquestions": [], "scope": "local snapshot only; no live database, no global-recall claim"},
+    "stop_decision": [{"subquestion_id": "SQ1", "stop": "saturated", "reason": "multiple verified include records support this sub-question"}],
+    "report": "report.md"
+  },
+  "sources": [{"material": "M01", "name": "sample-records.md", "chars": 840, "paragraphs": 6}],
+  "limits": ["coverage counts only include decisions with a verified locator", "no full-text reading or risk-of-bias appraisal is performed", "results reproduce from snapshot only"]
+}
