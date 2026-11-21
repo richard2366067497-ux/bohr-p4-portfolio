@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """extract.py - format readers: text/CSV/HTML/OOXML/legacy + a stdlib PDF text extractor."""
 import csv
 import io
@@ -8,7 +7,6 @@ import subprocess
 import zipfile
 import zlib
 from pathlib import Path
-
 TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml", ".tex", ".log",
             ".rst", ".html", ".htm", ".xml", ".bib", ".ini", ".cfg", ".srt", ".text"}
 OFFICE_EXT = {".docx", ".xlsx", ".pptx", ".xlsm", ".docm", ".pptm"}
@@ -16,7 +14,6 @@ LEGACY_EXT = {".doc", ".xls", ".ppt", ".wps", ".et", ".dps"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp"}
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
-
 CJK = re.compile(r"[㐀-鿿豈-﫿]")
 HEAD_MD = re.compile(r"^(\s{0,3})(#{1,6})\s+(\S.*)$")
 HEAD_NUM = re.compile(r"^\s*(\d{1,2}(?:\.\d{1,2}){0,3})[\.\s、]\s*(\S.{0,90})$")
@@ -33,10 +30,8 @@ CAPTION = re.compile(r"^\s*(图|表|figure|fig\.?|table|scheme|chart)\s*[\dA-Z�
                      re.I)
 REF_LINE = re.compile(r"^\s*\[\d{1,3}\]\s+\S|^\s*\d{1,3}\.\s+[A-Z][^.]{5,120}\(?(19|20)\d\d\)?")
 SENT_END = re.compile(r"[。．\.\!\?！？；;:：\)）\]】\"'”’]\s*$")
-
 def _norm_ext(path):
     return Path(path).suffix.lower()
-
 def kind_of(path):
     ext = _norm_ext(path)
     if ext == ".pdf":
@@ -50,7 +45,6 @@ def kind_of(path):
     if ext in TEXT_EXT:
         return "text"
     return "other"
-
 def decode_bytes(data, path=""):
     for enc in ("utf-8-sig", "utf-8", "gb18030", "big5", "utf-16"):
         try:
@@ -58,8 +52,6 @@ def decode_bytes(data, path=""):
         except (UnicodeDecodeError, LookupError):
             continue
     return data.decode("utf-8", "replace"), "utf-8-replace"
-
-# ---------------------------------------------------------------- headings / paragraphs
 def heading_level(line):
     s = line.rstrip()
     if not s or len(s) > 130:
@@ -83,7 +75,6 @@ def heading_level(line):
     if m and not SENT_END.search(s) and len(s.split()) <= 16:
         return m.group(1).count(".") + 1, s.strip()
     return None
-
 def merge_lines(lines, maxlen=900):
     out, buf = [], ""
     for ln in lines:
@@ -115,7 +106,6 @@ def merge_lines(lines, maxlen=900):
     if buf:
         out.append(buf)
     return out
-
 def _join(a, b):
     if not a:
         return b
@@ -124,7 +114,6 @@ def _join(a, b):
     if a[-1:] in "-–—":
         return a + b
     return a + " " + b
-
 def units_from_text(text, page=None):
     units = []
     blocks = re.split(r"\n\s*\n", text)
@@ -144,8 +133,6 @@ def units_from_text(text, page=None):
         u.setdefault("page_printed", page)
         u.setdefault("container", None)
     return units
-
-# ---------------------------------------------------------------- PDF
 def _pdf_objects(data):
     objs = {}
     for m in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)endobj", data, re.S):
@@ -164,7 +151,6 @@ def _pdf_objects(data):
         else:
             objs[num] = (body, None)
     return objs
-
 def _inflate(dic, raw):
     if raw is None:
         return b""
@@ -179,7 +165,6 @@ def _inflate(dic, raw):
         return raw
     except Exception:  # noqa: BLE001
         return b""
-
 def _unesc(b):
     out, i, n = bytearray(), 0, len(b)
     esc = {b"n": b"\n", b"r": b"\r", b"t": b"\t", b"b": b"\b", b"f": b"\f"}
@@ -211,7 +196,6 @@ def _unesc(b):
             out.append(c)
             i += 1
     return bytes(out)
-
 def _content_lines(content):
     pat = re.compile(rb"\((?:\\.|[^\\()])*\)|\[(?:[^\[\]]*)\]|\bT\*|\bTd\b|\bTD\b|\bTm\b|\bET\b", re.S)
     out, buf = [], []
@@ -242,7 +226,6 @@ def _content_lines(content):
     if buf:
         out.append("".join(buf))
     return out
-
 def _page_order(objs):
     kids = {}
     for num, (dic, _s) in objs.items():
@@ -253,7 +236,6 @@ def _page_order(objs):
     linked = {k for v in kids.values() for k in v}
     roots = [n for n in kids if n not in linked]
     order = []
-
     def walk(n, depth=0):
         if depth > 16 or len(order) > 5000:
             return
@@ -262,13 +244,11 @@ def _page_order(objs):
                 walk(k, depth + 1)
         else:
             order.append(n)
-
     for r in sorted(roots):
         walk(r)
     if not order:
         order = [n for n, (d, _s) in sorted(objs.items()) if re.search(rb"/Type\s*/Page[^s]", d)]
     return order
-
 def _page_label_map(data, objs):
     blob = data
     m = re.search(rb"/PageLabels\s+(\d+)\s+0\s+R", data)
@@ -291,11 +271,9 @@ def _page_label_map(data, objs):
             labels[i] = base
     if not labels:
         return {}, "none"
-    # extend the first label range across the document
     first = min(labels)
     base = labels[first]
     return {first: base - (first + 1)}, "pagelabels"
-
 def _footer_offset(pages):
     if len(pages) < 3:
         return 0, "assumed_equal"
@@ -322,7 +300,6 @@ def _footer_offset(pages):
     if cnt >= max(3, int(0.6 * len(pages))):
         return best, "footer_offset"
     return 0, "assumed_equal"
-
 def _pdftotext(path):
     try:
         r = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", str(path), "-"],
@@ -332,7 +309,6 @@ def _pdftotext(path):
     except Exception:  # noqa: BLE001
         return None
     return None
-
 def _clean_pdf_lines(lines):
     out = []
     for ln in lines:
@@ -342,7 +318,6 @@ def _clean_pdf_lines(lines):
             continue
         out.append(t)
     return out
-
 def pdf_extract(path, data):
     info = {"status": "ok", "pages": [], "label_source": "assumed_equal", "offset": 0,
             "engine": None, "notes": []}
@@ -388,7 +363,6 @@ def pdf_extract(path, data):
         info["notes"].append("no extractable text (scanned image or unsupported font encoding)")
         info["pages"] = []
         return info
-    # text quality gate: mostly non-printable => unusable codepoints
     sample = "".join(pages)[:4000]
     good = sum(1 for ch in sample if ch.isprintable() or ch in "\n\t")
     if sample and good / max(1, len(sample)) < 0.80:
@@ -418,8 +392,6 @@ def pdf_extract(path, data):
         pages[idx - 1] = keep
     info["pages"] = pages
     return info
-
-# ---------------------------------------------------------------- OOXML
 def _docx_units(data):
     import xml.etree.ElementTree as ET
     z = zipfile.ZipFile(io.BytesIO(data))
@@ -427,10 +399,8 @@ def _docx_units(data):
     if name not in z.namelist():
         raise ValueError("word/document.xml missing")
     root = ET.fromstring(z.read(name))
-
     def ptext(el):
         return "".join(t.text or "" for t in el.iter(W + "t")).strip()
-
     body = root.find(W + "body")
     if body is None:
         body = root
@@ -461,7 +431,6 @@ def _docx_units(data):
                     units.append({"kind": "table", "level": 0, "text": row, "page_physical": None,
                                   "page_printed": None, "container": f"table{idx}"})
     return units
-
 def _xlsx_units(data):
     import xml.etree.ElementTree as ET
     NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -505,7 +474,6 @@ def _xlsx_units(data):
                 units.append({"kind": "table", "level": 0, "text": rowtxt, "page_physical": None,
                               "page_printed": None, "container": title})
     return units
-
 def _pptx_units(data):
     import xml.etree.ElementTree as ET
     z = zipfile.ZipFile(io.BytesIO(data))
@@ -527,7 +495,6 @@ def _pptx_units(data):
                 units.append({"kind": "para", "level": 0, "text": t, "page_physical": si,
                               "page_printed": si, "container": f"slide{si}"})
     return units
-
 def _csv_units(text, delim=None):
     rows = []
     try:
@@ -543,15 +510,12 @@ def _csv_units(text, delim=None):
     units = [{"kind": "table", "level": 0, "text": r, "page_physical": None, "page_printed": None,
               "container": "csv"} for r in rows]
     return units
-
 def _sniff(text):
     head = text.splitlines()[0] if text.splitlines() else ""
     for d in ("\t", ";", ",", "|"):
         if head.count(d) >= 2:
             return d
     return ","
-
-# ---------------------------------------------------------------- public
 def extract(path, doc_id=""):
     p = Path(path)
     res = {"status": "ok", "kind": kind_of(p), "units": [], "pages": {"count": None,
@@ -575,7 +539,6 @@ def extract(path, doc_id=""):
         res["status"] = "empty_file"
         res["notes"].append("0 bytes")
         return res
-
     kind = res["kind"]
     try:
         if kind == "pdf":
@@ -633,7 +596,6 @@ def extract(path, doc_id=""):
         res["status"] = "corrupt"
         res["notes"].append(f"{type(e).__name__}: {e}")
         return res
-
     res["units"] = [u for u in res["units"] if u.get("text")]
     res["chars"] = sum(len(u["text"]) for u in res["units"])
     if not res["units"]:
