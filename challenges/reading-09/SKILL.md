@@ -20,6 +20,14 @@ writes a card whose every field carries an anchor and a verbatim quote, stores e
 a machine-readable unit with a `S3 ¶2/L17` locator, and re-checks every quote at its anchor.
 Fields the paper does not report stay `not-reported`; nothing is invented.
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 0. result.json contract
 
 Every key below is echoed both at the top level of `result.json` and inside its
@@ -63,10 +71,6 @@ thin draft cannot turn an unreadable paper into a fabricated note.
 
 Run this single command; with no draft it still writes every artifact and a complete
 `result.json`, and exits 0:
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 ## 3. agent-first 增强路径（可选，质量更高）
 
