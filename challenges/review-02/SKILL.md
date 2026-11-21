@@ -42,6 +42,8 @@ Agent 可在运行前写 `work/draft.json`；脚本会重算每一条判定，�
 与 `human_check_needed`。字段含义与同义映射见 `references/contract-and-playbook.md`。
 ## 单命令入口（一次性，无需 draft）
 
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
