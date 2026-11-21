@@ -1,0 +1,50 @@
+# Resource entry point for the structured-reading skill.
+# The evaluator installs this package at /skills/weekly-skill and runs one documented command.
+schema: resource-entry/v1
+skill: structured-reading
+entry:
+  command: python3 /skills/weekly-skill/scripts/main.py all
+  arguments:
+    - --input /input
+    - --output /app/output
+    - --work /app/work
+  exit_code_expected: 0
+runtime:
+  language: python3
+  version: ">=3.8"
+  third_party: none            # pure standard library; pymupdf is used only if already installed
+  network: false
+  model_calls: 0
+budget:
+  max_requests: 64
+  max_seconds: 900
+  max_tokens: 16384
+limits:
+  files_per_run: 60            # the rest are recorded in result.json errors
+  bytes_per_file: 500000       # a larger file is truncated and the fact is recorded
+  concurrent_processes: 1
+inputs:
+  - path: /input/case.json
+    required: false
+    note: carries case_id, materials_root and the output_contract to echo
+  - path: /input
+    required: true
+    note: the material files; pdf with a text layer, or md/txt/tex/rst/csv/html
+outputs:
+  - /app/output/result.json
+  - /app/output/parsed.md
+  - /app/output/structure.json
+  - /app/output/evidence.json
+  - /app/output/coverage.json
+  - /app/output/page_map.json
+  - /app/output/layout_objects.jsonl
+  - /app/output/unreadable.json
+  - /app/output/self_check.json
+workdir: /app/work
+degradation:
+  missing_input: result.json with status=input_error or insufficient_evidence, exit 0
+  unreadable_material: listed in sources and unreadable with the reason; nothing guessed
+  oversized_material: truncated, recorded in uncertainty and sources.reason
+environment_hints:
+  python: /usr/local/bin/python3 or any python3 on PATH
+  optional: pymupdf (accelerator only), pdftotext is not required
