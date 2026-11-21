@@ -1,0 +1,22 @@
+{
+  "case_id": "example-search-10",
+  "language": "pt",
+  "materials_root": "materials",
+  "notes": "自包含 smoke fixture：把本目录拷成 /input 即可复跑 all。材料把跨语种术语表、工作稿 schema 与两个视图放在一起，脚本据此生成逐语种查询式、术语对齐与去重台账。",
+  "questions": [
+    {
+      "question_id": "Q1",
+      "text": "Encontre o artigo original sobre adaptação transcultural de um instrumento de qualidade de vida para idosos.",
+      "source_lang": "pt",
+      "target_langs": ["pt", "en"]
+    }
+  ],
+  "output_contract": {
+    "case_id": "string",
+    "deliverable": "path",
+    "evidence_map": "array",
+    "change_log": "array",
+    "coverage": "object",
+    "status": "string"
+  }
+}
