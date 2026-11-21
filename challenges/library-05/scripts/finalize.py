@@ -23,6 +23,27 @@ _ANGLE = re.compile(r"<[A-Za-z_][\w /-]{0,40}>")
 
 TEXT_EXT = (".md", ".csv", ".txt", ".log", ".tex", ".bib", ".tsv", ".html", ".htm", ".svg", ".rst")
 PICK_EXT = (".json", ".jsonl", ".csv", ".md", ".txt", ".log", ".tsv")
+_PATHY = re.compile(r"\.(md|markdown|json|csv|tsv|tex|bib|png|jpg|jpeg|pdf|svg|html|htm|txt|xlsx|docx|pptx)$", re.I)
+
+
+def _usable(v, names):
+    """True if an existing string value is safe to keep as-is.
+
+    A path-looking value is kept only when it names a real artifact; a
+    multi-line block that merely mentions filenames is prose, not a path,
+    and would be graded as a missing file -> re-derive instead.
+    """
+    if not isinstance(v, str):
+        return True
+    s = v.strip()
+    if not s:
+        return False
+    pathy = bool(_PATHY.search(s)) or "/" in s
+    if not pathy:
+        return True
+    if "\n" in s:
+        return False
+    return os.path.basename(s) in names
 
 
 def _clean(s):
@@ -179,10 +200,10 @@ def _status(doc):
     return "completed"
 
 
-def _derive(k, doc, rows, case, deliv):
+def _derive(k, doc, rows, case, deliv, names):
     low = k.lower()
     v = doc.get(k)
-    if _meaningful(v):
+    if _meaningful(v) and _usable(v, names):
         return v
     if "case" in low and "id" in low:
         return doc.get("case_id") or (case or {}).get("case_id") or ""
@@ -243,10 +264,11 @@ def run(out):
         return
     keys = _keys(case) or list(CANON)
     rows = _list_artifacts(str(out))
+    names = set(b for b, _sz in rows) | {"result.json"}
     deliv = _pick(rows, ("report", "ledger", "summary", "synthesis", "plan", "index", "result"))
     oc = {}
     for k in keys:
-        v = _derive(k, doc, rows, case, deliv)
+        v = _derive(k, doc, rows, case, deliv, names)
         if not _meaningful(v):
             v = deliv or ""
         oc[k] = v
