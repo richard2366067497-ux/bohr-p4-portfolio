@@ -1,20 +1,5 @@
 # -*- coding: utf-8 -*-
-"""extract.py - text extraction + block structure for research-file-locator.
-
-Pure standard library. No network, no third-party deps, CWD-independent.
-
-Public entry point:
-    extract(path, doc_id) -> dict(status, kind, units, pages, notes, chars)
-where every unit is:
-    {"kind": "heading|para|table|caption|reference",
-     "level": 1..6 (heading level, 0 otherwise),
-     "text": str,
-     "page_physical": int|None, "page_printed": int|None,
-     "container": str|None}          # sheet name / slide no / table index
-
-Extraction is honest: a file that cannot be read never yields invented text, it
-returns a non-"ok" status with a machine-readable reason.
-"""
+"""extract.py - format readers: text/CSV/HTML/OOXML/legacy + a stdlib PDF text extractor."""
 import csv
 import io
 import json
@@ -49,10 +34,8 @@ CAPTION = re.compile(r"^\s*(图|表|figure|fig\.?|table|scheme|chart)\s*[\dA-Z�
 REF_LINE = re.compile(r"^\s*\[\d{1,3}\]\s+\S|^\s*\d{1,3}\.\s+[A-Z][^.]{5,120}\(?(19|20)\d\d\)?")
 SENT_END = re.compile(r"[。．\.\!\?！？；;:：\)）\]】\"'”’]\s*$")
 
-
 def _norm_ext(path):
     return Path(path).suffix.lower()
-
 
 def kind_of(path):
     ext = _norm_ext(path)
@@ -68,9 +51,7 @@ def kind_of(path):
         return "text"
     return "other"
 
-
 def decode_bytes(data, path=""):
-    """Return (text, encoding). Tries the encodings research files actually use."""
     for enc in ("utf-8-sig", "utf-8", "gb18030", "big5", "utf-16"):
         try:
             return data.decode(enc), enc
@@ -78,10 +59,8 @@ def decode_bytes(data, path=""):
             continue
     return data.decode("utf-8", "replace"), "utf-8-replace"
 
-
 # ---------------------------------------------------------------- headings / paragraphs
 def heading_level(line):
-    """Detect a heading line -> (level, title) or None."""
     s = line.rstrip()
     if not s or len(s) > 130:
         return None
@@ -105,9 +84,7 @@ def heading_level(line):
         return m.group(1).count(".") + 1, s.strip()
     return None
 
-
 def merge_lines(lines, maxlen=900):
-    """Merge raw text lines into paragraph-sized blocks (PPT/PDF give one line per run)."""
     out, buf = [], ""
     for ln in lines:
         t = ln.strip()
@@ -139,7 +116,6 @@ def merge_lines(lines, maxlen=900):
         out.append(buf)
     return out
 
-
 def _join(a, b):
     if not a:
         return b
@@ -149,9 +125,7 @@ def _join(a, b):
         return a + b
     return a + " " + b
 
-
 def units_from_text(text, page=None):
-    """Split free text into heading/para/caption units."""
     units = []
     blocks = re.split(r"\n\s*\n", text)
     for blk in blocks:
@@ -170,7 +144,6 @@ def units_from_text(text, page=None):
         u.setdefault("page_printed", page)
         u.setdefault("container", None)
     return units
-
 
 # ---------------------------------------------------------------- PDF
 def _pdf_objects(data):
@@ -192,7 +165,6 @@ def _pdf_objects(data):
             objs[num] = (body, None)
     return objs
 
-
 def _inflate(dic, raw):
     if raw is None:
         return b""
@@ -207,7 +179,6 @@ def _inflate(dic, raw):
         return raw
     except Exception:  # noqa: BLE001
         return b""
-
 
 def _unesc(b):
     out, i, n = bytearray(), 0, len(b)
@@ -241,9 +212,7 @@ def _unesc(b):
             i += 1
     return bytes(out)
 
-
 def _content_lines(content):
-    """Pull text lines out of a PDF content stream (Tj/TJ with Td/T*/Tm line breaks)."""
     pat = re.compile(rb"\((?:\\.|[^\\()])*\)|\[(?:[^\[\]]*)\]|\bT\*|\bTd\b|\bTD\b|\bTm\b|\bET\b", re.S)
     out, buf = [], []
     for m in pat.finditer(content):
@@ -274,7 +243,6 @@ def _content_lines(content):
         out.append("".join(buf))
     return out
 
-
 def _page_order(objs):
     kids = {}
     for num, (dic, _s) in objs.items():
@@ -301,9 +269,7 @@ def _page_order(objs):
         order = [n for n, (d, _s) in sorted(objs.items()) if re.search(rb"/Type\s*/Page[^s]", d)]
     return order
 
-
 def _page_label_map(data, objs):
-    """Parse /PageLabels -> {physical_index(0-based): printed_number} and a source tag."""
     blob = data
     m = re.search(rb"/PageLabels\s+(\d+)\s+0\s+R", data)
     if m:
@@ -330,9 +296,7 @@ def _page_label_map(data, objs):
     base = labels[first]
     return {first: base - (first + 1)}, "pagelabels"
 
-
 def _footer_offset(pages):
-    """Infer a constant printed/physical page offset from footer/header page numbers."""
     if len(pages) < 3:
         return 0, "assumed_equal"
     cands = {}
@@ -359,7 +323,6 @@ def _footer_offset(pages):
         return best, "footer_offset"
     return 0, "assumed_equal"
 
-
 def _pdftotext(path):
     try:
         r = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", str(path), "-"],
@@ -370,7 +333,6 @@ def _pdftotext(path):
         return None
     return None
 
-
 def _clean_pdf_lines(lines):
     out = []
     for ln in lines:
@@ -380,7 +342,6 @@ def _clean_pdf_lines(lines):
             continue
         out.append(t)
     return out
-
 
 def pdf_extract(path, data):
     info = {"status": "ok", "pages": [], "label_source": "assumed_equal", "offset": 0,
@@ -458,7 +419,6 @@ def pdf_extract(path, data):
     info["pages"] = pages
     return info
 
-
 # ---------------------------------------------------------------- OOXML
 def _docx_units(data):
     import xml.etree.ElementTree as ET
@@ -501,7 +461,6 @@ def _docx_units(data):
                     units.append({"kind": "table", "level": 0, "text": row, "page_physical": None,
                                   "page_printed": None, "container": f"table{idx}"})
     return units
-
 
 def _xlsx_units(data):
     import xml.etree.ElementTree as ET
@@ -547,7 +506,6 @@ def _xlsx_units(data):
                               "page_printed": None, "container": title})
     return units
 
-
 def _pptx_units(data):
     import xml.etree.ElementTree as ET
     z = zipfile.ZipFile(io.BytesIO(data))
@@ -570,7 +528,6 @@ def _pptx_units(data):
                               "page_printed": si, "container": f"slide{si}"})
     return units
 
-
 def _csv_units(text, delim=None):
     rows = []
     try:
@@ -587,14 +544,12 @@ def _csv_units(text, delim=None):
               "container": "csv"} for r in rows]
     return units
 
-
 def _sniff(text):
     head = text.splitlines()[0] if text.splitlines() else ""
     for d in ("\t", ";", ",", "|"):
         if head.count(d) >= 2:
             return d
     return ","
-
 
 # ---------------------------------------------------------------- public
 def extract(path, doc_id=""):
