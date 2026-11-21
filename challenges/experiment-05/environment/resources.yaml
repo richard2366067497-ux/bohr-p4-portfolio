@@ -1,0 +1,73 @@
+# environment/resources.yaml — experiment-05 / experiment-interpretation-dossier (v10)
+# 资源入口声明。纯标准库、离线、确定性；不读网络、不读时钟。
+skill: experiment-interpretation-dossier
+version: 2.6.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 /skills/weekly-skill/scripts/main.py all
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 /skills/weekly-skill/scripts/main.py init --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py show --input /input --output /app/output --work /app/work
+    - "Agent: read the locators, write /app/work/draft.json (see SKILL.md §3)"
+    - python3 /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+  selftest: >-
+    python3 /skills/weekly-skill/scripts/main.py selfcheck
+    --input /input --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py      # CLI：all / init / show / check / build / selfcheck（单命令 all = 全流程）
+  - scripts/extract.py   # 物料扫描：筛检规则表/单位量纲字典/判据阈值/状态与归因枚举/契约映射/产物清单，逐条带 locator+quote
+  - scripts/engine.py    # 定义复算（均值/SD/中位数/MAD/修正 z/IQR 栅栏/最小二乘/相对偏差）、规则筛检 R1–R9、固定夹具自检、一致性检查
+  - scripts/render.py    # 产物渲染（五段结论/档案索引/盘点/复算/阈值/证据/不确定性/方法说明与契约回填）
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  material_roles_by_extension:
+    ".json": "结构化材料（case.json / challenge.json：case_id、task_instruction、output_contract）"
+    ".md"/".txt": "文字材料（筛检规则 pipe 表：id/判据/触发条件/默认 severity/归因提示；单位与量纲字典；判据阈值常量行）"
+    ".csv"/".tsv"/".dat"/".asc": "机械读数（定分隔符表格：数值列 ≥5 个值即视为时间序列，用于趋势与异常筛检）"
+  discovery: "walk 输入目录；规则表来自 pipe 表（表头含 判据+触发条件），阈值按标记常量索引，序列按数值列识别；缺料降级并如实记 limits"
+
+required_outputs:
+  - result.json
+  - interpretation.md
+  - dossier_index.json
+  - inventory.json
+  - recompute.json
+  - thresholds.json
+  - evidence.json
+  - uncertainties.json
+  - method_notes.md
+  - dossiers/anomaly-<id>.md        # 每个异常档案一件（有 draft 时）
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0（所有降级路径；仅 argparse 用法错误返回 2）"
+
+budget:
+  wall_clock_seconds: 120
+  max_output_files: 24
+  max_output_bytes: 4194304
+
+contract:
+  keys: [id, case_id, time_course, deviation, mechanism, dataset, parameter, limitation, answered, partial, insufficient_evidence, input_error]
+  keys_from: "case.json:output_contract -> SKILL.md json 样例 -> 默认产物键"
+  echo: "每个契约键既写在顶层，也写进 result.json.output_contract；status 取 answered/partial/insufficient_evidence/input_error 之一"
+  placeholders: forbidden
+
+dependencies: []            # 仅 Python 标准库；无第三方包
+exit_code_policy: always 0 (usage error 2)
