@@ -1,0 +1,12 @@
+{
+  "case_id": "example-writing-14",
+  "language": "zh",
+  "materials_root": "materials",
+  "output_contract": {
+    "deliverable": null,
+    "evidence_map": [],
+    "preserved_facts": [],
+    "change_log": [],
+    "content_map": {}
+  }
+}
