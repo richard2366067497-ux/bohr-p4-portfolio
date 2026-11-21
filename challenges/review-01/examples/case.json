@@ -1,0 +1,15 @@
+{
+  "case_id": "example-manuscript-audit",
+  "language": "en",
+  "materials_root": "materials",
+  "task_instruction": "Audit the supplied manuscript against the six review facets; deliver per-item findings with a verbatim quote, a paragraph-level locator, a typed verdict, a severity with reason and a sentence-level revision.",
+  "output_contract": {
+    "case_id": "value",
+    "status": "value",
+    "summary": "value",
+    "severity_summary": "value",
+    "coverage": "value",
+    "uncertainties": "value",
+    "report_path": "value"
+  }
+}
