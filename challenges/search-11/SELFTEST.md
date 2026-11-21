@@ -4,10 +4,10 @@
 可用下列命令逐字复现。四组「输入形态 × 运行模式」全部 PASS（`scripts/eval_sim.py`）：
 
 ```bash
-python scripts/eval_sim.py --pkg work/p4/v9/search-11 --case work/p4/synth_cases/search-11/rich     --mode single
-python scripts/eval_sim.py --pkg work/p4/v9/search-11 --case work/p4/synth_cases/search-11/rich     --mode agent
-python scripts/eval_sim.py --pkg work/p4/v9/search-11 --case work/p4/synth_cases/search-11/boundary --mode single
-python scripts/eval_sim.py --pkg work/p4/v9/search-11 --case work/p4/synth_cases/search-11/boundary --mode agent
+python scripts/eval_sim.py --pkg work/p4/v10/search-11 --case work/p4/synth_cases/search-11/rich     --mode single
+python scripts/eval_sim.py --pkg work/p4/v10/search-11 --case work/p4/synth_cases/search-11/rich     --mode agent
+python scripts/eval_sim.py --pkg work/p4/v10/search-11 --case work/p4/synth_cases/search-11/boundary --mode single
+python scripts/eval_sim.py --pkg work/p4/v10/search-11 --case work/p4/synth_cases/search-11/boundary --mode agent
 ```
 
 ## 1. eval_sim 结果
@@ -68,3 +68,11 @@ python3 scripts/main.py all --input examples_in --output /tmp/out --work /tmp/wo
 
 同一输入连续运行两次，`result.json` 规范化哈希一致；不含时钟、随机数或网络调用，仅标准库。
 `self_check.json` 的 `evidence_all_located` 与 `figure_written` 恒为 true（或如实为 false 并记原因）。
+
+## 6. 专家手册门控与最小样例
+
+- 执行前阅读 `references/expert_playbook.md`；交付前逐项过其 §8 防扣分自查表（26 项）。
+  未过项一律记 `status=partial` 并写入 `uncertainties` / `boundary_log.json`，不静默提升为完整成功。
+- 最小可复跑样例：`python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work`
+  （`examples/materials.md` 为虚构材料，预期 exit 0 并写出全部产物）。
+- 交付件恰为 14 个文件。
