@@ -18,6 +18,14 @@ the locator it came from and the sentence that supports it; a candidate that can
 verbatim in the material is rejected rather than kept, and two papers that share a name are aligned
 by that name alone — never by assuming the same sample, model or condition.
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -76,10 +84,6 @@ Run this single command; with no draft it still writes every artifact and a comp
 `result.json`, and exits 0:
 
 无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
 
 ## 3. agent-first 增强路径（可选，质量更高）
 
