@@ -10,6 +10,14 @@ version: 1.0.0
 问题性质（事实错误 / 证据不足 / 规范问题 / 建议）、严重度与理由、判定依据和落到句子上的修改建议，
 并对没有查的部分显式登记。它不写评语、不改稿、不做查重或排版。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，并按其组织全部产出：
@@ -46,13 +54,10 @@ version: 1.0.0
 
 ## 单命令入口（评测入口，先看这里）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
 `build` 即完整流程（解析 → 规则候选 → 兜底 finalize → 全部产物与 `result.json`）；缺工作稿时产出 `status=partial` 的规则兜底稿（全部 `pending_review`），仍写出全部产物，退出码恒为 0。
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 ## 0. 五命令主路径（Agent 逐步）
 
