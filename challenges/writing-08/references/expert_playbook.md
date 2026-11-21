@@ -48,10 +48,8 @@
 | S5 对齐校验 | 核对正文与事实条目：补造、冲突、遗漏、台账一致性 | 对齐校验报告 | 所有数值有来源或标“待确认”；无未标记补造 |
 | S6 缺口标注与打包 | 生成缺口清单、复现清单、`result.json`，写 `/app/output` | 最终交付物 | `result.json` 字段齐全；有缺口则清单非空 |
 
-**异常三分法**：材料缺失 → 有限草稿并列缺口；无法判断 → 并列保留冲突与待确认项；运行失败 → 记录
-失败阶段与已保存产物（仍写合法 `result.json`）。
-
----
+**异常三分法**：材料缺失 → 有限草稿并列缺口；无法判断 → 并列保留冲突与待确认项；运行失败 → 记录失败
+阶段与已保存产物（仍写合法 `result.json`）。
 
 ## 3 量化口径与公式
 
@@ -72,7 +70,6 @@
 ```bash
 grep -n "learning_rate" /input/config.yaml          # 预期 3:learning_rate: 0.001
 grep -n "val_acc" /input/log.txt | tail -1          # 预期 100:val_acc: 0.923
-python -c "import csv;r=list(csv.DictReader(open('/input/data_split.csv')));print(sum(int(x['count']) for x in r))"
 ```
 
 ---
