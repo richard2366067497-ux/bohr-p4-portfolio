@@ -132,3 +132,7 @@ python3 /skills/weekly-skill/scripts/main.py compare   --input /input --output /
 - A rule block that cannot be parsed → falls back to a minimal built-in checklist and records
   `degradations: rules_fallback`.
 - No network, no clock, no third-party package; the run is deterministic and reproducible.
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
