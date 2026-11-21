@@ -1,0 +1,14 @@
+{
+  "case_id": "demo-search-05",
+  "research_question": "CRISPR off-target detection by whole-genome sequencing; guide RNA design and off-target profiling",
+  "databases": ["crossref", "europepmc"],
+  "notes": "FICTIONAL demo case for the packaged example only; not a formal test case and not a submitted answer.",
+  "output_contract": {
+    "case_id": "case identifier passed through unchanged",
+    "deliverable": "path to the primary human-readable deliverable (report.md)",
+    "evidence_map": "array: per sub-question, the records with locator and verbatim quote",
+    "change_log": "array: pipeline steps with timestamp, step and note",
+    "coverage": "object: N_raw / N_unique / dedup rate / field coverage / single-source rate / sub-question coverage",
+    "status": "answered | partial | insufficient_evidence | input_error"
+  }
+}
