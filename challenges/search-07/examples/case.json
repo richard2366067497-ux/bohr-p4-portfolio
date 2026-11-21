@@ -1,0 +1,28 @@
+{
+  "case_id": "example-coverage-001",
+  "research_question": "Metal-oxide photocatalysts for visible-light-driven water splitting",
+  "materials_root": "materials",
+  "constraints": {
+    "query_budget": 8,
+    "time_window": "2012-01-01 to 2021-12-31",
+    "databases": ["Crossref", "Europe PMC"]
+  },
+  "notes": "Self-contained smoke fixture: one frozen reference set, one query log and one retrieved snapshot, sized so the whole closed loop runs offline.",
+  "output_contract": {
+    "case": "string",
+    "parse": "string",
+    "read": "string",
+    "discover": "string",
+    "queries": "string",
+    "gap": "string",
+    "draft": "string",
+    "quote": "string",
+    "paths": "string",
+    "products": "string",
+    "init": "string",
+    "show": "string",
+    "check": "string",
+    "build": "string",
+    "selfcheck": "string"
+  }
+}
