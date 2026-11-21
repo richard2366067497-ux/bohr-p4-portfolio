@@ -26,6 +26,9 @@ python3 -B /skills/weekly-skill/scripts/main.py selfcheck --input /input --outpu
 
 # 取证：打印某份材料的全部锚点
 python3 -B /skills/weekly-skill/scripts/main.py show --input /input --output /app/output --work /app/work --doc D1
+
+# 最小可复跑样例（应得 status=answered）
+python3 -B /skills/weekly-skill/scripts/main.py --input examples --output /tmp/out --work /tmp/work
 ```
 
 ## 产物
@@ -48,6 +51,8 @@ python3 -B /skills/weekly-skill/scripts/main.py show --input /input --output /ap
 ## 设计要点
 
 - **只用标准库**：`json`/`re`/`zipfile`/`zlib`/`html`/`hashlib`/`argparse`。
+- **执行前读方法论**：`references/expert_playbook.md`（七步框架 / 可比性分级 / 公式 / 舍入包络 /
+  领域陷阱 / 交付物形态 / 防扣分自查表）。产出前逐项过其 §9 自查表，任一项未过即降级为 `partial`。
 - **PDF/DOCX**：PDF 解压内容流后抽 `(...)Tj`；DOCX 走 `zipfile` 读 `word/document.xml`。
   抽不出就记 `degradations`，不猜正文。
 - **逐字引文**：答案必须是材料中的原句；质检对每条 span 复核 `quote in paragraph`。
@@ -69,4 +74,5 @@ python3 -B /skills/weekly-skill/scripts/main.py show --input /input --output /ap
 - 契约键名冻结；新增键走次版本，阈值与文案走修订号。
 - 改动后至少跑：`main.py selfcheck` + `scripts/eval_sim.py` 的 rich/boundary × single/agent
   四组组合，并把结果记入 `SELFTEST.md`。
-- 资源与命令声明见 `environment/resources.yaml`；口径细节见 `references/client_contract.md`。
+- 资源与命令声明见 `environment/resources.yaml`；口径细节见 `references/client_contract.md`；
+  方法论与自查表见 `references/expert_playbook.md`；增益对照见 `GAIN_EVIDENCE.md`。
