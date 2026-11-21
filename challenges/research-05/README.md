@@ -1,4 +1,4 @@
-# research-topic-innovation-eval — research-05 (v9)
+# research-topic-innovation-eval — research-05 (v10)
 
 把「科研选题与创新性评估」做成**可复核的五门判定**：运行时从输入材料里逐字读出五门规则、`verdict`
 阈值、`E_*`/`W_*` 错误码、枚举词表、证据三态匹配与对象表消解步骤，每条规则/引文都带 `M#/p#` 定位符与
@@ -53,10 +53,11 @@ python3 /skills/weekly-skill/scripts/main.py compare   --input /input --output /
 - **工作稿（可选）**：`/app/work/draft.json` 或 `gate_draft.json`；`claims[].evidence[].quote` 必须逐字。
 - 空文件 / 坏 JSON / 占位文件只记 `parse_status`，永不引用。
 
-## 6. 目录（正好 12 个文件）
+## 6. 目录（正好 13 个文件）
 
 ```
-SKILL.md                                  # 名称、契约、单命令、agent 路径、draft schema、管线、降级规则
+SKILL.md                                  # 名称、契约、单命令、agent 路径、draft schema、管线、降级规则、交付前自查
+references/expert_playbook.md             # 专家参考手册：八步框架/量化口径/陷阱与单位/交付核验/C01–C20 自查表/完整案例
 scripts/main.py                           # CLI：all / init / show / check / build / selfcheck / compare
 scripts/kglib.py                          # 引擎：扫描、材料消解、五门、冲突、证据、契约回填
 scripts/extract.py                        # 材料解析：按小节抽取门/阈值/错误码/枚举/评分行（带 locator+引文）
