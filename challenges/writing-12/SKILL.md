@@ -21,6 +21,14 @@ license: MIT
 
 ---
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/latex_build.py build --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（专家方法论）
 
 **动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
@@ -57,11 +65,7 @@ license: MIT
 
 ## 1. 单命令入口（第一条命令；评测入口，无 draft 时执行）
 
-单命令即可产出完整契约与全部关键产物（评测只跑这一条也能过）。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
-
-```bash
-python3 /skills/weekly-skill/scripts/latex_build.py build --input /input --output /app/output --work /app/work --engine pdflatex
-```
+单命令即可产出完整契约与全部关键产物（评测只跑这一条也能过）。
 
 - 省略根文件时自动扫描输入树选唯一根 `.tex`（`documentclass` + 命名 main/paper + 路径最短）；
   输入没有 `.tex` 也不空手而归：从科研材料确定性起一份可编辑 `main.tex`。
@@ -186,10 +190,6 @@ python3 /skills/weekly-skill/scripts/latex_build.py check --input /input --outpu
 \begin{equation}\label{eq:sum} 1+1=2 \end{equation}
 See equation~\ref{eq:sum}.
 \end{document}
-```
-
-```bash
-python3 /skills/weekly-skill/scripts/latex_build.py build --input INPUT_DIR --output /app/output --work /app/work
 ```
 
 有引擎时：`status=success`，`build.status=passed`，`main.pdf` 落在输出目录，`checks` 全 pass。
