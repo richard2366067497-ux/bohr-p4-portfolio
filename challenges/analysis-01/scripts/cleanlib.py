@@ -8,7 +8,6 @@ import csv
 import hashlib
 import json
 import re
-import zipfile
 from pathlib import Path
 
 VERSION = "1.1.0"
@@ -211,7 +210,8 @@ def load_table(path, rel=None):
         b = p.read_bytes()
         T["sha"], T["size"] = sha_bytes(b), len(b)
         if p.suffix.lower() in (".xlsx", ".xlsm"):
-            raw = _read_xlsx(p)
+            import report as _rp
+            raw = _rp.read_xlsx(p)
             T["encoding"] = "xlsx"
             if not raw:
                 T["error"] = "xlsx_unreadable"
