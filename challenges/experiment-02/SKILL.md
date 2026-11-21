@@ -39,9 +39,11 @@ applies:
 `insufficient_evidence`, `input_error`. No key is ever empty and no empty-value token is written
 into any artifact.
 
-## 1. 单命令（one-shot，评测入口）
+## 1. 单命令（one-shot，评测入口，无 draft 时执行）
 
-```
+**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
+
+```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
 ```
 
