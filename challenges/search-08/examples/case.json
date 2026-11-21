@@ -1,0 +1,18 @@
+{
+  "case_id": "example-screening-001",
+  "research_question": "Does vitamin D supplementation reduce respiratory infections in adults?",
+  "language": "en",
+  "languages": ["en"],
+  "criteria": "Include human studies in adults that report a respiratory-infection outcome for vitamin D supplementation or exposure. Exclude ineligible designs (reviews, editorials, case reports), non-human or in-vitro populations, and any language outside the declared limit.",
+  "time_window": "2010 to 2021",
+  "materials_root": "materials",
+  "notes": "Self-contained smoke fixture: eight title/abstract records with one preprint pair, one design exclusion, one language exclusion, one animal exclusion, one missing abstract and one reviewer disagreement that the standard resolves.",
+  "output_contract": {
+    "case_id": "string",
+    "deliverable": "path",
+    "evidence_map": "array",
+    "change_log": "array",
+    "coverage": "object",
+    "status": "string"
+  }
+}
