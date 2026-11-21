@@ -7,8 +7,14 @@ tags: [data-analysis, statistics, data-cleaning, pipeline-dag, evidence-traceabi
 
 # sci-analysis-dag（数据分析流水线）
 
-本包是 `analysis-05` 的 v6 形态：**单命令即可跑完整条 DAG**，无需先初始化再写工作稿；
+本包是 `analysis-05` 的 v10 形态：**单命令即可跑完整条 DAG**，无需先初始化再写工作稿；
 Agent 仍可补充清洗口径，但评估器只跑第一条命令也能拿到全部产物与完整契约回填。
+
+## 随包方法论（执行前必读）
+
+执行任何命令前**先完整阅读 `references/expert_playbook.md`**，并按它组织全部产出：按其 §2 八步流程推进
+（读取→导入→审计→清洗→统计→可视化→报告→打包），按其 §4 公式核算缺失率/效应量/t/CI，按其 §5 逐条排雷，
+按其 §7 自查表交付。
 
 ## 0. result.json 契约样例（output_contract 逐键回填）
 
@@ -38,7 +44,8 @@ Agent 仍可补充清洗口径，但评估器只跑第一条命令也能拿到�
 
 ## 1. 单命令全流程（single-command entry）
 
-一条命令跑完 导入 → 清洗 → 统计 → 出图 → 报告 → 回填全部 `output_contract` 键 → 写 `result.json`：
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。一条命令跑完
+导入 → 清洗 → 统计 → 出图 → 报告 → 回填全部 `output_contract` 键 → 写 `result.json`：
 
 ```bash
 python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
@@ -103,3 +110,6 @@ python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/ou
 只做描述统计 + 计划性检验；不判断科研结论正确与否，只保证报告与数据一致、口径透明、可复跑。
 纯标准库、无网络、无时钟读取：重复运行同一输入，交付物字节稳定。运行中断时保留已写的部分
 `result.json`，异常写入 `errors[]`，退出码仍为 0。
+
+交付前须**逐项通过 `references/expert_playbook.md` §7 的专家检查表**（原始快照/字段映射/质量审计/清洗与行数
+守恒/统计前提/效应量与 CI/图表同源/逐字一致/locator 与复算）；任一未过记 `partial` 并写入不确定性。
