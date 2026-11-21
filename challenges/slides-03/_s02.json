@@ -1,0 +1,161 @@
+{
+  "pkg": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\v10\\slides-02",
+  "case": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\synth_cases\\slides-02\\rich",
+  "mode": "single",
+  "entry": {
+    "cmd": "python3 -B /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work",
+    "cmds": [
+      "python3 -B /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work"
+    ],
+    "assign": {},
+    "kind": "single-command",
+    "context": "法逐条自检（数字、单位、图注编号、模板覆盖）； - **交付前**：按手册 §6 自查表与 §5 的 locator 规则逐项通过，未过项记 `partial` 并写入不确定性。  ## 单命令入口（评测与人工都跑这一条）  无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。  "
+  },
+  "sandbox": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\slides-02__rich__single",
+  "status": "PASS",
+  "contract": {
+    "keys": [
+      "quote",
+      "structural",
+      "notes"
+    ],
+    "source": "case.json:output_contract",
+    "echo_required": true
+  },
+  "run": [
+    {
+      "cmd": "C:\\Users\\23660\\.dsh\\dsh-runtimes\\dsh-primary-runtime\\dependencies\\python\\python.exe -B D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\slides-02__rich__single\\skills\\weekly-skill\\scripts\\main.py all --input D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\slides-02__rich__single\\input --output D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\slides-02__rich__single\\app\\output --work D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\eval_sim\\_runs\\slides-02__rich__single\\app\\work",
+      "code": 0,
+      "seconds": 0.29,
+      "timeout": false,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "artifacts": [
+    {
+      "rel": "compliance_checks.json",
+      "bytes": 1274,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "content_map.json",
+      "bytes": 8774,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "deck.html",
+      "bytes": 3438,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "deck.md",
+      "bytes": 3459,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "deck.pdf",
+      "bytes": 4203,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "deck.pptx",
+      "bytes": 17939,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "outline.md",
+      "bytes": 705,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "preview.svg",
+      "bytes": 4825,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "report.md",
+      "bytes": 1743,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "result.json",
+      "bytes": 42156,
+      "placeholder_hits": []
+    },
+    {
+      "rel": "slide_plan.json",
+      "bytes": 4347,
+      "placeholder_hits": []
+    }
+  ],
+  "output_file_count": 11,
+  "work_file_count": 1,
+  "checks": [
+    {
+      "id": "exit_code",
+      "status": "PASS",
+      "detail": "exit 0 in 0.29s"
+    },
+    {
+      "id": "result_json",
+      "status": "PASS",
+      "detail": "valid JSON, 41806 bytes, keys=['artifacts', 'case_id', 'change_records', 'changes', 'compliance_checks', 'compliance_checks.json', 'content_map', 'content_map.json', 'coverage', 'deck', 'deck.html', 'deck.md']"
+    },
+    {
+      "id": "contract_echo",
+      "status": "PASS",
+      "detail": "all 3 contract keys echoed in output_contract"
+    },
+    {
+      "id": "deliverables",
+      "status": "PASS",
+      "detail": "9 expected artifacts present: ['result.json', 'deck.md', 'deck.pdf', 'preview.svg', 'outline.md', 'slide_plan.json', 'content_map.json', 'compliance_checks.json']"
+    },
+    {
+      "id": "case_id",
+      "status": "PASS",
+      "detail": "case_id='synth-rich-slides-02'"
+    },
+    {
+      "id": "placeholder_sweep",
+      "status": "PASS",
+      "detail": "no placeholder tokens in 11 output files"
+    },
+    {
+      "id": "field:status",
+      "status": "PASS",
+      "detail": "result.status present"
+    },
+    {
+      "id": "field:sources",
+      "status": "PASS",
+      "detail": "result.sources present"
+    },
+    {
+      "id": "field:uncertainties",
+      "status": "PASS",
+      "detail": "result.uncertainties present"
+    },
+    {
+      "id": "field:change_records",
+      "status": "PASS",
+      "detail": "result.change_records present"
+    },
+    {
+      "id": "field:limits",
+      "status": "PASS",
+      "detail": "result.limits present"
+    }
+  ],
+  "failures": [],
+  "warnings": [],
+  "suggestions": [],
+  "input_case_json": true,
+  "flags": {
+    "input": "--input",
+    "output": "--output",
+    "work": "--work",
+    "case": null
+  }
+}
