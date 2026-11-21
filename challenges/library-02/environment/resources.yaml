@@ -5,7 +5,7 @@ runtime:
   version: ">=3.8"
   tested_on: "CPython 3.12"
   package_manager: none
-  dependencies: []          # 纯标准库：argparse, json, re, os, sys, time, hashlib, zipfile, zlib, io, math, pathlib, unicodedata
+  dependencies: []          # 纯标准库：argparse, json, re, os, sys, time, hashlib, zipfile, zlib, io, math, pathlib
   network: false
   clock: false              # 交付物字节稳定；work/run.log 只记相对耗时
 resources:
@@ -24,10 +24,10 @@ paths:
 entry:
   single_command: "python3 -B /skills/weekly-skill/scripts/main.py all --input /input --out /app/output --work /app/work"
   agent_path: [init, show, check, build, selfcheck, fixtures]
-input_formats: [pdf, docx, xlsx, pptx, csv, tsv, txt, md, html, json, yaml, yml, doc, xls, ppt]
+input_formats: [pdf, docx, xlsx, pptx, csv, tsv, txt, md, html, json, yaml, doc, xls, ppt]
 output_files: [result.json, index.json, answers.json, hits.jsonl, dedupe.json, failures.json,
                filters_log.json, location_report.md, verify_report.json]
-locator_grammar: "path#<section_id>-<paragraph_id>@page_physical"
+locator_grammar: "path#section_id-paragraph_id@page_physical"
 tunable_without_code_change:
   - case.json → filters / synonyms / materials_root   # 硬过滤维度、同义扩展与库根均由案例声明
   - case.json → output_contract                       # 契约键以案例为准，本包仅声明默认十键
