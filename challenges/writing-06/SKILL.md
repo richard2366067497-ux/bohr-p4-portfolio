@@ -1,7 +1,7 @@
 ---
 name: paper-structure-logic-review
 description: Review an academic manuscript for section structure, research-question alignment, argument chains, paragraph relations, duplication and conclusion boundaries; emit locator-anchored findings, an executable edit plan and a consistency report.
-version: 9.0.0
+version: 10.0.0
 ---
 
 # 论文结构与逻辑优化（writing-06）
@@ -9,6 +9,20 @@ version: 9.0.0
 输入一个稿件包（案例描述、正文、参考文献、规则或数据说明），输出六维结构审读：每条结论都带
 `C01-P002-S03` 形式的定位符与正文逐字引文；每条修改建议都可执行（move / merge / split / narrow /
 delete / insert），并附预期效果与风险。最后把案例契约逐键回填进 `result.json`。
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **流程**：按其 **§2 六步法（S1–S6）** 推进——盘点输入 → 建可追溯原稿地图 → 抽研究链与事实底账
+  → 六维诊断并去重 → 生成可执行编辑计划 → 闭环复核交付；前一步未冻结不进入下一步。
+- **问题卡口径**：按其 **§3.1** 采用统一结构“位置证据 → 结构功能判断 → 对研究链的影响 → 编辑动作
+  → 修改后边界 → 复核方法”，每条 finding 写进 `structural_review.json` 与 `edit_plan.md`。
+- **量化口径**：按其 **§3.2/§3.3** 计算六维检查覆盖率、有效定位率、可执行动作率、数字保真率、
+  重复候选相似度（3-gram Jaccard），命中阈值的重复只触发人工复核，不单独判删除。
+- **领域红线**：按其 **§4** 区分结构缺陷/语言偏好/事实疑点，保持单位、量纲与因果强度边界。
+- **门控**：交付前逐项通过其 **§5 专家检查表**，并按其 **§7** 做交付前门控。
 
 ## 1 单命令全流程
 
@@ -110,6 +124,14 @@ python3 <skill>/scripts/main.py selfcheck --input /input --output /app/output --
 `selfcheck` 校验：契约键齐全且非空、产物均 ≥40 字节、`case_id` 透传，并把结果写到
 `<output>/selfcheck.json`。规则阈值与字段口径见 `references/dimensions.md`。
 
+自检清单（除 `selfcheck` 的机械校验外，交付前须逐项人工确认）：
+
+- [ ] 六维均有检查结论，未为凑数制造问题；同一根因未拆成多张问题卡。
+- [ ] 每个主问题都有章节/段落/句子级 locator，且引文与原文逐字一致。
+- [ ] 每条修改建议都可执行（操作、源位置、目标状态齐全），动作之间无顺序冲突。
+- [ ] **`references/expert_playbook.md` §5 专家检查表逐项通过**。
+- [ ] `result.json` 状态真实；部分完成时明确列出限制，未新增材料外事实。
+
 ## 8 文件清单与维护
 
 ```
@@ -117,14 +139,15 @@ SKILL.md                     本文件：单命令入口、agent 路径、六维
 scripts/main.py              入口：run / probe / build / check / selfcheck / selftest
 scripts/core.py              共享层：清洗、发现、PDF/DOCX 文本层、文本模型、契约回填、语义审读协议、基线指标
 scripts/review.py            审读层：六维检测器、覆盖度、动作、流水线与自查
+references/expert_playbook.md 专家参考手册：判分要点、六步法、问题卡口径、量化指标、专家检查表、案例（执行前必读）
 references/dimensions.md     定位符、六维触发条件、finding/action 字段、覆盖状态与模板
 README.md                    安装、用法、产物、限制与维护
 SELFTEST.md                  eval_sim 与脚本级降级的自测记录
 GITHUB_URL.txt               公开仓库与本挑战的目录
 ```
 
-- 依赖：Python 3.9+ 标准库；无第三方包、无网络。包体 12 文件，单文件 ≤30KB，主脚本 ≤25KB。
-- 版本 9.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与本表。
+- 依赖：Python 3.9+ 标准库；无第三方包、无网络。包体 13 文件，单文件 ≤30KB，主脚本 ≤25KB。
+- 版本 10.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与本表。
 
 ## 随包文件（v8 新增）
 
