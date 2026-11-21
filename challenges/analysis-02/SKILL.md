@@ -10,6 +10,14 @@ Turn one messy research table into an auditable answer: descriptive statistics w
 inferential test the design and the gates allow, an effect size with a 95% interval, and a usable
 interpretation, reported as an association (never a cause) because the data are observational.
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 执行任何命令前**先完整阅读 `references/expert_playbook.md`**，并按它组织全部产出：
@@ -45,11 +53,8 @@ empty cell and count it, drop exact repeats, flag Tukey outliers.
 
 ## Single command entry (one shot, no draft needed)
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
 
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 One command reads the case, cleans the table, runs the gates, fills every contract key, writes all
 deliverables and exits 0. Paths default to `/input`, `/app/output`, `/app/work` and are also flags.
