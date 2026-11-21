@@ -1,0 +1,5 @@
+Methylene blue removal on ZnO under visible light (runnable example material)
+
+Methylene blue (MB) at 10 mg/L was degraded by ZnO (1.0 g/L) under a 420 nm LED.
+After 120 min at pH 3 the removal efficiency was 91%, with an equilibrium concentration
+Ce of 0.9 mg/L.
