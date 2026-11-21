@@ -1,6 +1,6 @@
 ---
 name: research-topic-innovation-eval
-version: 1.0.0
+version: 1.1.0
 description: >-
   Turn a research-topic dossier into a checkable five-gate judgement: read the gate rules and the
   field dictionary out of the supplied materials, carry every rule, threshold and quote with its own
@@ -29,6 +29,21 @@ they are four sides of one judgement, and this Skill compresses them into five g
 | G3 | can_do | 做得出来吗 | 可行性判断 | `assumption_register.json` |
 | G4 | not_old_wine | 不是旧方案吗 | 创新点识别 | `gate_scorecard.json` 的 G4 条目 |
 | G5 | downside | 失败会怎样 | 可行性判断（风险侧）+ 冲突证据 | `conflicts.json` |
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 八步框架（S0–S7）与门控** 推进——读取输入与资源 → 研究问题定义 → 检索与筛选
+  → 证据矩阵 → 创新边界 → 可行性 → 综合与不确定性 → 输出与自检；前一步未冻结不进入下一步。
+- **量化口径**：按其 **§3 量化口径与公式** 逐条复算 EC / VR / CRR / NRR / FSR / SR；逐字命中率
+  <80% → `partial`，`ok` 还要求零 ERROR；总体判定不得高于最弱一门。
+- **陷阱与单位**：按其 **§4 领域陷阱与单位** 逐条排雷（`mAh/g` 与 `mAh/cm²`、`mA/g` 与 `mA/cm²`、
+  `°C`/`K`、`Pa`/`bar`、`mol/L`/`wt%`、TOF/TON），「检索不到」不得写成「尚无人研究」。
+- **交付与核验**：按其 **§5 交付物与可核验方式** 逐件核对，locator 一律 `M#/p#`，逐字引文可回原文。
+- **门控**：交付前逐项通过其 **§7 防扣分自查表（C01–C20）**；任一项未过则修正后重出，
+  `status` 不得静默提升。
 
 ## 0. result.json contract
 
@@ -150,3 +165,13 @@ locators) and `scripts/render.py` (artifact writers and the pipeline). Pure stan
   `no_contrary_found` statement, which is not the same as "no conflict exists".
 - Empty / binary / placeholder-only file → recorded with its parse status, never quoted.
 - No network, no third-party package, no invented literature, numbers or legal status.
+
+## 7. 交付前自查清单
+
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键非空、无占位符。
+- [ ] 15 件产物齐全且非空，`evidence_index.jsonl` 每条带 `M#/p#` 与逐字引文。
+- [ ] 五门 G1–G5 逐门有 verdict、conditions、证据与阈值原话，总体判定不高于最弱一门。
+- [ ] 冲突两侧原话、`no_contrary_found` 的范围限定、`uncertainty.json` 的未命中项均已登记。
+- [ ] 空 / 坏 / 占位输入走 `insufficient_evidence` 且 exit 0；rich 与 boundary 四组均 PASS。
+- [ ] **专家检查表逐项通过**：references/expert_playbook.md §7 全项通过；未过则修正后重出，不得静默提升 status。
+- [ ] 纯标准库、离线、确定性；包内无 `__pycache__` / `*.pyc`，文件数与字节数在上限内。
