@@ -12,6 +12,10 @@
   SKILL.md
   scripts/{main.py,core.py,adapter.py}
   references/format-spec.md
+  references/expert_playbook.md  专家方法论（执行前必读：判分要点/公式/陷阱/检查表/案例）
+  environment/resources.yaml     运行环境、入口命令、预算与依赖声明
+  examples/                      最小可复跑样例（case.json + manuscript.md）
+  GAIN_EVIDENCE.md               基线对照与使用增益说明（含确定性 baseline_sim）
   README.md  SELFTEST.md  GITHUB_URL.txt
 ```
 
@@ -73,9 +77,10 @@ python3 /skills/weekly-skill/scripts/main.py run --input /input --output /app/ou
 
 ## 维护与版本策略
 
-- 版本 6.0.0；契约键名冻结，新增规格项需同步 `DEFAULT_SPEC`、`EXTRACT`、`style_map()` 与
+- 版本 6.1.0；契约键名冻结，新增规格项需同步 `DEFAULT_SPEC`、`EXTRACT`、`style_map()` 与
   `references/format-spec.md`。
 - 改动后运行 `selfcheck` 和 `scripts/eval_sim.py`（rich/boundary × single/agent），见 `SELFTEST.md`。
 - 预算与安全边界：完全离线、仅用 Python 标准库、只写 `--output` 与 `--work`，输入树从不改写；
-  包体 6 文件、单文件 ≤30KB、主脚本（`scripts/main.py`）≤25KB，因此代码拆在 `core.py`（共享层）
+  单文件 ≤30KB、主脚本（`scripts/main.py`）≤25KB，因此代码拆在 `core.py`（共享层）
   与 `adapter.py`（校验与流水线层）两个模块里。
+- 执行前先读 `references/expert_playbook.md`，按其中的六步框架推进，交付前逐项通过其 §7 检查表。
