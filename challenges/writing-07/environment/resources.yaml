@@ -1,0 +1,40 @@
+# environment/resources.yaml
+# Runtime contract for intro-relatedwork-writer (writing-07). Offline, standard library only.
+name: intro-relatedwork-writer
+version: 9.0.0
+entry_point: scripts/main.py
+python: ">=3.9"
+
+paths:
+  input: /input          # case.json + task.md + material files (read actual files)
+  output: /app/output    # result.json and every deliverable artifact
+  work: /app/work        # draft.json, check_report.json, selftest_report.json
+
+commands:
+  single: "python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work"
+  init: "python3 scripts/main.py init"
+  show: "python3 scripts/main.py show"
+  check: "python3 scripts/main.py check"
+  build: "python3 scripts/main.py build"
+  selfcheck: "python3 scripts/main.py selfcheck"
+
+bundled_files:
+  - SKILL.md
+  - README.md
+  - SELFTEST.md
+  - GAIN_EVIDENCE.md
+  - GITHUB_URL.txt
+  - environment/resources.yaml
+  - examples/case.json
+  - examples/draft.json
+  - templates/manuscript_template.md
+  - scripts/main.py
+  - scripts/core.py
+  - scripts/render.py
+
+dependencies: []          # pure standard library; no third-party packages
+network: none
+limits:
+  files: 12
+  bytes: 150000
+  single_file_bytes: 30000
