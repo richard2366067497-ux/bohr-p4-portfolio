@@ -1,8 +1,11 @@
-# systematic-review — 系统综述筛选（research-03 v6）
+# systematic-review — 系统综述筛选（research-03 v10）
 
 把检索到的文献材料做成一条**可复核的 PRISMA 流程**：先由材料与任务文本生成纳入/排除标准，
 再对题录做标题/摘要筛选、对候选做全文评估，最后汇总纳入研究并给出元数据级质量评价。所有阶段
 都落到 `prisma_flow.json`、`screening_ledger.jsonl`、`appraisal.json` 与 `result.json` 的逐键回填里。
+
+执行前请先读 `references/expert_playbook.md`（专家参考手册：九步框架 / 量化口径 / 领域陷阱 /
+防扣分自查表 20 项 / 完整虚构案例）。
 
 核心约束：
 
@@ -21,7 +24,12 @@
 /skills/weekly-skill/
   SKILL.md
   scripts/main.py
-  references/systematic-review-spec.md
+  references/systematic-review-spec.md    规格：阶段计数键、五维、台账列
+  references/expert_playbook.md           专家参考手册（执行前必读）
+  environment/resources.yaml              运行环境、入口命令、契约键与依赖声明
+  examples/case.json                      最小可复跑样例（契约 + criteria）
+  examples/materials/records.md           样例题录快照
+  GAIN_EVIDENCE.md                        基线对照与使用增益证据
   GITHUB_URL.txt  README.md  SELFTEST.md
 ```
 
@@ -61,4 +69,15 @@ python3 scripts/main.py selfcheck   # 复检产物
 - 无题录可识别：`degradations` 记录原因，计数为 0，不臆造纳入研究。
 - 全文不可解析：保守排除并写入 `excluded_by_reason`，在 `uncertainties` 说明。
 
-> 本地评测复现命令与（静态推演的）预期结果见 `SELFTEST.md`。
+## 复跑与证据
+
+```bash
+# 最小样例
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+
+# 平台合成用例（rich / boundary × single / agent）
+python scripts/eval_sim.py --pkg work/p4/v10/research-03 \
+  --case work/p4/synth_cases/research-03/rich --mode single
+```
+
+实测数字、四组评测结果与边界降级见 `SELFTEST.md`；基线对照与使用增益见 `GAIN_EVIDENCE.md`。
