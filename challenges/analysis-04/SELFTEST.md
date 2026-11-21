@@ -1,4 +1,4 @@
-# 自测记录 · analysis-04 analysis-codegen-execute（v6）
+# 自测记录 · analysis-04 analysis-codegen-execute（v10）
 
 ## 1. 入口与运行
 
@@ -24,7 +24,7 @@ python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/
 命令：
 
 ```bash
-python scripts/eval_sim.py --pkg work/p4/v6/analysis-04 \
+python scripts/eval_sim.py --pkg work/p4/v10/analysis-04 \
     --case work/p4/synth_cases/analysis-04/rich --mode single
 # rich/agent、boundary/single、boundary/agent 同法
 ```
@@ -61,17 +61,32 @@ key_numbers"，全部六类交付物与契约回填完整。
   只有表头（36B）会触发 deliverables 近空告警，已改为始终写出策略列 + 无表占位行，
   `deliverables` 由 WARN 转为 PASS。
 
-## 5. 打包规格
+## 5. v10 修复点（相对 v6）
+
+1. **逐行配对的相关系数**：v6 生成代码先把两列数值各自去空后**按位置截断**到等长再算 `r`，
+   缺值列会被错位配对（示例中把 `r` 报成 0.443972）；v10 改为**按行成对**（listwise）取
+   `(x, y)`，同一输入得 0.449098，引擎独立重算一致。
+2. **重复行计数与行数守恒自洽**：v6 只统计重复行却不删除，导致 `n_in - dedup != n_used`
+   （30 - 1 != 30），`row_conservation` 判 fail；v10 按"保留首次、丢弃后续"真正去重，
+   `cleaning_ledger.csv` 记 `n_in=30 / duplicate_rows=1 / n_out=29`，`row_conservation` 通过，
+   引擎重算亦同步去重以保证两条路径同口径。
+3. 打包规格更新见下表。
+
+## 6. 打包规格
 
 | 文件 | bytes |
 |---|---|
-| SKILL.md | 7016 |
+| SKILL.md | 7749 |
 | README.md | 2896 |
 | SELFTEST.md | 本文件 |
-| GITHUB_URL.txt | 110 |
-| scripts/engine.py | 29110（≤30KB） |
-| scripts/codelib.py | 22569（≤30KB） |
+| GITHUB_URL.txt | 113 |
+| GAIN_EVIDENCE.md | 2958 |
+| environment/resources.yaml | 2199 |
+| examples/sample_data.csv | 594 |
+| scripts/engine.py | 29577（≤30KB） |
+| scripts/codelib.py | 22584（≤30KB） |
 | references/analysis_spec.md | 4551 |
+| references/expert_playbook.md | 11740 |
 
-合计 7 个文件、约 66KB（≤8 文件 / ≤150KB）。生成代码模板置于 `codelib.py`，使两个脚本文件
-各自保持在 30KB 以内。
+合计 11 个文件、约 87KB（≤14 文件 / ≤150KB / 单文件 ≤30KB）。生成代码模板置于 `codelib.py`，
+使两个脚本文件各自保持在 30KB 以内。
