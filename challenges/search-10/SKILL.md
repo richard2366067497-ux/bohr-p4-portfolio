@@ -1,3 +1,8 @@
+---
+name: cross-lingual-known-item-search
+description: 术语表驱动的跨语种 known-item 检索：概念→各语种写法→逐语种查询式→命中证据→work 级去重，全部产物带 locator 与逐字引文，缺概念诚实标注 not-in-glossary。
+---
+
 # search-10 · 术语表驱动的跨语种 known-item 检索（cross-lingual search）
 
 给定材料（问题 + 内置术语表 + 视图/版本文件），把「概念 → 各语种写法 → 逐语种查询式 → 命中证据
