@@ -1,15 +1,8 @@
 {
-  "case_id": "example-writing-02",
-  "task_instruction": "Polished the English abstract below. Keep every number, unit, citation marker and figure pointer exactly as in the source.",
+  "case_id": "writing-02-demo",
   "language": "en",
-  "genre": "abstract",
-  "output_contract": {
-    "deliverable": "string",
-    "preserved_facts": "array",
-    "evidence_map": "array",
-    "change_log": "array",
-    "format_spec": "object",
-    "compliance_checks": "array",
-    "custom_unknown_field": "string"
-  }
+  "source": {
+    "title": "Effect of Nanoparticle Size on Cellular Uptake"
+  },
+  "note": "Minimal runnable example. Copy this folder's case.json and manuscript.md into /input, then run the single command in SKILL.md. Output is illustrative, not an official case result."
 }
