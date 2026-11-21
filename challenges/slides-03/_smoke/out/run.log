@@ -1,0 +1,3 @@
+2026-11-21T06:19:13Z  build  status=partial
+  materials=3 entities=1 relations=1 pending=0 errors=0
+  contract=errors, degradations, uncertainty, note, compliance_checks, overflow
