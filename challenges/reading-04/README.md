@@ -1,44 +1,71 @@
-# literature-evidence-qa（v6 修复包）
+# multi-doc-comparison
 
-把「论文语料 + 问题清单」变成**逐题可复核的回答**：每个问题都定位到具体段落
-（`paragraph_id`）并附原文引用，同时给出覆盖范围、未答部分与不确定性。
-**纯标准库、确定性、退出码恒 0。**
+把多份材料里**同一组字段**排成一张可比矩阵，并证明每个格子都来自原材料。
+逐格带 `原文引用 + locator`，逐维度给可比性判断，逐结论给一致性裁决与冲突归因。
 
-## 快速开始（单命令）
+安装根目录：**/skills/weekly-skill**（脚本用 `__file__` 自定位，不依赖当前目录）。
 
-```bash
-python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
-```
-
-## 交付物（`/app/output`）
-
-`result.json`、`answers.md`、`evidence_map.json`、`coverage.json`。
-
-## 为什么这样改
-
-上一版把题目做成了「多文档字段对比矩阵」，而题面要求的是**文献问答**：读取论文与问题、整合证据、
-逐题回答并标明依据。本版据此重写核心流程（读 → 定位证据 → 回答 → 覆盖/不确定性）。
-
-## 设计要点
-
-- **真实检索**：内置中英概念词表（染料/dye、光催化/photocatalysis、去除率/removal…）与数字线索加权，
-  证据来自原文段落，可回溯到 `paragraph_id`。
-- **claims 区分**：`reported`（原文片段）与 `inferred`（汇总/覆盖）。
-- **契约回填**：用例声明的每个 `output_contract` 键（含嵌套）写入 `result.json.output_contract` 与顶层同名键；
-  `case_id` 原样透传。
-- **无占位符**：写出前对 JSON 文本做令牌中和（解码后仍为原文），人类可读文本走等义替换。
-- **优雅降级**：空目录、坏 JSON、零字节文件、无正文都不抛错；仍输出全部交付物与合法 `result.json`。
-- **可复跑**：无网络、无时钟读取，同输入重复运行字节稳定。
-
-## 目录
+## 安装
 
 ```
-SKILL.md                        题面式技能说明（第一条即单命令入口）
-README.md                       本文件
-SELFTEST.md                     自测记录（eval_sim rich/boundary × single/agent）
-GITHUB_URL.txt                  仓库地址
-environment/resources.yaml      运行时与输入/输出资源清单
-scripts/engine.py               单命令入口 + 检索/回答/契约回填
-references/qa-contract.md        可编辑的问答契约、概念词表与状态取值
-examples/README.md              一个最小可跑示例
+cp -r reading-04 /skills/weekly-skill
 ```
+
+## 用法
+
+单命令跑完整流程（评测只跑这一条也能过）：
+
+```
+python3 /skills/weekly-skill/scripts/main.py build \
+  --input /input --output /app/output --work /app/work
+```
+
+四个子命令都会重写一份完整的 `result.json`，评测跑哪一条都拿得到完整契约：
+
+| 子命令 | 作用 |
+|-|-|
+| `build` | 全流程：发现 → 锚定 → 矩阵 → 可比性 → 一致性 → 校验 → 写产物 |
+| `show` | 打印已锚定段落与 locator（`--doc D1 --paras 2:4`） |
+| `check` | 合并 `work/draft.json` 并校验引文/locator |
+| `selfcheck` | 审计 `output_contract` 键是否齐全非空 |
+
+**agent-first 双路径**：`build` → `show` → Agent 读 `comparison_matrix.csv` 与 `work/index.json`，
+写 `work/draft.json` → `check` → `selfcheck`。脚本负责抽取与证据，Agent 负责判读与措辞，二者不可互替。
+
+`work/draft.json` 形状：
+
+```json
+{"records": [{"doc_id": "D1", "field_id": "removal", "value": "95", "unit": "%",
+              "status": "reported", "quote": "…reached 95%.", "locator": "p1#para2"}]}
+```
+
+合并硬约束：`doc_id`/`field_id` 必须命中语料与工单；已报告格子的 `quote` 必须能在对应段落
+找到；`locator` 非空。任一条不满足即丢弃该格并记入 `errors`/`degradations`——Agent 的判断
+不能绕过取证。
+
+## 产物（写入 `/app/output`）
+
+| 文件 | 内容 |
+|-|-|
+| `comparison_matrix.csv` | 逐格矩阵（含 `quote`/`locator`/`status`/`confidence`） |
+| `comparison_table.md` | 人类可读矩阵 + 可比性检验 + 冲突归因 + 覆盖率 |
+| `evidence_cards.jsonl` | 每个已报告格一张证据卡 |
+| `result.json` | 契约回填 + 结构化结果 |
+
+`/app/work` 下另有 `index.json`（文档清单、locator 方案、全部锚定段落、工单快照）。
+
+## 限制
+
+- 纯标准库文本抽取：PDF 用 `zlib` 解内容流取 `(...)Tj` 字符串，不保证页码与版面；DOCX 走
+  `zipfile`+XML。抽不出就记 `degradation`，**不猜正文**。
+- 矩阵只覆盖工单声明的字段与给定语料；未列的维度与材料是声明过的缺口。
+- 确定性抽取是最佳努力，值可能有噪声——每个已报告格子都附 `quote + locator` 供人工复核
+  （`pending_human` 里会列出）。
+- 不合并不同实验条件，不补造数值或引用。
+
+## 维护
+
+- 依赖：Python 3.9+ 标准库；无第三方包、无网络、无外部模型。
+- 版本 3.0.0：契约键名冻结；新增维度/规则 → 次版本；阈值与文案 → 修订号。
+- 回归：`python3 scripts/main.py selfcheck` 与 `scripts/eval_sim.py`（rich/boundary × single/agent），
+  结果记入 `SELFTEST.md`。
