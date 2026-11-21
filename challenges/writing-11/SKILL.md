@@ -9,6 +9,14 @@ version: 2.0.0
 本包把"改稿"拆成两件事：**原稿不动**（逐字保留）、**注记可回源**（每条注记都能定位到原句）。
 脚本负责解析、定位、渲染、版本控制与契约回填；Agent 负责判断"这一段该补什么注记"。
 
+## 执行前必读（专家方法论）
+
+**动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
+方法论基准：任务本质与判分要点、错误做法→正确做法、求解框架（G0–G6）、量化口径与公式（结构/
+对齐/术语/数字/引用各覆盖率）、领域知识、交付物清单与专家检查表、完整虚构案例、交付前门控。
+执行顺序固定为：先读手册 → 再按手册求解框架逐块落盘冻结产物 → 交付前逐项勾选手册 §5 专家检查表。
+手册与 `SKILL.md` 冲突时，契约键名与入口命令以 `SKILL.md` 为准，方法与判分口径以手册为准。
+
 ## 0. result.json 契约样例（output_contract 逐键回填，顶层 + 嵌套）
 
 `result.json` 把**用例声明的每一个 `output_contract` 键**原样写进 `output_contract` 对象，
@@ -131,6 +139,7 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck  # 复核契约键、产�
 
 ## 8. 自检清单
 
+- [ ] **`references/expert_playbook.md` §5 专家检查表逐项通过**（未通过项先修复再交付）。
 - [ ] `result.json` 的 `output_contract` 与顶层同名键齐全，无类型串、无空壳。
 - [ ] `case_id` 与输入一致；`status` 合理。
 - [ ] `revised_manuscript.md` 非空，原句逐字保留，注记块可定位。
