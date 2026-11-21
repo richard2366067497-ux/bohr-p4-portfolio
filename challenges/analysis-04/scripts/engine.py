@@ -280,8 +280,9 @@ def run(inp, out, work):
     clean_rows = []
     for t in tables:
         d = next((o for o in ops if o.get("op") == "dedup" and o.get("table") == t["table"]), {})
-        clean_rows.append([safe_text(t["table"]), t["n"], d.get("duplicate_rows", 0),
-                           t["n"] - d.get("duplicate_rows", 0), "missing=skip;dedup=count_only;range=keep"])
+        dq = d.get("duplicate_rows", 0)
+        clean_rows.append([safe_text(t["table"]), t["n"] + dq, dq, t["n"],
+                           "dedup=drop_first_keep;missing=skip;range=keep"])
     if not clean_rows:
         clean_rows.append(["__no_table__", 0, 0, 0, "missing=skip;dedup=count_only;range=keep"])
     wcsv(out / "cleaning_ledger.csv", ["table", "n_in", "duplicate_rows", "n_out", "policy"], clean_rows)
@@ -350,7 +351,7 @@ def run(inp, out, work):
            "query": {"available": [], "note": "no SQL query op in this run"},
            "cleaning": {"path": "cleaning_ledger.csv",
                         "rows": [{"table": r[0], "n_in": r[1], "duplicate_rows": r[2], "n_out": r[3]} for r in clean_rows],
-                        "policy": {"missing": "skip", "dedup": "count_only", "exclude_out_of_range": False}},
+                        "policy": {"missing": "skip", "dedup": "drop_first_keep", "exclude_out_of_range": False}},
            "report": {"path": "report.md", "bytes": len(report_body.encode("utf-8"))},
            "reproducibility": {"seed": SEED, "rerun": "python3 scripts/engine.py all --input /input --output /app/output"},
            "results": {"path": "results/summary.json", "key_numbers": key_numbers, "key_numbers_count": len(key_numbers),
@@ -377,6 +378,18 @@ def run(inp, out, work):
     return result
 
 
+def _dedup_rows(cols, rows):
+    """Drop exact duplicate rows (keep first) -- mirrors the generated pipeline rule."""
+    seen, out = set(), []
+    for r in rows:
+        key = tuple((r.get(c).strip() if isinstance(r.get(c), str) else "") for c in cols)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
 def _recompute(k, inp, files):
     """Independently re-derive one key number from the raw input tables."""
     try:
@@ -384,6 +397,7 @@ def _recompute(k, inp, files):
             if f["kind"] not in ("table", "json", "jsonl", "database") or f["path"] != k.get("table"):
                 continue
             cols, rows = parse_table(f)
+            rows = _dedup_rows(cols, rows)
             col = k.get("column")
             where = k.get("where") or {}
             sub = [r for r in rows if all((r.get(w) if isinstance(r.get(w), str) else "") .strip() == v for w, v in where.items())] if where else rows
@@ -411,6 +425,7 @@ def _recompute(k, inp, files):
                 if f["kind"] not in ("table", "json", "jsonl", "database") or f["path"] != k.get("table"):
                     continue
                 cols, rows = parse_table(f)
+                rows = _dedup_rows(cols, rows)
                 col = k.get("column")
                 num = [to_num(r.get(col)) for r in rows]
                 gcol = next((c for c in cols if c != col and 2 <= len({(r.get(c) if isinstance(r.get(c), str) else "").strip() for r in rows if (r.get(c) if isinstance(r.get(c), str) else "").strip()}) <= 12), None)
