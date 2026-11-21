@@ -1,4 +1,4 @@
-# SELFTEST — experiment-05 v6（experiment-interpretation-dossier）
+# SELFTEST — experiment-05 v10（experiment-interpretation-dossier）
 
 全部仅标准库、离线。逐条自测请在 `/skills/weekly-skill` 安装后执行。
 
@@ -44,23 +44,58 @@ echo $?                                           # 期望 0；status=insufficie
 
 ## 4. 端到端功能测试（数值列 → 规则候选 → 案卷）
 
-输入加入一份 8 行读数列 `readings.csv`（run 1–8，response_mV 平坦在 10 mV，run 7 为 120 mV），
-工作稿给出一条 A-001 案卷。运行 `init → check → build`：
+用随包样例（`examples/readout.csv` 8 点时间序列，t=20 min 为 148.3 mg/L）复跑：
 
-- 序列统计：`response_mV` n=8，median 10.15，MAD 0.15，IQR 栅栏 [9.475, 10.875]；
-- 规则候选：`R1 @ M04#L8 value=120.0 severity=high`（修正 z ≈ 494 ≫ 3.5）、
-  `R5 value=10.0 medium`（run 1 与 run 8 同值）；
-- 案卷渲染出 `dossiers/anomaly-A-001.md`（8 节固定），`dossier_index.json` 记其 issue；
-- `status=answered`（材料可读、案卷已判断、无不可读文件），逐字命中 68/68。
+- **单命令 `all`**（无 draft）：`status=partial`，`rules=6`、`thresholds=7`、`units=6`、`series=2`、
+  候选 `R1 @ M03#L6 high`（修正 z=216.96 ≫ 3.5）、`checks 4/4`、`evidence 19/19`、契约 12/12；
+  两条降级如实记"未声明趋势/未声明档案"。
+- **`build` + draft**：`status=answered`，`trends=1`（TR-01 @ `M03#L6`）、`dossiers=1`
+  （A-001 · outlier · high · confirmed · data_quality · B）、`causes=1`（B），并渲染出
+  `dossiers/anomaly-A-001.md`（8 节固定）。
 
-## 5. 契约回显自检
+## 5. draft 最小形态（专家路径）
+
+```json
+{"case_id": "example-experiment-interpretation-dossier",
+ "trends": [{"trend_id": "TR-01", "scope": "Cat-X / 苯酚 / 0–35 min", "statement": "稳定 100 mg/L，t=20 单点背离",
+             "locator": "M03#L6", "quote": "20,148.3", "strength": "A"}],
+ "dossiers": [{"id": "A-001", "anomaly_type": "outlier", "target": "Cat-X t=20min R3",
+               "locator": "M03#L6", "observed": "148.3 mg/L", "expected_or_rule": "R1 修正 z 3.5",
+               "rule_id": "R1", "severity": "high", "judged": true, "verdict": "confirmed",
+               "attribution": "data_quality", "attribution_basis": "修正 z=216.96≫3.5 且违反质量守恒",
+               "evidence_quote": "20,148.3", "strength": "B"}],
+ "causes": [{"candidate": "录入/稀释倍数错误", "support": "修正 z=216.96", "exclusion": "其余 7 点一致", "strength": "B"}]}
+```
+
+## 6. 契约回显自检
 
 ```bash
 python3 scripts/main.py selfcheck --input <case> --output /tmp/e/out --work /tmp/e/work
 ```
 
-期望：逐键报告 top-level 与 nested `output_contract` 双写一致、`case_id` 原样、无占位符残留。
+期望：逐键报告 top-level 与 nested `output_contract` 双写一致、`case_id` 原样、无占位符残留，
+并报 `expert-checklist ok (references/expert_playbook.md present; SC-01..SC-20 to pass)`。
 
-## 6. 版本
+## 7. v10 随包样例实测（examples/）
 
-2.6.0。改脚本后必须重跑 §1–§5。
+```bash
+python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
+```
+
+最近一次运行（本机、离线、纯标准库）：exit 0，**9 件产物**，`status=partial`；
+`rules=6 / thresholds=7 / units=6 / series=2`；候选 **1**（`R1 @ M03#L6 high`，修正 z 216.96）；
+`checks 4/4`；`evidence 19/19（rate 1.0）`；契约键 **12/12**；规范化哈希 **`738d10527bbf27e1`**。
+`build` + draft 路径：`status=answered`，`trends=1 / dossiers=1 / causes=1`，哈希 **`15fee2b8145dde03`**。
+
+## 8. v10 交付状态（专家手册嵌入）
+
+- **新增 `references/expert_playbook.md`**（S1–S6 六步法与门控 / §3 统计口径（趋势指标、Z·修正 Z·IQR·Grubbs
+  阈值体系、功效重复数、证据强度 A/B/C）/ §4 领域陷阱与单位 / §5 交付物与自查表 SC-01…SC-20 / §6 完整案例 /
+  §7 专家注意点）；`SKILL.md` 明确"执行前先读 references/expert_playbook.md，按其框架/检查表/成本口径
+  产出交付物"，并在 §8 自检清单加入"专家检查表逐项通过"。
+- **单命令入口未受影响**：无 draft 下仍产出全部 9 件产物 + 契约逐键回填，exit 0。
+- `selfcheck` 额外报告 `expert-checklist ok`；`eval_sim.py` 四项全 PASS。
+
+## 9. 版本
+
+2.6.0。改脚本后必须重跑 §1–§7。
