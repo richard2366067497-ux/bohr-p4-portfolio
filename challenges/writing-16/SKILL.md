@@ -6,6 +6,14 @@ version: 10.0.0
 
 # source-faithful-retargeting — 受众/体裁改写，且每句话都留得住来源
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 执行前必读（专家方法论）
 
 **动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册给出任务本质与
@@ -41,11 +49,7 @@ version: 10.0.0
 ## 0.1 单命令入口 / 评测入口（等价入口，无 draft 时执行，评测只跑这一条也能过）
 
 **无工作稿时自动走逐字兜底稿**，仍产出 `deliverable.md`、`retained_facts.json`、`diff_map.md`、
-`glossary.csv` 与逐键回填的 `result.json`，退出码恒 0。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --work /app/work --output /app/output
-```
+`glossary.csv` 与逐键回填的 `result.json`，退出码恒 0。**无 draft.json 时直接运行文首「单命令评测入口」即可产出完整契约与全部交付物；评测环境按此执行。**
 
 `all` = `init → build → selfcheck` 的封装：`build` 无条件 finalize（契约顶层+嵌套回填，`errors` 用
 `{count, items, note}` 给真实计数），工作稿缺失时用逐字抽取兜底，并在稿首与 `degradations` 标注
