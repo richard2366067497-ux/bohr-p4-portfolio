@@ -101,3 +101,7 @@ python3 scripts/np_build.py --corpus /app/work/corpus.json \
 | `assets/controlled-vocab.json` | 关系类型、实体类型、断言类型、置信级别与依据、匹配方法 |
 | `assets/result-schema.md` | `result.json` 字段字典、草稿映射、门禁不变量 |
 | `references/atomicity-rules.md` | 拆分规则与检查 id 对照 |
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
