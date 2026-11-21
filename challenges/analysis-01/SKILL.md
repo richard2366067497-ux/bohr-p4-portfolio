@@ -183,12 +183,12 @@ python3 scripts/main.py selfcheck  # 复检：契约键回填、产物齐全、�
 ## 13. 调用示例（示例，非正式案例结果）
 
 ```bash
-python3 scripts/main.py init --input ./demo --output ./out --work ./work
-python3 scripts/main.py show  --input ./demo --output ./out --work ./work | head -60
-#  读 show 的输出，写 ./work/draft.json
-python3 scripts/main.py check --input ./demo --output ./out --work ./work
-python3 scripts/main.py build --input ./demo --output ./out --work ./work
-python3 scripts/main.py selfcheck --input ./demo --output ./out --work ./work
+python3 scripts/main.py init --input /input --output /app/output --work /app/work
+python3 scripts/main.py show --input /input --output /app/output --work /app/work
+#  读 show 的输出，写 /app/work/draft.json
+python3 scripts/main.py check --input /input --output /app/output --work /app/work
+python3 scripts/main.py build --input /input --output /app/output --work /app/work
+python3 scripts/main.py selfcheck --input /input --output /app/output --work /app/work
 ```
 
 示意输出（**示例，自造夹具 `examples/sample_data.csv`，非正式案例结果**）：`counts = {rows_raw: 12, rows_kept: 8, rows_marked: 2, rows_quarantined: 2, fields: 5, issues: 9}`，`reconciliation.ok = true`，`status = partial`。此数字只演示接口，不是任何隐藏案例的答案。
