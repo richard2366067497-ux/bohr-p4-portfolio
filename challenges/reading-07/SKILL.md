@@ -1,7 +1,7 @@
 ---
 name: claim-evidence-verifier
 description: 把待核验的科研论断清单落到逐字原文证据上，输出四级判定（supported / partially_supported / contradicted / insufficient_evidence）与段落级 locator，并生成可复核的 result.json、证据卡片与核验报告。用于论断核验、引用支持度检查、批量事实核查、证据溯源；触发语包括「核验这句话」「这句话有依据吗」「这条引用支持该结论吗」「证据溯源」「帮我核对这批论断」「把论断落到原文段落」，英文对应 fact-check this claim、does this citation support the sentence、audit claims against a paper、verify a claim list against a PDF。
-version: 2.0.0
+version: 3.0.0
 ---
 
 # 论断—证据核验器（claim-evidence-verifier）
@@ -9,6 +9,21 @@ version: 2.0.0
 给定一份**待核验论断清单**（每句话都是"待问的问题"，不是既定事实）和一批论文/材料，本 Skill 把每条
 论断拆成原子子判断，逐条找回**最小充分的一段原文**，给出四级支持度判定，并把"论断 → 逐字证据 →
 原文定位 → 判定 → 理由"整条链落盘。
+
+---
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按手册的求解框架（论断拆解 → 逐字证据 → 原文定位 → 支持度判定 → 理由，含每步门控）推进；前一步未冻结不进入下一步。
+- **口径**：按手册的四档支持度判定口径逐条核验；保留比较对象、否定、显著性、条件与来源定位，不把“主题相关”当作“真正支持”。
+- **陷阱**：按手册的领域陷阱清单逐条排雷（错误做法 → 正确做法）。
+- **门控**：交付前逐项通过手册 **§9 防扣分自查表**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties`，绝不静默提升为成功。
+
+---
 
 ## 1. 单命令等价入口（single command — 评测方只需这一条）
 
@@ -131,13 +146,15 @@ contradicted 混 supported/partial→partial；supported 混 insufficient→part
 
 **首写即落盘**：任何命令一开始就先写合法 partial `result.json` 再覆盖升级，中途被杀也留得下可读产物。
 
-## 7. 交付前自查（本次已实跑，见提交报告）
+## 7. 交付前自查（本次已实跑，见 `SELFTEST.md`）
 
 - `python3 scripts/main.py`（无参数）→ exit 0；`result.json` 合法；契约键 100% 回填；三个产物非空。
 - 每条子判断都有 locator + 逐字 quote，或明确 `insufficient_evidence` + `search_scope`。
 - `self_check.passed=true`：无越界判定，`supported/partially` 有已验证证据，`contradicted` 有反证，
   `unverified_quotes=0`。
 - 空目录、坏 JSON、缺文件三种输入均 exit 0 且 `result.json` 合法；同输入复跑判定完全一致。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §9 的防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties`，绝不静默提升为成功。
 
 命令行自检输出示例（真实运行）：`claims=5 sub_claims=6 units=4 sources=1 | quotes=6/6 | status=answered | self_check=True`。
 
@@ -184,3 +201,14 @@ references/verification-rules.md     判定表、打分公式、字段字典、d
 **方法边界（务必随结论转述）**：本 Skill 做词面 + 数值 + 方向的可复核核验，不是同行评审、也不是语义
 蕴含模型。改写、同义替换、跨段推理、图表读数会让它偏保守或偏宽；判 `supported` 仍建议人工扫一眼 quote。
 无文本层 PDF、只有题录的材料，如实记为缺口而不是结论。
+
+## 文件清单与维护
+
+- `SKILL.md` — 本文件：入口、契约、判定口径、降级、自查
+- `scripts/main.py`、`scripts/engine.py` — 单命令入口与证据核验引擎
+- `references/expert_playbook.md` — 专家参考手册（执行前必读）
+- `references/verification-rules.md` — 支持度判定与证据规则
+- `environment/resources.yaml` — 资源入口声明
+- `examples/` — 最小可跑样例
+- `README.md` / `SELFTEST.md` / `GAIN_EVIDENCE.md` / `GITHUB_URL.txt`
+- 依赖：Python 3.9+ 标准库；无第三方、无网络、无外部模型。
