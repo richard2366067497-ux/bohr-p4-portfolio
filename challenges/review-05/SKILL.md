@@ -300,3 +300,7 @@ references/audit-playbook.md      严重度锚点、整改优先级、报告结�
 - **依据来源**：`references/requirement-catalog.md` 每条只写"要求内容 + 检索词 + 依据类型"，不收录未经核对的条款号与期刊要求原文；需要引用具体规范时，以用户材料或官方原文为准。
 - **维护**：新增检查项 → 在 `core.py` 的 `CAT`/`DECL` 增行 + 同步 `references/requirement-catalog.md`；调整严重度锚点 → 同步 `references/audit-playbook.md` 与本文件 §5.3；改契约回填 → 只动 `core.py` 的 `PATTERNS`。
 - **复用**：矩阵 CSV 与台账 JSON 可直接并入实验室/期刊的内部预检流程；`references/requirement-catalog.md` 可单独作为人工逐条核对的检查表。
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
