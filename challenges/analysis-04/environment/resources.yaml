@@ -1,0 +1,30 @@
+# Resource entry point — analysis-codegen-execute (analysis-04, v10)
+schema: resource-entry/v1
+skill: analysis-codegen-execute
+entry:
+  command: python3 /skills/weekly-skill/scripts/engine.py all
+  arguments: ["--input /input", "--output /app/output", "--work /app/work"]
+  exit_code_expected: 0
+  alternatives: [init, show, check, build, selfcheck]
+references: [references/expert_playbook.md, references/analysis_spec.md]   # 八步流程/公式与容差/静默错误/自查表
+examples: {dir: examples, data: examples/sample_data.csv, expected: "status=success, 1 generated code file, 10 ops, 8 key numbers, verification 15/15, 12 artifacts"}
+runtime: {language: python3, version: ">=3.8", third_party: none, network: false, clock: false, model_calls: 0}
+budget: {max_requests: 64, max_seconds: 900, max_tokens: 16384}
+limits:
+  subprocess_timeout_s: 300     # the generated code runs in an isolated child process
+  files_per_material_scan: 60   # further files are indexed and left unread
+  bytes_per_file: 500000        # a larger file is read up to the cap; truncation is reported
+  claim_tolerance: "max(1e-6, 5e-4*|value|)"   # declared vs independently recomputed
+inputs:
+  - {path: /input/case.json, required: false, note: "case_id, data_file, data_dict_file, task, output_contract (authoritative)"}
+  - {path: /input, required: true, note: "csv, tsv, json, jsonl, sqlite, md or txt; anything else is snapshotted and named"}
+  - {path: /app/work/draft.json, required: false, note: "column_map / cleaning_policy / claims / verification; merged, never required"}
+outputs:
+  [code/analysis.py, results/summary.json, results/key_numbers.json, results/key_numbers.csv, verification.json,
+   run_log.json, environment.json, reproducibility.json, report.md, cleaning_ledger.csv, chart.svg, result.json]
+workdir: /app/work
+degradation:
+  missing_input: status=failed, every contract key present with an honest envelope, exit 0
+  unreadable_material: snapshotted, named in the manifest, nothing guessed
+  no_analysable_data: code still generated and executed, all artifacts written, status=partial
+  subprocess_failure: stdout/stderr kept, in-engine recompute fallback, errors[] records the stage
