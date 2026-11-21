@@ -1,446 +1,509 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""main.py - research-01 investigation notebook CLI.
+"""main.py -- deep-research-evidence-map driver (Agent-led, stdlib only, exit code always 0).
 
-Commands: init | show | check | build | selfcheck.  Exit code is always 0; a legal
-partial result.json is written first and finalised unconditionally.
+  init       index every material into locator-bearing paragraphs, print the object table,
+             write a legal partial /app/output/result.json FIRST
+  show       print sources / records / contract / paragraphs so the Agent can quote verbatim
+  check      validate /app/work/draft.json (schema, enums, dependency graph, quote anchoring,
+             retrieval coverage, conflict bidirectionality, gap evidence, undeclared conflicts)
+  build      render research_plan.json, evidence_matrix(.jsonl/.csv), synthesis.json,
+             coverage.json, report.md and the final result.json (unconditional finalize,
+             with a complete-but-degraded fallback when no draft exists)
+  selfcheck  re-verify the written artifacts and contract completeness
+
+Defaults: --input /input  --output /app/output  --work /app/work  (env SKILL_INPUT/OUTPUT/WORK).
 """
-
 import argparse
+import csv
 import json
+import os
 import re
 import sys
 import time
 import traceback
 from pathlib import Path
 
-sys.dont_write_bytecode = True  # keep the installed skill dir free of __pycache__
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import core as C
+import validate as V
+import build as B
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import parse as P          # noqa: E402
-import check as C          # noqa: E402
-import render as R         # noqa: E402
-import contract as X       # noqa: E402
-from render import cut     # noqa: E402
-
-SKILL_ROOT = HERE.parent
-T0 = time.time()
-
-
-# --------------------------------------------------------------------------- io
-def jwrite(path, obj):
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=False), "utf-8")
-    tmp.replace(p)
+GEN = C.GEN
+DEFAULT_CONTRACT = ["case_id", "research_question", "sub_questions", "retrieval_plan", "tool_calls",
+                    "evidence", "claims", "conflicts", "gaps", "uncertainties", "coverage", "sources",
+                    "report", "status"]
+QKEYS = ("research_question", "question", "research_question_original", "question_original", "topic",
+         "research_topic", "task_question", "instruction_question")
 
 
-def jline(path, rows):
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    body = "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
-    p.write_text(body + ("\n" if body else ""), "utf-8")
+def paths(a):
+    return (Path(a.input or os.environ.get("SKILL_INPUT", "/input")),
+            Path(a.output or os.environ.get("SKILL_OUTPUT", "/app/output")),
+            Path(a.work or os.environ.get("SKILL_WORK", "/app/work")))
 
 
-def jdump(obj):
-    return json.dumps(obj, ensure_ascii=False)
-
-
-def load_json(path):
-    return json.loads(Path(path).read_text("utf-8", errors="replace"))
-
-
-def cut(s, n):
-    s = re.sub(r"\s+", " ", str(s)).strip()
-    return s if len(s) <= n else s[: n - 1] + "…"
-
-
-# --------------------------------------------------------------------------- derive
-def _p(args):
-    return P.resolve_paths(getattr(args, "input", None), getattr(args, "work", None),
-                           getattr(args, "output", None))
-
-
-def _slim(idx):
-    return {"input_dir": idx["input_dir"], "case_path": idx["case_path"],
-            "task_path": idx["task_path"], "stats": idx["stats"],
-            "contract": idx["contract"],
-            "materials": [{"source_id": m["id"], "path": m["rel"], "kind": m["kind"],
-                           "read_method": m["read_method"], "chars": m["chars"],
-                           "blocks": len(m.get("blocks") or [])} for m in idx["materials"]],
-            "records": idx["records"][:200],
-            "degradations": idx["degradations"], "errors": idx["errors"]}
-
-
-def cmd_init(args):
-    inp, work, out = _p(args)
-    idx = P.build_index(inp)
-    jwrite(work / "index.json", _slim(idx))
-    data = {"case_id": (idx["case"] or {}).get("case_id"), "question": P.question_of(idx),
-            "sqs": [], "search_steps": [], "findings": [], "conflicts": [],
-            "conflict_hints": [], "synthesis": [], "evidence": [], "open_questions": [],
-            "uncertainties": [], "sources": [], "coverage": {}}
-    chk = {"issues": [], "repairs": [], "stats": {"fix": 0, "warn": 0, "quotes_verified": 0,
-                                                  "quotes_failed": 0, "locators_repaired": 0,
-                                                  "uncovered_sub_questions": []}}
-    deg = list(idx["degradations"]) + [{"code": "init_partial",
-                                        "detail": "init 阶段仅建立索引；待 Agent 写工作稿后 build 生成正式产物"}]
-    res = X.build_result((idx["case"] or {}).get("case_id") or "unknown", "partial", data, chk, idx,
-                       deg, idx["errors"], [{"change_id": "C1", "kind": "partial_written",
-                                             "detail": "init 写出合法 partial result.json"}],
-                       {"phase": "init", "seconds": round(time.time() - T0, 2)})
-    jwrite(out / "result.json", res)
-    print("[init] input=%s work=%s output=%s" % (inp, work, out))
-    print("[init] materials=%d readable=%d records=%d contract_keys=%d chars=%d" % (
-        idx["stats"]["materials"], idx["stats"]["readable_materials"], idx["stats"]["records"],
-        idx["stats"]["contract_keys"], idx["stats"]["chars"]))
-    print("[init] question: %s" % cut(data["question"], 160))
-    print("[init] contract keys: %s" % ", ".join(f["key"] for f in idx["contract"]))
-    for d in idx["degradations"]:
-        print("[init] degraded: %s %s" % (d.get("code"), d.get("path") or d.get("detail") or ""))
-    print("[init] partial result.json -> %s" % (out / "result.json"))
-    print("[init] NEXT: python3 scripts/main.py show  → read sentences → write %s/draft.json "
-          "→ check → build" % work)
-
-
-def cmd_show(args):
-    inp, work, out = _p(args)
-    idx = P.build_index(inp)
-    g = args.grep
-    if args.max_sents == 0:
-        args.max_sents = 10 ** 6
-    print("== CASE ==")
-    print("case_id: %s" % ((idx["case"] or {}).get("case_id") or "(none)"))
-    print("question: %s" % cut(P.question_of(idx), 400))
-    print("contract keys (%d): %s" % (len(idx["contract"]), " | ".join(f["key"] for f in idx["contract"])))
-    for k in ("constraints", "search_protocol", "protocol", "time_range", "inclusion", "exclusion"):
-        v = (idx["case"] or {}).get(k)
-        if v:
-            print("%s: %s" % (k, cut(jdump(v) if not isinstance(v, str) else v, 300)))
-    if args.brief:
-        tm = (idx.get("task_md") or "").strip()
-        print("\n== TASK.MD (%d chars) ==\n%s" % (len(tm), tm[:3000]))
-    print("\n== MATERIALS (%d) ==" % idx["stats"]["materials"])
-    for m in idx["materials"]:
-        print("[%s] kind=%s read=%s chars=%d blocks=%d  %s" % (
-            m["id"], m["kind"], m["read_method"], m["chars"], len(m.get("blocks") or []), m["rel"]))
-    if idx["records"]:
-        print("\n== RECORDS (%d) ==" % len(idx["records"]))
-        for r in idx["records"][: args.max_records]:
-            print("[%s] %s | %s | %s" % (r["rec_id"], cut(r.get("title"), 80),
-                                          r.get("year") or "-", r["locator"]))
-    mats = idx["materials"]
-    if args.source:
-        mats = [m for m in mats if m["id"] == args.source or m["rel"] == args.source]
-        if not mats:
-            print("\n!! source %s not found" % args.source)
-    print("\n== EXCERPTS (verbatim; copy quote text exactly) ==")
-    for m in mats:
-        if m.get("kind") == "table" and not args.source:
+def find_case(inp, errs):
+    """case.json -> any *.json with an output_contract; never assume the filename."""
+    if not inp.exists():
+        errs.append({"code": "input_missing", "detail": "input directory not found: %s (indexing skipped, partial result written)" % inp})
+        return {}, None
+    cand = []
+    p = inp / "case.json"
+    if p.exists():
+        cand.append(p)
+    cand += [q for q in sorted(inp.rglob("case*.json")) if q != p]
+    strict = [q for q in cand]
+    for q in strict:
+        try:
+            return C.jread(q), q
+        except Exception as e:
+            errs.append({"code": "case_json_invalid", "detail": "%s: %r" % (q, e)})
+    for q in [q for q in sorted(inp.rglob("*.json")) if q not in cand]:
+        try:
+            o = C.jread(q)
+        except Exception:
             continue
-        blocks = m.get("blocks") or []
-        show = blocks if args.max_blocks == 0 else blocks[: args.max_blocks]
-        print("\n--- [%s] %s (%d blocks, showing %d) ---" % (m["id"], m["rel"], len(blocks), len(show)))
-        n = 0
-        for b in show:
-            if not b["sents"]:
-                continue
-            print("  %s %s" % (b["bid"], cut(b["text"], 90)))
-            for s in b["sents"]:
-                if g and g not in s["text"]:
-                    continue
-                if n >= args.max_sents:
+        if isinstance(o, dict) and ("output_contract" in o or "case_id" in o):
+            errs.append({"code": "case_recovered", "detail": "case metadata recovered from %s (case.json absent)" % q.name})
+            return o, q
+    return {}, None
+
+
+def recover_question(case, taskmd, degr):
+    for k in QKEYS:
+        if isinstance(case.get(k), str) and len(case[k].strip()) > 8:
+            if k != "research_question":
+                degr.append("research question recovered from case key %r" % k)
+            return case[k].strip(), "case:" + k
+    for k, v in C.walk(case):
+        if k.lower() in QKEYS and isinstance(v, str) and len(v.strip()) > 12:
+            degr.append("research question recovered from nested key %r" % k)
+            return v.strip(), "case:" + k
+    if taskmd:
+        for line in taskmd.splitlines():
+            s = line.strip().lstrip("#").strip()
+            if len(s) > 12 and not s.startswith("|"):
+                degr.append("research question recovered from task.md leading line (no explicit question field)")
+                return s[:400], "task.md"
+    degr.append("no research question could be recovered from case.json or task.md")
+    return "", "none"
+
+
+def materials(inp, case):
+    files = [p for p in sorted(inp.rglob("*")) if p.is_file()] if inp.exists() else []
+    skip = re.compile(r"^(case.*\.json|task\.md|readme.*|.*\.pyc)$", re.I)
+    text_ext = (".pdf", ".docx", ".txt", ".md", ".json", ".jsonl", ".csv", ".tsv", ".html", ".htm", ".xml")
+    out = []
+    rec = re.compile(r"record|candidate", re.I)
+    proto = re.compile(r"(^|[^a-z])(protocol|protocols|screening[_-]?plan|eligibility|搜索方案|检索方案|纳排)", re.I)
+    for p in files:
+        rel = str(p.relative_to(inp))
+        if skip.match(p.name) or "workorder" in p.name.lower():
+            continue
+        if p.suffix.lower() not in text_ext:
+            continue
+        if rec.search(p.name) and p.suffix.lower() in (".jsonl", ".csv", ".tsv"):
+            continue  # consumed by the record loader, not cited as a source
+        if proto.search(p.stem) and p.suffix.lower() in (".md", ".txt", ".json"):
+            continue  # the search/screening protocol is a rule set, not an evidence source
+        out.append(p)
+    return out
+
+
+def build_index(inp, errs, degr):
+    t0 = time.time()
+    case, cpath = find_case(inp, errs)
+    taskmd = ""
+    for cand in ([inp / "task.md"] + sorted(inp.rglob("task.md"))) if inp.exists() else []:
+        if cand.exists():
+            taskmd = cand.read_text(encoding="utf-8", errors="replace")
+            break
+    q, qsrc = recover_question(case, taskmd, degr)
+    mat = materials(inp, case)
+    files = [p for p in sorted(inp.rglob("*")) if p.is_file()] if inp.exists() else []
+    declared = []
+    for k in ("sources", "source_list", "documents", "papers", "corpus", "materials"):
+        v = case.get(k)
+        if isinstance(v, list) and v:
+            declared = v
+            break
+
+    docs, para_map, calls = {}, {}, []
+    step = 0
+    for i, p in enumerate(mat):
+        sid = "S%d" % (i + 1)
+        meta = next((d for d in declared if isinstance(d, dict) and
+                     str(d.get("file") or d.get("filename") or d.get("path") or "").split("/")[-1].lower()
+                     == p.name.lower()), None)
+        if meta:
+            sid = str(meta.get("source_id") or meta.get("paper_id") or meta.get("id") or sid)
+        d, notes, retry = None, [], 0
+        for attempt in (1, 2):
+            try:
+                d = C.extract_doc(p)
+                if d["paras"]:
                     break
-                print("  [%s] %s" % (m["id"], P.locator_for(m, s["start"], s["end"])))
-                print("  > %s" % cut(s["text"], args.max_chars))
-                n += 1
-        if n >= args.max_sents:
-            print("  (capped at %d sentences; use --max-sents 0 for all)" % args.max_sents)
-        if g:
-            print("  (grep '%s': %d sentences)" % (g, n))
-    print("\n== NEXT ==")
-    print("write %s/draft.json (schema: references/draft_schema.md) then run: check → build" % work)
+            except Exception as e:
+                notes.append("attempt %d failed: %r" % (attempt, e))
+            retry = attempt
+        if d is None:
+            d = {"kind": C.kind_of(p), "engine": "failed", "paras": [], "text": "", "n_units": 0,
+                 "quality": 0.0, "notes": notes or ["extraction failed"]}
+        step += 1
+        calls.append({"step_id": "T%d" % step, "tool": "parse_pdf" if d["kind"] == "pdf" else "read_file",
+                      "params": {"path": str(p), "source_id": sid}, "origin": "script",
+                      "result_summary": "%s, %d paras, %d chars, engine=%s" % (d["kind"], len(d["paras"]), len(d["text"]), d["engine"]),
+                      "status": "retried" if retry else ("ok" if d["paras"] else "failed"),
+                      "retry_count": retry, "produced_artifact": "work/index.json#%s" % sid})
+        d.update(filename=p.name, path=str(p), source_id=sid,
+                 title=str((meta or {}).get("title") or (meta or {}).get("name") or p.stem),
+                 declared=bool(meta), scheme="p{page}#para{n}" if d["kind"] in ("pdf", "docx") else "b{block}#para{n}")
+        docs[sid] = d
+        para_map[sid] = d["paras"]
+        degr += ["%s: %s" % (p.name, n) for n in (d["notes"] or [])]
+        if not d["paras"]:
+            errs.append({"code": "source_unreadable", "detail": "%s: no text extracted (see degradations); excluded from evidence" % p.name})
+
+    if declared and len(declared) == len(docs) and not any(d["declared"] for d in docs.values()):
+        degr.append("declared source files could not be matched by name: source ids reassigned positionally from case.json order")
+        remap = {}
+        for (old, d), meta in zip(sorted(docs.items()), declared):
+            new = str((meta or {}).get("source_id") or (meta or {}).get("paper_id") or (meta or {}).get("id") or old) \
+                if isinstance(meta, dict) else old
+            if new != old:
+                remap[old] = new
+        for old, new in remap.items():
+            docs[new] = docs.pop(old)
+            docs[new]["source_id"] = new
+            para_map[new] = para_map.pop(old)
+    records, rsrc, rnotes = C.load_records(files, case)
+    degr += rnotes
+    if records:
+        step += 1
+        calls.append({"step_id": "T%d" % step, "tool": "extract_table", "params": {"file": rsrc},
+                      "origin": "script", "result_summary": "%d records loaded" % len(records),
+                      "status": "ok", "retry_count": 0, "produced_artifact": "work/index.json#records"})
+    protocol = ""
+    for k in ("search_protocol", "protocol", "screening_plan", "retrieval_protocol"):
+        v = case.get(k)
+        if isinstance(v, str):
+            protocol = v
+            break
+        if isinstance(v, (dict, list)):
+            protocol = json.dumps(v, ensure_ascii=False)
+            break
+    if not protocol and inp.exists():
+        for cand in sorted(inp.rglob("*protocol*")):
+            if cand.is_file() and cand.suffix.lower() in (".md", ".txt", ".json"):
+                protocol = cand.read_text(encoding="utf-8", errors="replace")[:20000]
+                degr.append("search protocol read from file %s (not declared in case.json)" % cand.name)
+                break
+    constraints = case.get("constraints") or case.get("constraint") or case.get("limits") or {}
+    contract = case.get("output_contract")
+    if not isinstance(contract, (dict, list)) or not C.contract_keys(contract):
+        degr.append("output_contract missing or empty: using the built-in 14-key generic contract")
+        contract = dict((k, "string" if k in ("research_question", "report", "status", "case_id") else "array")
+                        for k in DEFAULT_CONTRACT)
+    cid = str(case.get("case_id") or case.get("id") or (cpath.parent.name if cpath else "unknown"))
+    index = dict(case_id=cid, case_path=str(cpath or ""), question=q, question_source=qsrc,
+                 contract=contract,
+                 constraints=constraints if isinstance(constraints, (dict, list)) else {},
+                 protocol=protocol[:20000],
+                 sources_expected=len(declared) if declared else len(docs),
+                 records_expected=len(records),
+                 generated=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                 docs={k: dict((f, v.get(f)) for f in ("filename", "kind", "engine", "n_units", "quality", "notes",
+                                                       "path", "source_id", "title", "declared", "scheme"))
+                       for k, v in docs.items()},
+                 paras=para_map,
+                 texts={k: v["text"] for k, v in docs.items()},
+                 records=records, records_source=rsrc,
+                 tool_calls=calls, seconds=round(time.time() - t0, 2))
+    return index, case, errs, degr
 
 
-def _draft_path(args):
-    _, work, _ = _p(args)
-    return work / "draft.json"
-
-
-def cmd_check(args):
-    inp, work, out = _p(args)
-    idx = P.build_index(inp)
-    dp = _draft_path(args)
-    info = {"path": str(dp), "status": "missing"}
-    draft = None
-    try:
-        draft = C.normalize_draft(load_json(dp))
-        info["status"] = "loaded"
-    except FileNotFoundError:
-        info["status"] = "missing"
-    except Exception as e:
-        info["status"] = "invalid"
-        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
-    if draft is None:
-        print("[check] draft %s (%s) -> nothing to validate; build will use fallback" % (info["status"], dp))
-        jwrite(work / "check-report.json", {"draft": info, "issues": [], "repairs": [],
-                                            "stats": {"fix": 0, "warn": 0}})
-        return
-    chk = C.check_draft(draft, idx)
-    jwrite(work / "check-report.json", {"draft": info, "issues": chk["issues"],
-                                        "repairs": chk["repairs"], "stats": chk["stats"]})
-    st = chk["stats"]
-    print("[check] draft=%s sub_questions=%d findings=%d synthesis=%d open=%d steps=%d" % (
-        dp, st["sub_questions"], st["findings"], st["synthesis_paragraphs"],
-        st["open_questions"], st["search_steps"]))
-    print("[check] quotes %d/%d hits, locator repairs=%d, fix=%d warn=%d" % (
-        st["quotes_verified"], st["quotes_verified"] + st["quotes_failed"],
-        st["locators_repaired"], st["fix"], st["warn"]))
-    for r in chk["repairs"]:
-        print("  [REPAIR %s] %s %s → %s" % (r["code"], r["where"], r["detail"], r["to"]))
-    for i in chk["issues"]:
-        print("  [%s %s] %s: %s%s" % (i["severity"], i["code"], i["where"], i["message"],
-                                      (" | %s" % i["fix_hint"]) if i["fix_hint"] else ""))
-    if st["fix"] == 0:
-        print("[check] OK: no FIX. run build.")
-    else:
-        print("[check] %d FIX must be resolved before build (build still runs and degrades)." % st["fix"])
-
-
-def _finalize(args, phase):
-    inp, work, out = _p(args)
-    idx = P.build_index(inp)
-    degradations = list(idx["degradations"])
-    errors = list(idx["errors"])
-    changes = []
-    dp = work / "draft.json"
-    draft, dstat = None, "missing"
-    try:
-        draft = C.normalize_draft(load_json(dp))
-        dstat = "loaded"
-    except FileNotFoundError:
-        dstat = "missing"
-    except Exception as e:
-        dstat = "invalid"
-        errors.append({"code": "draft_invalid", "detail": "%s: %s" % (type(e).__name__, str(e)[:200])})
-    if draft is None or not (draft["findings"] or draft["sub_questions"]):
-        if dstat == "loaded":
-            degradations.append({"code": "draft_incomplete",
-                                 "detail": "draft.json 有结构但缺 findings/sub_questions"})
-        else:
-            degradations.append({"code": "draft_%s" % dstat,
-                                 "detail": "未找到可用工作稿 %s：走确定性兜底推导" % dp})
-        draft = C.normalize_draft(X.derive_draft(idx))
-        draft["derived"] = True
-        changes.append({"change_id": "C%d" % (len(changes) + 1), "kind": "derived_fallback",
-                        "detail": "无工作稿：子问题由任务句拆出、发现卡由材料句机械抽取，未经 Agent 复核，结论只能作线索"})
-    chk = C.check_draft(draft, idx)
-    for r in chk["repairs"]:
-        changes.append({"change_id": "C%d" % (len(changes) + 1), "kind": "locator_repaired",
-                        "detail": "%s %s → %s" % (r["where"], r["detail"], r["to"])})
-    status = "ok"
-    if idx["stats"]["readable_materials"] == 0:
-        status = "insufficient_evidence"
-        if any(e.get("code") == "case_json_invalid" for e in errors):
-            status = "input_error"
-    if draft.get("derived") or chk["stats"]["fix"] > 0:
-        status = "partial" if status == "ok" else status
-    data = R.assemble(draft, idx, chk)
-    if not data.get("case_id"):
-        data["case_id"] = (idx["case"] or {}).get("case_id") or ("case-%s" % (
-            Path(idx["input_dir"]).name or "unknown"))
-    files = R.render_all(draft, idx, data, chk)
-    for rel, content in files.items():
-        p = out / rel
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, "utf-8")
-    for o in data["open_questions"]:
-        pass
-    if any(e.get("code") == "case_json_invalid" for e in errors):
-        degradations.append({"code": "case_json_invalid", "detail": "case.json 坏 JSON，按 task.md 与材料兜底"})
-    if data["conflict_hints"] and not data["conflicts"]:
-        degradations.append({"code": "conflict_hint_unadjudicated",
-                             "detail": "脚本提示 %d 处方向相反的候选句，但工作稿未登记反证" % len(data["conflict_hints"])})
-    if data["coverage"]["quotes_failed"]:
-        degradations.append({"code": "quote_unverified",
-                             "detail": "%d 条引文未逐字命中，相关卡片已降为 provisional/low" %
-                                       data["coverage"]["quotes_failed"]})
-    if data["coverage"]["sub_questions_covered"] < data["coverage"]["sub_questions"]:
-        degradations.append({"code": "sub_question_uncovered",
-                             "detail": "%d 个子问题无发现卡" % (
-                                 data["coverage"]["sub_questions"] - data["coverage"]["sub_questions_covered"])})
-    changes.append({"change_id": "C%d" % (len(changes) + 1), "kind": "finalize",
-                    "detail": "build 无条件 finalize：%d 章 + 契约 %d 键" % (
-                        len(files), len(idx["contract"]))})
-    extra = {"phase": phase, "seconds": round(time.time() - T0, 2), "draft_status": dstat,
-             "derived": bool(draft.get("derived")),
-             "python": sys.version.split()[0], "skill": "research-investigation-notebook/1.0.0"}
-    res = X.build_result(data["case_id"], status, data, chk, idx, degradations, errors, changes, extra, out=out)
-    jwrite(out / "result.json", res)
-    print("[build] status=%s derived=%s draft=%s" % (status, extra["derived"], dstat))
-    print("[build] chapters=%d findings=%d evidence=%d quotes=%d/%d fix=%d warn=%d" % (
-        len(files), len(data["findings"]), len(data["evidence"]),
-        chk["stats"]["quotes_verified"], chk["stats"]["quotes_verified"] + chk["stats"]["quotes_failed"],
-        chk["stats"]["fix"], chk["stats"]["warn"]))
-    filled = sum(1 for a in res["contract_audit"] if a["filled"])
-    print("[build] contract keys filled %d/%d (empty: %s)" % (
-        filled, len(res["contract_audit"]),
-        ", ".join(a["key"] for a in res["contract_audit"] if not a["filled"]) or "none"))
-    print("[build] notebook -> %s   result -> %s" % (out / "notebook", out / "result.json"))
-    if extra["derived"]:
-        print("[build] WARNING: no usable draft.json — degraded fallback. Read materials, write the "
-              "draft, then re-run check/build.")
+def partial(case, errs, degr=None):
+    contract = case.get("output_contract") if isinstance(case, dict) else None
+    if not isinstance(contract, (dict, list)) or not C.contract_keys(contract):
+        contract = dict((k, "array") for k in DEFAULT_CONTRACT)
+    res = dict((k, C.empty_like(C.contract_spec(contract, k)))
+               for k in C.contract_keys(contract))
+    res.update(case_id=str((case or {}).get("case_id") or (case or {}).get("id") or "unknown"),
+               status="partial", sources=[], errors=errs, degradations=degr or [],
+               uncertainties=["run not finalized: partial result written before any synthesis"],
+               changes=[], artifacts=[], tool_calls=[], coverage={}, six_requirements={},
+               runtime=dict(skill=GEN, stage="partial"))
     return res
 
 
-def cmd_build(args):
-    _finalize(args, "build")
-
-
-def cmd_selfcheck(args):
-    inp, work, out = _p(args)
-    idx = P.build_index(inp)
-    rep = {"checked_at_phase": "selfcheck", "pass": True, "items": []}
-
-    def add(name, ok, detail):
-        rep["items"].append({"check": name, "ok": bool(ok), "detail": detail})
-        if not ok:
-            rep["pass"] = False
-
-    rp = out / "result.json"
+def save_partial(case, errs, out, stage, degr=None):
     try:
-        res = load_json(rp)
-        add("result_json_readable", True, str(rp))
-    except Exception as e:
-        add("result_json_readable", False, "%s: %s" % (type(e).__name__, e))
-        res = {}
-    keys = [f["key"] for f in idx["contract"]]
-    missing = [k for k in keys if k not in res]
-    add("contract_keys_present", not missing, "missing=%s" % (missing or "none"))
-    empty = [a["key"] for a in res.get("contract_audit", []) if not a["filled"]]
-    add("contract_keys_filled", not empty, "empty=%s" % (empty or "none"))
-    need = ["notebook/00-README.md", "notebook/01-brief.md", "notebook/02-search-log.jsonl",
-            "notebook/03-findings/finding-cards.jsonl", "notebook/04-synthesis.md",
-            "notebook/05-open-questions.md", "appendix/evidence-register.jsonl"]
-    empt = []
-    for rel in need:
-        p = out / rel
-        if not p.is_file() or p.stat().st_size == 0:
-            empt.append(rel)
-    add("chapters_present_nonempty", not empt, "empty=%s" % (empt or "none"))
-    cards = 0
-    cp = out / "notebook/03-findings/finding-cards.jsonl"
-    if cp.is_file():
-        cards = sum(1 for ln in cp.read_text("utf-8").splitlines() if ln.strip())
-    add("cards_match_result", cards == len(res.get("findings") or []),
-        "cards=%d result.findings=%d" % (cards, len(res.get("findings") or [])))
-    qv = qf = 0
-    for f in res.get("findings") or []:
-        for it in (f.get("support") or []) + (f.get("counter") or []):
-            loc = C.quote_locate(idx, it.get("quote") or "", it.get("source_id"))
-            if loc["ok"]:
-                qv += 1
-            else:
-                qf += 1
-    add("quotes_reverified", qf == 0, "verified=%d failed=%d" % (qv, qf))
-    reg = {f.get("finding_id") for f in res.get("findings") or []}
-    bad = [i for f in res.get("findings") or [] for i in
-           [x for x in (f.get("sub_question_id"),) if x] if i not in
-           {s.get("sq_id") for s in res.get("sub_questions") or []}]
-    add("findings_point_to_registered_sq", not bad, "bad=%s" % (bad or "none"))
-    draft, dstat = None, "missing"
-    try:
-        draft = C.normalize_draft(load_json(work / "draft.json"))
-        dstat = "loaded"
-    except FileNotFoundError:
+        out.mkdir(parents=True, exist_ok=True)
+        res = partial(case, errs, degr)
+        res["runtime"]["stage"] = stage
+        C.jwrite(out / "result.json", res)
+    except Exception:
         pass
-    except Exception:
-        dstat = "invalid"
-    if draft is None or not (draft["findings"] or draft["sub_questions"]):
-        draft = C.normalize_draft(X.derive_draft(idx))
-    chk = C.check_draft(draft, idx)
-    data = R.assemble(draft, idx, chk)
-    a = "".join("%s:%s" % (k, v) for k, v in sorted(R.render_all(draft, idx, data, chk).items()))
-    b = "".join("%s:%s" % (k, v) for k, v in sorted(R.render_all(draft, idx, data, chk).items()))
-    add("deterministic_render", a == b, "two renders identical=%s" % (a == b))
-    degs = [d.get("code") for d in res.get("degradations") or []]
-    add("draft_present", "draft_missing" not in degs and "draft_invalid" not in degs,
-        "draft_status=%s" % dstat)
-    rep["degradations"] = degs
-    rep["counts"] = {"findings": len(res.get("findings") or []), "quotes_verified": qv,
-                     "quotes_failed": qf, "chapters": len(need)}
-    jwrite(out / "selfcheck.json", rep)
-    print("[selfcheck] pass=%s" % rep["pass"])
-    for it in rep["items"]:
-        print("  [%s] %s — %s" % ("OK" if it["ok"] else "FAIL", it["check"], it["detail"]))
-    print("[selfcheck] report -> %s" % (out / "selfcheck.json"))
 
 
-# --------------------------------------------------------------------------- main
-def _fallback(args, exc):
+# ------------------------------------------------------------------ init
+def cmd_init(a):
+    t0 = time.time()
+    inp, out, wk = paths(a)
+    wk.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
+    errs, degr = [], []
+    save_partial({}, [{"code": "not_started", "detail": "indexing not finished yet"}], out, "init_boot")
+    index, case, errs, degr = build_index(inp, errs, degr)
+    C.jwrite(wk / "index.json", index)
+    cid = index["case_id"]
+    res = partial(case, errs, degr)
+    res.update(case_id=cid, sources=[dict(source_id=k, file=v["filename"], kind=v["kind"], engine=v["engine"],
+                                          n_paras=len(index["paras"][k]), scheme=v["scheme"],
+                                          declared=v["declared"], notes=v["notes"])
+                                     for k, v in index["docs"].items()],
+               tool_calls=index["tool_calls"],
+               uncertainties=["not synthesized yet: read the materials, write /app/work/draft.json, then run build"],
+               runtime=dict(skill=GEN, stage="init", seconds=round(time.time() - t0, 2),
+                            sources=len(index["docs"]), records=len(index["records"])))
+    C.jwrite(out / "result.json", res)
+    print("== case ==")
+    print("case_id=%s | case=%s | question_source=%s" % (cid, index["case_path"] or "none", index["question_source"]))
+    print("question=%s" % (index["question"][:300] or "(not recovered)"))
+    print("contract_keys=%s" % ", ".join(C.contract_keys(index["contract"])))
+    print("== sources (%d, declared=%d) ==" % (len(index["docs"]), index["sources_expected"]))
+    for k, v in index["docs"].items():
+        print("%s | %s | %s | %d paras | %s | q=%s | %s" % (k, v["filename"], v["kind"],
+                                                           len(index["paras"][k]), v["engine"], v["quality"],
+                                                           "; ".join(v["notes"] or [])[:80]))
+    print("== records (%d, src=%s) ==" % (len(index["records"]), index["records_source"] or "none"))
+    for r in index["records"][:12]:
+        keys = [k for k in r["fields"]][:6]
+        print("%s | %s | %s" % (r["record_id"], r["source_id"] or "-", ", ".join(keys)))
+    if index["protocol"]:
+        print("== search protocol (first 300 chars) ==\n%s" % index["protocol"][:300].replace("\n", " "))
+    if index["constraints"]:
+        print("== constraints == %s" % json.dumps(index["constraints"], ensure_ascii=False)[:300])
+    if errs:
+        print("== errors == %s" % json.dumps(errs, ensure_ascii=False)[:600])
+    print("== next == 1) show --doc S1  2) write %s  3) check  4) build  5) selfcheck" % (wk / "draft.json"))
+    return 0
+
+
+# ------------------------------------------------------------------ show
+def cmd_show(a):
+    inp, out, wk = paths(a)
+    p = wk / "index.json"
+    if not p.exists():
+        print("no index yet: run init first")
+        return 0
     try:
-        _, _, out = _p(args)
-        res = {"case_id": "unknown", "status": "partial",
-               "degradations": [{"code": "unexpected_error", "detail": "%s: %s" % (
-                   type(exc).__name__, str(exc)[:300])}],
-               "errors": [{"code": "unexpected_error", "trace": traceback.format_exc()[-1200:]}],
-               "runtime": {"phase": getattr(args, "command", "unknown"),
-                           "seconds": round(time.time() - T0, 2)}}
-        idx = P.build_index(out / "_none")
-        res = X.attach_output_contract(res, P.DEFAULT_CONTRACT, out=out)
-        jwrite(out / "result.json", res)
-        print("[fatal] %s: %s" % (type(exc).__name__, exc))
-        print("[fatal] wrote minimal legal result.json -> %s" % (out / "result.json"))
+        idx = C.jread(p)
+    except Exception as e:
+        print("index unreadable (%r): re-run init" % e)
+        return 0
+    docs, paras = idx.get("docs") or {}, idx.get("paras") or {}
+    if a.doc:
+        if a.doc not in paras:
+            print("unknown source %r; available: %s" % (a.doc, ", ".join(docs)))
+            return 0
+        ps = paras[a.doc]
+        m = re.match(r"^(\d+)\s*[:.-]\s*(\d+)$", str(a.paras or ""))
+        lo, hi = (int(m.group(1)), int(m.group(2))) if m else (1, min(len(ps), 60))
+        hi = min(hi, len(ps))
+        for q in ps[lo - 1:hi]:
+            print("[%s %s] %s" % (a.doc, q["loc"], q["text"][:1500]))
+        print("-- %s: %d paragraphs, showed %d..%d (locator scheme %s)" %
+              (a.doc, len(ps), lo, hi, docs[a.doc].get("scheme")))
+        return 0
+    if a.records:
+        recs = idx.get("records") or []
+        if not recs:
+            print("(no records loaded; case.json has no records list and no *record* file)")
+        for r in recs:
+            print("[%s] source=%s %s" % (r["record_id"], r["source_id"] or "-",
+                                         json.dumps(r["fields"], ensure_ascii=False)[:900]))
+        return 0
+    if a.contract:
+        ct = idx.get("contract") or {}
+        for k in C.contract_keys(ct):
+            spec = ct.get(k) if isinstance(ct, dict) else k
+            print("%-28s %s" % (k, (json.dumps(spec, ensure_ascii=False) if not isinstance(spec, str) else spec)[:160]))
+        return 0
+    print("== question ==")
+    print((idx.get("question") or "(none)")[:400])
+    print("== sources (%d) ==" % len(docs))
+    for k, v in docs.items():
+        print("%s | %s | %s | %d paras | %s | declared=%s | %s" %
+              (k, v["filename"], v["kind"], len(paras.get(k) or []), v["engine"], v["declared"], v["scheme"]))
+    recs = idx.get("records") or []
+    print("== records (%d) ==" % len(recs))
+    for r in recs:
+        print("%s | source=%s | %s" % (r["record_id"], r["source_id"] or "-",
+                                       ", ".join(list(r["fields"])[:8])))
+    print("== contract keys ==")
+    print(", ".join(C.contract_keys(idx.get("contract") or {})))
+    if idx.get("protocol"):
+        print("== search protocol (head) ==")
+        print(idx["protocol"][:500])
+    print("== next == show --doc <S#> [--paras 1:40] | show --records | write draft.json | check | build")
+    return 0
+
+
+# ------------------------------------------------------------------ check
+def cmd_check(a):
+    inp, out, wk = paths(a)
+    idx = {}
+    try:
+        idx = C.jread(wk / "index.json") if (wk / "index.json").exists() else {}
+    except Exception as e:
+        idx = {}
+        print("WARN index unreadable (%r); run init" % e)
+    dp = wk / "draft.json"
+    draft, src = {}, "none"
+    if dp.exists():
+        try:
+            draft = C.jread(dp)
+            src = str(dp)
+        except Exception as e:
+            draft = {"_unreadable": repr(e)}
+            print("FIX [draft_unreadable] %s :: %r -- rewrite it as valid JSON" % (dp, e))
+    rep = V.validate_draft(draft, idx)
+    rep["draft_source"] = src
+    rep["contract_keys"] = C.contract_keys(idx.get("contract") or {})
+    C.jwrite(wk / "check.json", rep)
+    print(json.dumps({"ok": rep["ok"], "counts": rep["counts"], "six": rep["six"],
+                      "errors": len(rep["errors"]), "warnings": len(rep["warnings"])},
+                     ensure_ascii=False, indent=1))
+    for f in rep["fixes"]:
+        print(f)
+    for w in rep["warnings"][:8]:
+        print("WARN [%s] %s :: %s" % (w["code"], w["where"], w["detail"]))
+    cn = rep["counts"]
+    print("SUMMARY sub_questions=%s evidence=%s quote_pass=%s claims=%s backlink=%s conflicts=%s gaps=%s six=%d/6 errors=%d"
+          % (cn.get("sub_questions"), cn.get("evidence"), cn.get("quote_pass_rate"), cn.get("claims"),
+             cn.get("claims_backlinked_ratio"), cn.get("conflicts"), cn.get("gaps"),
+             sum(1 for v in rep["six"].values() if v), len(rep["errors"])))
+    print("next: fix every FIX line in %s, then run build" % (wk / "draft.json"))
+    return 0
+
+
+# ------------------------------------------------------------------ selfcheck
+def cmd_selfcheck(a):
+    inp, out, wk = paths(a)
+    res, errs = {}, []
+    rp = out / "result.json"
+    if not rp.exists():
+        errs.append("result.json missing")
+    else:
+        try:
+            res = C.jread(rp)
+        except Exception as e:
+            errs.append("result.json invalid JSON: %r" % e)
+    contract = {}
+    try:
+        case, _ = find_case(inp, [])
+        contract = case.get("output_contract") or {}
     except Exception:
-        print("[fatal] could not write fallback result.json")
-        traceback.print_exc()
+        pass
+    if not C.contract_keys(contract):
+        try:
+            contract = (C.jread(wk / "index.json").get("contract") or {})
+        except Exception:
+            contract = {}
+    keys = C.contract_keys(contract)
+    miss = [k for k in keys if k not in res]
+    empty = [k for k in keys if k in res and res[k] in (None, "", [], {})]
+    arts = {}
+    for name in ("research_plan.json", "evidence_matrix.jsonl", "evidence_matrix.csv", "synthesis.json",
+                 "coverage.json", "report.md"):
+        p = out / name
+        arts[name] = p.stat().st_size if p.exists() else 0
+    rep = {}
+    try:
+        rep = C.jread(wk / "check.json")
+    except Exception:
+        pass
+    cov = res.get("coverage") or {}
+    blanks = [n for n in ("report.md", "research_plan.json", "coverage.json") if not (out / n).exists()
+              or (out / n).stat().st_size == 0]
+    out_json = dict(ok=(not errs and not miss and not blanks), errors=errs, blank_artifacts=blanks, contract_keys=len(keys), missing_keys=miss,
+                    empty_contract_values=empty, status=res.get("status"),
+                    artifacts_bytes=arts, report_mentions=0, evidence=len(res.get("evidence") or []),
+                    quote_pass_rate=cov.get("quote_pass_rate"), six_requirements=cov.get("six_requirements_met"),
+                    check_errors=len((rep or {}).get("errors") or []))
+    rmd = out / "report.md"
+    if rmd.exists():
+        txt = rmd.read_text(encoding="utf-8", errors="replace")
+        ids = {str(e.get("evidence_id")) for e in (res.get("evidence") or [])}
+        out_json["report_mentions"] = sum(1 for i in ids if "[%s]" % i in txt)
+        out_json["report_chars"] = len(txt)
+    print(json.dumps(out_json, ensure_ascii=False, indent=1))
+    bad = [n for n, b in arts.items() if not b]
+    if bad:
+        print("WARN empty or missing artifacts: %s -- run build" % ", ".join(bad))
+    if miss:
+        print("WARN contract keys absent from result.json: %s" % ", ".join(miss))
+    if out_json["report_mentions"] < len(res.get("evidence") or []):
+        print("WARN report cites %d of %d evidence ids: every conclusion must carry its evidence id"
+              % (out_json["report_mentions"], len(res.get("evidence") or [])))
+    print("selfcheck %s" % ("PASS" if out_json["ok"] else "REVIEW"))
+    return 0
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(
-        prog="main.py",
-        description="research-01 investigation notebook: init | show | check | build | selfcheck")
-    ap.add_argument("--input", help="input dir (default: /input)")
-    ap.add_argument("--work", help="work dir (default: /app/work)")
-    ap.add_argument("--output", help="output dir (default: /app/output)")
-    sub = ap.add_subparsers(dest="command")
-    s = sub.add_parser("init", help="index inputs, write legal partial result.json")
-    for p in (s,):
-        pass
-    show = sub.add_parser("show", help="print locator-tagged verbatim excerpts")
-    show.add_argument("--source")
-    show.add_argument("--grep")
-    show.add_argument("--max-blocks", type=int, default=12)
-    show.add_argument("--max-chars", type=int, default=240)
-    show.add_argument("--max-sents", type=int, default=60)
-    show.add_argument("--max-records", type=int, default=20)
-    show.add_argument("--records", action="store_true")
-    show.add_argument("--brief", action="store_true")
-    sub.add_parser("check", help="validate work draft against materials")
-    sub.add_parser("build", help="render notebook + final result.json (always finalises)")
-    sub.add_parser("selfcheck", help="re-verify written artifacts")
-    for p in (s, show, sub.choices["check"], sub.choices["build"], sub.choices["selfcheck"]):
-        p.add_argument("--input", dest="input2", help=argparse.SUPPRESS)
-        p.add_argument("--work", dest="work2", help=argparse.SUPPRESS)
-        p.add_argument("--output", dest="output2", help=argparse.SUPPRESS)
-    args = ap.parse_args(argv)
-    for a in ("input", "work", "output"):
-        alt = getattr(args, "%s2" % a, None)
-        if getattr(args, a, None) is None and alt:
-            setattr(args, a, alt)
-    cmd = args.command or "init"
-    fn = {"init": cmd_init, "show": cmd_show, "check": cmd_check,
-          "build": cmd_build, "selfcheck": cmd_selfcheck}.get(cmd, cmd_init)
+    ap = argparse.ArgumentParser(prog="main.py", description="deep-research-evidence-map (%s)" % GEN)
+    sub = ap.add_subparsers(dest="cmd")
+    specs = (("init", "index materials + partial result.json"), ("show", "print sources/records/paragraphs"),
+             ("check", "validate work/draft.json"), ("build", "render artifacts + final result.json"),
+             ("selfcheck", "re-verify written artifacts"))
+    for name, hlp in specs:
+        p = sub.add_parser(name, help=hlp)
+        for f in ("--input", "--output", "--work"):
+            p.add_argument(f)
+        if name == "show":
+            p.add_argument("--doc")
+            p.add_argument("--paras")
+            p.add_argument("--records", action="store_true")
+            p.add_argument("--contract", action="store_true")
+    a = ap.parse_args(argv)
+    if not a.cmd:
+        ap.print_help()
+        return 0
     try:
-        fn(args)
-    except SystemExit:
-        pass
+        if a.cmd == "build":
+            import types
+            H = types.SimpleNamespace(DEFAULT_CONTRACT=DEFAULT_CONTRACT, **dict(
+                (n, globals()[n]) for n in ("paths", "find_case", "partial", "save_partial", "build_index")))
+            B.cmd_build(a, H)
+        else:
+            {"init": cmd_init, "show": cmd_show, "check": cmd_check,
+             "selfcheck": cmd_selfcheck}[a.cmd](a)
     except Exception as e:
-        _fallback(args, e)
+        try:
+            inp, out, _ = paths(a)
+            out.mkdir(parents=True, exist_ok=True)
+            case = {}
+            try:
+                case, _ = find_case(inp, [])
+            except Exception:
+                pass
+            res = partial(case, [{"code": "unhandled_exception",
+                                  "detail": "%s: %s" % (type(e).__name__, e),
+                                  "trace": traceback.format_exc()[-900:]}])
+            res["runtime"]["stage"] = "exception:" + str(a.cmd)
+            C.jwrite(out / "result.json", res)
+        except Exception:
+            pass
+        print("ERROR %s: %s" % (type(e).__name__, e), file=sys.stderr)
+
+    try:
+        import finalize
+        finalize.run(paths(a)[1])
+    except Exception:
+        pass
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
