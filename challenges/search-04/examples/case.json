@@ -1,0 +1,9 @@
+{
+  "case_id": "demo-search-04",
+  "seed": {"doi": "10.5555/demo.2020.001", "title": "Graph Neural Networks for Molecular Property Prediction", "authors": ["Smith, J.", "Doe, A."], "year": 2020},
+  "notes": "FICTIONAL demo case for the packaged example only; not a formal test case and not a submitted answer.",
+  "output_contract": {
+    "show": "agent helper subcommand that lists locator-addressable paragraphs and detected records",
+    "build": "agent helper subcommand that assembles the citation network, paths, gaps and final result"
+  }
+}
