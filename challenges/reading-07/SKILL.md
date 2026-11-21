@@ -27,11 +27,13 @@ version: 3.0.0
 
 ## 1. 单命令等价入口（single command — 评测方只需这一条）
 
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ```bash
-python3 scripts/main.py
+python3 /skills/weekly-skill/scripts/main.py run --input /input --output /app/output --work /app/work
 ```
 
-无参数即跑完整流程：**发现输入 → 读契约 → 切块建索引 → 确定性推导 → 生成 work 稿 → 渲染产物 →
+`run`（无参数时的默认命令）即跑完整流程：**发现输入 → 读契约 → 切块建索引 → 确定性推导 → 生成 work 稿 → 渲染产物 →
 写最终 result.json**。纯标准库、不联网、判定路径不读时钟、不依赖 CWD（按 `Path(__file__).parent` 自定位）。
 
 产物落在 `/app/output`（`--output` 可覆盖）：
