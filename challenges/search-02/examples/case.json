@@ -1,0 +1,16 @@
+{
+  "case_id": "demo-search-02",
+  "research_question": "Which P2-type sodium layered oxide cathodes show improved cycling stability under Ni doping, and under what synthesis conditions?",
+  "notes": "FICTIONAL demo case for the packaged example only; not a formal test case and not a submitted answer.",
+  "output_contract": {
+    "case_id": "case identifier passed through unchanged",
+    "status": "answered | partial | insufficient_evidence | input_error",
+    "subquestions": "structured sub-questions with queries / depends_on / priority / required",
+    "candidates": "candidate records with rid / locator / relevance / decision / basis / quote",
+    "evidence": "evidence ledger with verbatim quote + locator + verified flag",
+    "coverage": "per-sub-question coverage and coverage rate",
+    "search_log": "query count / rounds / zero-yield sub-questions / scope",
+    "stop_decision": "per-sub-question stop rule (saturated / low_marginal_gain / needs_human)",
+    "report": "path to the human-readable report (report.md)"
+  }
+}
