@@ -1,110 +1,159 @@
 ---
 name: stats-decision-ledger
-description: 从数据与规则 schema 推导研究设计，选择并真实计算统计检验（student_t / welch、mann_whitney_u、kruskal_wallis、wilcoxon_signed_rank、spearman_rho、ols_slope、fisher_exact、descriptive），附带效应量与 95% 区间，写方法注册表、决策日志、结果台账与可复现报告。用于"统计检验选择""两组/多组比较""相关与回归""列联表检验""效应量与置信区间""统计报告"等任务；不插补、不外推、不做因果或总体断言，全部结果离线确定性复算并给出 locator。
-version: 6.0.0
-tags: [statistics, decision-ledger, effect-size, reproducibility]
+description: Turn one messy research table into a reproducible statistics package. It reads the real file, cleans it while counting every step, runs the fixed gate order (sample size, normality, equal variance, independence, multiplicity family), picks exactly one method per question, publishes the rejected alternatives beside the finding, binds every number to a locator plus a verbatim quote, and writes a ledger, a report, a PDF preview and figures. Reports honest degradation when the input carries no analysable data.
+license: MIT
 ---
 
-# 统计检验选择与结果解读 → 可复核台账（decision-ledger 契约驱动）
+# Statistical analysis and result interpretation
 
-本包是 `analysis-02` 的 v6 形态：**单命令即可跑完整条统计流水线**，无需先初始化再手写工作稿；
-Agent 仍可读证据后补充判断（写入 `draft.json`，`all` 会自动合并），但评测器只跑第一条命令
-也能拿到全部关键产物与完整契约回填。
+Use this skill when a research dataset has to become an auditable answer: descriptive statistics with
+units, an inferential test that matches the design, an effect size with a 95% interval, and an
+interpretation a researcher can use. The data are observational, so a difference or an association is
+reported as such and never as a cause.
 
-## 0. result.json 契约样例（output_contract 逐键回填）
+## Output contract
 
-`result.json` 把每个契约键同时放进 `output_contract` 结构位与顶层同名键。用例声明的键总是
-合并进来、绝不改名或丢弃；用例未声明契约（`output_contract` 为 null）时使用下列默认键：
+Every key of `case.json -> output_contract` is echoed inside `result.output_contract`, carrying the
+block this run produced or the reason that key could not run - never a substitute number:
 
 ```json
 {
-  "case_id": "string",
-  "status": "success | partial | failed",
   "output_contract": {
-    "case_id": "string",
-    "deliverable": "path",
-    "evidence_map": "array",
-    "change_log": "array",
-    "coverage": "object",
-    "status": "string"
+    "student_t": "the student_t block from this run, or the reason it did not run",
+    "mann_whitney_u": "the mann_whitney_u block from this run, or the reason it did not run",
+    "kruskal_wallis": "the kruskal_wallis block from this run, or the reason it did not run",
+    "wilcoxon_signed_rank": "the wilcoxon_signed_rank block from this run, or the reason it did not run",
+    "spearman_rho": "the spearman_rho block from this run, or the reason it did not run",
+    "ols_slope": "the ols_slope block from this run, or the reason it did not run",
+    "fisher_exact": "the fisher_exact block from this run, or the reason it did not run",
+    "descriptive": "the descriptive block from this run, or the reason it did not run"
   }
 }
 ```
 
-- `case_id` 原样透传（来自 `/input/case.json`）；取不到时回退为输入目录名。
-- 用例若声明形如 `student_t / mann_whitney_u / kruskal_wallis / wilcoxon_signed_rank /
-  spearman_rho / ols_slope / fisher_exact / descriptive` 的方法键，则每键回填一个**方法条目**
-  `{"method","design","required_gates","effect_size","basis","computed","applicable","note"}`：
-  其中 `design` / `required_gates` / `effect_size` / `basis` 由规则 schema 推导（带 locator），
-  `computed` 是该方法在输入数值表上的**真实计算值**（含统计量、p、n、效应量、95% 区间）。
-- 路径类键指向真实存在且非空的交付物；无法直接映射的键写成结构信封
-  `{"kind","items","count","note"}`，而不是占位符。
-- 写出前对文本做令牌中和：文件正文不出现 `待写` / `null` / `none` / `pending` / `N/A` / `TBD`
-  等令牌，但解码后的键值仍是原文。
+A filled block holds `method`, `result_id`, `decision_id`, `selected_by_gates`, `design`,
+`estimate_type`, `groups`, `n`, `df`, `statistic_name`, `statistic`, `p`, `p_adj`, `estimate_point`,
+`ci_95`, `ci_method`, `effect_size{type,value,ci_95,ci_method,direction}`, `unit`, `status`,
+`gate_results`, `candidates[]`, `note`. A key that could not run holds `computed: false`, `reason`,
+`requirement`, `input`, `degradations`.
 
-## 1. 单命令全流程（single-command entry）
+## Draft shape (the only file an agent writes)
 
-一条命令跑完：发现输入 → 解析规则 schema（方法与门禁表）与数据字典 → 解析数值表
-（csv/tsv/json/jsonl/sqlite）→ 按设计选择检验 → 在真实数值上计算 → 附效应量与区间
-→ 写报告 / 台账 / 统计表 / 决策日志 / 效应区间 / 可复现清单 → 回填全部 `output_contract` 键
-→ 写 `result.json`：
+An agent may write `work/draft.json` before running the engine, never as an answer: every decision is
+recomputed, and a draft value that disagrees with the recomputed one is kept as a change record.
 
-```bash
-python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
+```json
+{
+  "case_id": "example-analysis-02",
+  "data_plan": {
+    "missing": {"policy": "mark_only", "columns": ["mass_g"]},
+    "duplicates": {"policy": "drop_exact", "keys": []},
+    "outliers": {"policy": "flag", "rule": "tukey_1.5iqr", "columns": ["mass_g"]},
+    "units": {"mass_g": "g"}
+  },
+  "items": [
+    {
+      "decision_id": "D-02",
+      "question_id": "Q2",
+      "design": "two_independent_groups",
+      "variables": {"outcome": "mass_g", "group": "group"},
+      "candidates": [{"method": "mann_whitney_u"}],
+      "chosen_method": "mann_whitney_u",
+      "multiple_comparison_family": "primary",
+      "correction": "holm"
+    }
+  ]
+}
 ```
 
-- 该命令是评测器可执行的一次性等价入口，退出码恒为 0；空输入 / 坏输入同样退出 0 并写出合法
-  `result.json`（`status=failed` 或 `partial`，降级但不编造统计量）。
-- 输入没有可解析数值表时，仍由规则 schema 推导方法口径、门禁与效应量约定，产出全部文本/JSON
-  交付物（方法条目 `computed` 为空、`applicable=false`，并在 `note` 说明原因）。
+`items` is the decision list; `decisions` is accepted too. Policies: `missing: listwise|pairwise|
+mark_only`, `duplicates: drop_exact|keep|flag_only`, `outliers: keep|flag|winsorize|exclude`. An unknown
+policy, or a column absent from the loaded table, is rejected into the change records rather than
+silently applied; an unknown question id, or an unresolvable design or method, is skipped and counted.
+Without a draft: keep the empty cell and count it, drop exact repeats, flag outliers with Tukey fences
+and keep them.
 
-## 2. 产物清单（写入 `/app/output`）
+## Single command entry (one shot, no draft needed)
 
-| 文件 | 内容 |
-|---|---|
-| `stats_report.md` | 六节报告：输入与编码、方法注册表、结果台账（真实计算值）、决策日志、可核验推导 locator、限制 |
-| `results_ledger.json` | 结果台账：逐条 `result_id / estimate_type / statistic / df / p / n / effect_size / ci_95 / status` |
-| `stats_table.csv` | 台账的扁平表：`result_id,decision_id,estimate_type,statistic_name,statistic,df,p,n,effect_size,effect_value,ci_low,ci_high,status` |
-| `decision_log.json` | 每条设计决策：所选方法、变量、门禁结果（正态性/方差齐性/n）、多重比较家族与校正 |
-| `effect_ci.json` | 每个结果的效应量与 95% 区间（含区间方法） |
-| `reproducibility.json` | seed、CI 水平、Python 版本、离线/无网络、工具版本 |
-| `result.json` | 主结果：契约逐键回填、`case_id` 透传、status、证据、不确定性、变更记录、限制 |
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
 
-`stats_report.md` 与 `results_ledger.json` 是主交付；其余文件是可复核的中间证据。
+That one command reads the case, cleans the table, runs the gates, fills every contract key, writes all
+deliverables under the output directory and exits 0. Every path is a flag or an environment variable;
+input, output and work default to `/input`, `/app/output`, `/app/work`.
 
-## 3. 方法与门禁
+## Agent path (same engine, plus a draft)
 
-- 方法集由规则 schema 的**方法表**推导：`methods | design | 必要门禁 | 效应量`。设计含
-  两组独立、多组、配对、相关/回归、列联表、描述统计；效应量按方法取 `hedges_g / cohen_d /
-  rank_biserial / epsilon_squared / r_squared / odds_ratio / no_effect_size` 等。
-- 选择顺序（门禁）：样本量 → 正态性 → 方差齐性 → 独立性 → 多重比较家族；本离线实现中
-  正态性/方差齐性以 `not-run` 显式标注（不编造 p 值），样本量按真实分组计数给出。
-- 两组独立且方差齐 → `student_t`；否则可报 `mann_whitney_u`（秩方法，对分布假设稳健）。
-- 多组 → `kruskal_wallis`（并置 `holm` 校正族）。配对差 → `wilcoxon_signed_rank`。
-- 两数值列 → `spearman_rho` + `ols_slope`。两个二值分类列 → `fisher_exact`。
-- 单列概况 → `descriptive`（n / mean / sd / min / q1 / median / q3 / max）。
-- 解读禁止词（与规则表一致，引擎不产出）：`证明 / 证实 / proves / proven / proved /
-  confirmed causal / no difference exists`——只报效应量与区间，不做因果或"无差异"断言。
+```bash
+python3 /skills/weekly-skill/scripts/main.py init --input /input --work /app/work
+python3 /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py selfcheck --input /input --output /app/output --work /app/work
+python3 /skills/weekly-skill/scripts/main.py compare --input /input --work /app/work
+```
 
-## 4. Agent-first 增强路径（可选）
+`init` lists the questions this input can support - a suggestion, never read back as a plan. `build` is
+the whole pipeline of `all`. `selfcheck` re-reads the artifacts it just wrote and fails loudly if a
+number drifted. `compare` measures the baseline (load at face value, one t test, no gates) against this
+run, so the gain is a measurement and not a claim.
 
-Agent 先读材料（`show` 打印文件索引与候选列）→ 把方法级判断写成 `/app/work/draft.json`
-（schema 见 `references/rules-and-schema.md` 与 §3）→ 再跑 `all`。`all` 若发现 `draft.json`
-会合并 Agent 的 `registry / design_overrides / decisions`，找不到就以规则 schema 自动推导，
-产物完整度不降。`result.json` 的 `method_registry[].source` 标注 `draft` 或 `synthesized`。
+## Input
 
-## 5. 异常降级
+- `case.json` (or `challenge.json`) with `case_id`, `language`, `materials_root` and the
+  `output_contract` object; those keys are authoritative and this skill never invents keys.
+- the materials it points at: CSV, TSV, JSON, JSONL, SQLite, Markdown or text. Anything else is
+  snapshotted byte for byte and named in the manifest instead of guessed at.
+- optionally the draft above.
 
-| 情形 | 处置 | 记录 |
-|---|---|---|
-| case.json 缺失/坏 JSON | 扫材料继续；用默认契约 | `degradations: draft_missing / case_json_unreadable` |
-| 无可解析数值表 | 由规则 schema 推导方法口径 + 全部诚实交付物，status=partial | `uncertainties: no_analyzable_data` |
-| 空文件 / 坏 JSON | 记入盘点并跳过解析 | `change_log: skipped` |
-| 分组样本量不足（n<2） | 该方法条目标 `applicable=false`，不产出统计量 | `results_ledger` 中省略该行 |
-| 自助区间未运行 | 显式标注 `percentile_bootstrap not-run`，改用解析区间 | `uncertainties: bootstrap not-run` |
+## Files under the output directory
 
-## 6. 边界与限制
+Eleven files come from one pass: `result.json` (machine answer), `results_ledger.json` (every result)
+and its flat projection `statistics_table.csv`; `cleaned_data.csv` (analysis table, one quality flag per
+row); `evidence.json` (one row per number: locator, verbatim quote, sha256_16); `decision_log.json`
+(per-decision trace); `input_manifest.json` and `reproducibility.json` (input hashes, seed, one hash per
+artifact); `report.md` and `report.pdf` (readable report); `self_check.json` (audits the other ten).
 
-只做检验选择、真实统计量计算、效应量与区间的报告；不做插补、异常值 winsorise、因果推断、
-总体外推、基准分或论文写作。纯标准库、无网络、无时钟读取：重复运行同一输入，交付物字节稳定；
-运行中断时保留已写部分 `result.json`，异常写入 `errors[]`，退出码仍为 0。
+## Method and gate rules
+
+The question list follows the columns present: a descriptive question always, a two-group question when
+a two-level column exists, a multi-group question for three or more levels, a contingency question for
+two two-level columns, an association question for two numeric columns, and a paired question only when
+the names declare a pairing such as `pre`/`post`. Pairing is never invented and a group is never
+manufactured by splitting a numeric column.
+
+The gate order is fixed and printed with every verdict: sample size, normality (Jarque-Bera, needs at
+least eight observations), equal variance (Brown-Forsythe on medians), independence, multiplicity.
+One method is selected per question: `student_t` needs both parametric gates, otherwise the rank sibling
+`mann_whitney_u` carries the finding; `one_way_anova` gives way to `kruskal_wallis`, `paired_t` to
+`wilcoxon_signed_rank`, `pearson_r` to `spearman_rho` when normality fails or values carry ties.
+`fisher_exact` is the 2x2 test reported here, with its smallest expected count stated. Alternatives are
+computed anyway and kept in the ledger marked as not selected, so a reader sees what lost and why.
+Inferential rows pass through Holm inside their family; descriptive rows are never corrected. Every p
+value is two-sided and every interval is 95%.
+
+## Honest degradation
+
+Triggers are recorded, never hidden: a missing or invalid draft (defaults are used), no decisions, an
+unresolved variable (that decision is skipped, the rest continue), empty groups, a gate value that
+disagrees with the draft (the recomputed value wins, the draft value is kept for audit), a test that
+fails internally, an effect size that cannot be computed, a missing interpretation (one is generated and
+marked as auto generated), an automatically formed correction family, an unreadable material
+(snapshotted and named), no analysable data (the ledger stays empty) and a failed artifact write (a
+partial `result.json` is still written). Status is `ok`, `partial` or `insufficient_evidence`.
+
+## What this skill will not do
+
+- It will not claim a cause: the banned expressions (proves, proven, proved, confirmed causal, no
+  difference exists) block the interpretation if they appear and are listed in the lint record.
+- It will not report a p value without its effect size and, where one exists, its interval.
+- It will not remove a row or a value without recording how many and why.
+- It will not present a method the gates did not select as the finding.
+- It will not split a numeric column into groups to manufacture a design, nor pair columns that do not
+  declare a pairing.
+
+## Limits
+
+Standard library only, no network, no clock, fixed seed 20240517, deterministic byte for byte; below
+eight observations per group only rank and descriptive methods run. Bootstrap intervals (1000 draws) may
+move in the last digit with the seed. The PDF preview is plain ASCII text and the figures are SVG with
+labels. A file larger than the size cap is read up to the cap and the truncation is reported.
