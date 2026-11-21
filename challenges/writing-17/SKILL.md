@@ -10,6 +10,14 @@ description: Build a source-linked mind map from supplied material — index hea
 来源 `locator`（`M01#s3`），不引入材料外的内容。契约的五个键 `init / show / check / build /
 selfcheck` 对应五个阶段的结构化摘记，全部逐键回填到 `result.json`。
 
+单命令评测入口：
+
+```bash
+python3 -B /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 0. 执行前必读（专家方法论）
 
 **动手前必须先读 `references/expert_playbook.md`，并严格按其检查表产出。** 该手册是本 Skill 的
@@ -52,11 +60,7 @@ selfcheck` 对应五个阶段的结构化摘记，全部逐键回填到 `result.
 
 ## 2. 单命令（single command，评测入口，无 draft 时执行，评测只跑这一条也能过）
 
-下面这一条就是完整流程（scan → outline → graph → 渲染 → result.json），退出码恒为 0。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
-
-```bash
-python3 -B /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+命令见文首「单命令评测入口」，即完整流程（scan → outline → graph → 渲染 → result.json），退出码恒为 0。**无 draft.json 时直接运行该命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ## 3. 分步五命令（保留兼容）
 
