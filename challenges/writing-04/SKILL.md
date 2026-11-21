@@ -63,7 +63,7 @@ license: MIT
 
 ## 1. 单命令入口（第一条命令）
 
-一次性跑完整流程并写出全部交付物与 `result.json`（评测只跑这一条也能过）：
+一次性跑完整流程并写出全部交付物与 `result.json`（评测只跑这一条也能过）。**无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。**
 
 ```bash
 python3 /skills/weekly-skill/scripts/cite_engine.py all --input /input --output /app/output --work /app/work
