@@ -18,6 +18,20 @@ The task has four questions and this skill answers each with an artifact, not an
 | 合得对 | merging duplicate records and synonyms uses a defensible judgement key; different materials are never merged | duplicate detection on the judgement key |
 | 追得回 | every changed value walks back along a rule id to the input row and the original source | change_log.json + evidence/ |
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **流程**：按其 **§2 六步框架（含门控）** 推进——识别任务 → 建原始层与证据层 → 字段映射与类型规范化
+  → 实体/单位转换 → 校验/去重/冲突消解 → 导出与复核；前一步未冻结不进入下一步。
+- **口径**：按其 **§3 换算与精度口径** 用十进制换算、保留公式/规则编号/精度，重复判定默认 `abs_tol=rel_tol=0`。
+- **判重**：按其 **§4 重复键** 同时核对来源、实验身份、物质、指标、条件签名与限定符，缺失条件不是通配符。
+- **自检**：按其 **§5 自检指标** 逐项核验变更审计覆盖率、来源追溯覆盖率、单位复算通过率与行数守恒。
+- **陷阱**：按其 **§6 领域陷阱清单** 逐条排雷（错误做法 → 正确做法）。
+- **门控**：交付前逐项通过其 **§9 防扣分自查表（20 项）**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties` / `pending_review`，绝不静默提升为完整成功。
+
 ## 0. result.json contract
 
 The entry command writes `/app/output/result.json`. It echoes every field of the caller's
@@ -133,3 +147,13 @@ python3 /skills/weekly-skill/scripts/main.py compare   --input /input --output /
   never used; the search locations are named in `pending_review.json` and the report.
 - A row with an arbitrary unit or an unreported value → held, listed, and never converted.
 - A material file is never invented, and no value outside the supplied records is written.
+
+## 7. 交付前自查
+
+- [ ] `result.json` 可解析，`case_id` 与输入一致，`output_contract` 逐键非空、无类型占位符。
+- [ ] `cleaned_table.csv` / `change_log.json` / `pending_review.json` / `counts.json` 均非空且可互相核对。
+- [ ] 每个变更都有 `rule_id` 与来源行定位，未知单位保持原值且进入待确认。
+- [ ] 空表 / 缺列 / 乱码 / 冲突四条路径各跑过一次，均 exit 0 且有缺口报告。
+- [ ] 两次运行主表、变更表和待确认表规范化后哈希一致。
+- [ ] **专家检查表逐项通过**：`references/expert_playbook.md` §9 的 20 项防扣分自查表逐项勾选通过；
+  任一项未过则 `status=partial` 并把未决项写入 `uncertainties`，绝不静默提升为完整成功。
