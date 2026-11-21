@@ -56,7 +56,3 @@ python3 scripts/main.py run --input work/p4/synth_cases/writing-08/rich \
 共 14 个文件：`scripts/` 5 个（engine / engine_tail / flow / flow_tail / main）+ `SKILL.md`、`README.md`、
 `GAIN_EVIDENCE.md`、`SELFTEST.md`、`GITHUB_URL.txt`、`references/expert_playbook.md`、
 `references/guide.md`、`environment/resources.yaml`、`examples/case.json`；无 `__pycache__`，单文件 ≤30KB。
-
-共 14 个文件：`scripts/` 5 个（engine / engine_tail / flow / flow_tail / main）+ `SKILL.md`、`README.md`、
-`GAIN_EVIDENCE.md`、`SELFTEST.md`、`GITHUB_URL.txt`、`references/expert_playbook.md`、
-`references/guide.md`、`environment/resources.yaml`、`examples/case.json`；无 `__pycache__`，单文件 ≤30KB。
