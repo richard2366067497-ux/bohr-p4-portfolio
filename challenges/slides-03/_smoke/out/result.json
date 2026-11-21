@@ -1,0 +1,432 @@
+{
+  "errors": {
+    "count": 0,
+    "items": [],
+    "note": "recorded problems are non-fatal; the run still exits 0"
+  },
+  "degradations": {
+    "count": 1,
+    "items": [
+      "draft.json not found"
+    ],
+    "note": "degradations keep the report honest instead of inventing data"
+  },
+  "uncertainty": {
+    "count": 0,
+    "items": [],
+    "note": "open questions recorded by this run"
+  },
+  "note": {
+    "text": "This run writes the whole output contract, the rendered figure and its evidence map for every drawn element.",
+    "status": "partial"
+  },
+  "compliance_checks": {
+    "svg_xml": true,
+    "canvas": {
+      "width": 1600,
+      "height": 1000,
+      "ok": true
+    },
+    "font_style": {
+      "min_font": 14,
+      "min_font_ok": true,
+      "family": "Helvetica, Arial, 'Liberation Sans', sans-serif",
+      "italic_labels": 0,
+      "genes": 0
+    },
+    "markers": {
+      "types_used": [
+        "activation"
+      ],
+      "signatures": {
+        "activation": [
+          "arrow",
+          "",
+          "2.4"
+        ]
+      },
+      "distinct": true,
+      "activation_vs_inhibition": true
+    },
+    "gene_italics": true,
+    "compartment_containment": {
+      "entities": 1,
+      "inside": 1,
+      "failures": [],
+      "membrane_straddling": 0
+    },
+    "cross_lane_edges": {
+      "checked": 0,
+      "crossing_failures": [],
+      "ok": true
+    },
+    "legend_consistency": {
+      "items": 2,
+      "encodings_used": 2,
+      "declared_by_agent": 0,
+      "one_item_per_encoding": true,
+      "unsourced": [
+        "color:unspecified",
+        "line_style:activation"
+      ],
+      "orphan": [],
+      "ok": true
+    },
+    "notes": [
+      "encodings without an agent-sourced legend entry: color:unspecified, line_style:activation"
+    ],
+    "overflow": {
+      "text_overflows": [],
+      "box_overlaps": 0,
+      "ok": true
+    },
+    "layers": {
+      "layer-title": true,
+      "layer-compartments": true,
+      "layer-entities": true,
+      "layer-edges": true,
+      "layer-labels": true,
+      "layer-legend": true,
+      "layer-notes": true
+    },
+    "text_nodes": 8,
+    "failures": [],
+    "pass": true,
+    "png": {
+      "ok": true,
+      "width": 1600,
+      "height": 1000,
+      "bit_depth": 8,
+      "color_type": 2,
+      "unique_colors": 9,
+      "non_uniform": true
+    },
+    "pdf": {
+      "ok": true,
+      "header": "%PDF-1.4",
+      "pages": 1,
+      "eof": true,
+      "text_ops": 7,
+      "bytes": 2619,
+      "vector": true
+    }
+  },
+  "overflow": {
+    "text_overflows": [],
+    "box_overlaps": 0,
+    "ok": true
+  },
+  "case_id": "synth-rich-graphics-03",
+  "status": "partial",
+  "summary": "figure built with 1 verified entities and 1 relations over 1 compartment(s); status=partial",
+  "editable_source": {
+    "path": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\v10\\slides-03\\_smoke\\out\\figure.svg",
+    "format": "svg",
+    "editable": true,
+    "layers": [
+      "layer-title",
+      "layer-compartments",
+      "layer-entities",
+      "layer-edges",
+      "layer-labels",
+      "layer-legend",
+      "layer-notes"
+    ],
+    "text_count": 8,
+    "bytes": 3190,
+    "sha256": "a2ad8d45267a4d5f906cb65b7d1bc00ee7a127acaf0163f2b198fadd944b28f5"
+  },
+  "export_artifact": {
+    "png": {
+      "path": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\v10\\slides-03\\_smoke\\out\\figure.png",
+      "width": 1600,
+      "height": 1000,
+      "dpi": 96,
+      "engine": "stdlib-zlib-raster",
+      "bytes": 18972,
+      "non_uniform": true
+    },
+    "pdf": {
+      "path": "D:\\work\\DSH\\DP\\玻尔产品周赛\\work\\p4\\v10\\slides-03\\_smoke\\out\\figure.pdf",
+      "pages": 1,
+      "vector": true,
+      "engine": "stdlib-pdf-base14",
+      "header": "%PDF-1.4",
+      "eof": true,
+      "bytes": 2619
+    }
+  },
+  "content_map": {
+    "entities": [
+      {
+        "svg_id": "ent-x",
+        "id": "x",
+        "name": "不区分",
+        "entity_type": "unspecified",
+        "species": "",
+        "compartment": "cytoplasm",
+        "italic_required": false,
+        "source": {
+          "locator": "task.md#para7",
+          "quote": "现有 AI Agent 或工具在“生物机制图与通路图”场景中的常见问题，主要不是画不出来，而是画得像却不对：把输入句子里的名词平铺成一圈节点，节点之间随意连线，不区分激活与抑制；"
+        },
+        "quote_status": "verbatim"
+      }
+    ],
+    "relations": [
+      {
+        "svg_id": "rel-r1",
+        "id": "r1",
+        "from": "x",
+        "to": "x",
+        "relation_type": "activation",
+        "direction": "forward",
+        "evidence_strength": "mined",
+        "source": {
+          "locator": "task.md#para7",
+          "quote": "现有 AI Agent 或工具在“生物机制图与通路图”场景中的常见问题，主要不是画不出来，而是画得像却不对：把输入句子里的名词平铺成一圈节点，节点之间随意连线，不区分激活与抑制；"
+        },
+        "quote_status": "verbatim"
+      }
+    ],
+    "compartments": [
+      {
+        "id": "cytoplasm",
+        "label": "Cytoplasm",
+        "order": 2.0,
+        "entities": 1
+      }
+    ],
+    "legend_encodings": [],
+    "deferred": [],
+    "coverage": {
+      "workorder_entities": {
+        "declared": 0,
+        "covered": 0,
+        "missing": []
+      },
+      "workorder_relations": {
+        "declared": 0,
+        "covered": 0,
+        "missing": []
+      },
+      "ratio": 0.0,
+      "drawn_entities": 1,
+      "drawn_relations": 1
+    }
+  },
+  "exceptions": {
+    "count": 1,
+    "items": [
+      {
+        "kind": "degradation",
+        "detail": "draft.json not found",
+        "impact": "reduced coverage",
+        "action": "supply the missing input or draft field"
+      }
+    ],
+    "note": "deferred or degraded items stay visible"
+  },
+  "sources": {
+    "count": 3,
+    "items": [
+      {
+        "material": "case.json",
+        "kind": "text",
+        "bytes": 392,
+        "blocks": 1,
+        "note": ""
+      },
+      {
+        "material": "materials/mechanism-drawing-contract.md",
+        "kind": "text",
+        "bytes": 12321,
+        "blocks": 53,
+        "note": ""
+      },
+      {
+        "material": "task.md",
+        "kind": "text",
+        "bytes": 12222,
+        "blocks": 32,
+        "note": ""
+      }
+    ],
+    "note": "every quoted claim cites one of these materials"
+  },
+  "uncertainties": {
+    "count": 0,
+    "items": [],
+    "note": "open questions recorded by this run"
+  },
+  "change_records": {
+    "count": 0,
+    "items": [],
+    "note": "every change records the source it came from"
+  },
+  "limits": [
+    "status=partial",
+    "scientific judgement is the reader's: the run proves provenance, not the biology",
+    "every drawn element keeps a locator back to the material"
+  ],
+  "changes": {
+    "count": 0,
+    "items": [],
+    "note": "every change records the source it came from"
+  },
+  "pending_human": {
+    "count": 0,
+    "items": [],
+    "note": "items that would need a human decision"
+  },
+  "runtime": {
+    "stage": "build",
+    "seconds": 0.1,
+    "draft": "",
+    "source_kind": "fallback",
+    "version": "1.0.0"
+  },
+  "skill": {
+    "name": "mechanism-figure-ledger",
+    "version": "1.0.0",
+    "entry": "scripts/main.py all"
+  },
+  "contract_fields": {
+    "declared": [
+      "errors",
+      "degradations",
+      "uncertainty",
+      "note",
+      "compliance_checks",
+      "overflow"
+    ],
+    "filled": [
+      "errors",
+      "degradations",
+      "uncertainty",
+      "note",
+      "compliance_checks",
+      "overflow"
+    ],
+    "absent": []
+  },
+  "output_contract": {
+    "errors": {
+      "count": 0,
+      "items": [],
+      "note": "recorded problems are non-fatal; the run still exits 0"
+    },
+    "degradations": {
+      "count": 1,
+      "items": [
+        "draft.json not found"
+      ],
+      "note": "degradations keep the report honest instead of inventing data"
+    },
+    "uncertainty": {
+      "count": 0,
+      "items": [],
+      "note": "open questions recorded by this run"
+    },
+    "note": {
+      "text": "This run writes the whole output contract, the rendered figure and its evidence map for every drawn element.",
+      "status": "partial"
+    },
+    "compliance_checks": {
+      "svg_xml": true,
+      "canvas": {
+        "width": 1600,
+        "height": 1000,
+        "ok": true
+      },
+      "font_style": {
+        "min_font": 14,
+        "min_font_ok": true,
+        "family": "Helvetica, Arial, 'Liberation Sans', sans-serif",
+        "italic_labels": 0,
+        "genes": 0
+      },
+      "markers": {
+        "types_used": [
+          "activation"
+        ],
+        "signatures": {
+          "activation": [
+            "arrow",
+            "",
+            "2.4"
+          ]
+        },
+        "distinct": true,
+        "activation_vs_inhibition": true
+      },
+      "gene_italics": true,
+      "compartment_containment": {
+        "entities": 1,
+        "inside": 1,
+        "failures": [],
+        "membrane_straddling": 0
+      },
+      "cross_lane_edges": {
+        "checked": 0,
+        "crossing_failures": [],
+        "ok": true
+      },
+      "legend_consistency": {
+        "items": 2,
+        "encodings_used": 2,
+        "declared_by_agent": 0,
+        "one_item_per_encoding": true,
+        "unsourced": [
+          "color:unspecified",
+          "line_style:activation"
+        ],
+        "orphan": [],
+        "ok": true
+      },
+      "notes": [
+        "encodings without an agent-sourced legend entry: color:unspecified, line_style:activation"
+      ],
+      "overflow": {
+        "text_overflows": [],
+        "box_overlaps": 0,
+        "ok": true
+      },
+      "layers": {
+        "layer-title": true,
+        "layer-compartments": true,
+        "layer-entities": true,
+        "layer-edges": true,
+        "layer-labels": true,
+        "layer-legend": true,
+        "layer-notes": true
+      },
+      "text_nodes": 8,
+      "failures": [],
+      "pass": true,
+      "png": {
+        "ok": true,
+        "width": 1600,
+        "height": 1000,
+        "bit_depth": 8,
+        "color_type": 2,
+        "unique_colors": 9,
+        "non_uniform": true
+      },
+      "pdf": {
+        "ok": true,
+        "header": "%PDF-1.4",
+        "pages": 1,
+        "eof": true,
+        "text_ops": 7,
+        "bytes": 2619,
+        "vector": true
+      }
+    },
+    "overflow": {
+      "text_overflows": [],
+      "box_overlaps": 0,
+      "ok": true
+    }
+  }
+}
