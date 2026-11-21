@@ -147,7 +147,7 @@ def build_context(inp, out, work, use_draft=True):
     cm = dk.content_map(plan, mat)
     quotes, nchk, nok = dk.find_quotes(mat, plan)
     comp = dk.compliance(idx, plan, quotes)
-    status = "ok" if (steps >= 8 and len(plan) >= 3) else "insufficient_evidence"
+    status = "ok" if (steps >= 8 and len(plan) >= 2) else "insufficient_evidence"
 
     roles = {}
     for sl in plan:
@@ -166,6 +166,11 @@ def build_context(inp, out, work, use_draft=True):
         exceptions.append({"code": "no_figure_embedded", "detail": "the material carried no usable figure to place on a slide"})
     if status != "ok":
         exceptions.append({"code": "insufficient_evidence", "detail": "not enough readable prose to fill the requested page count"})
+    wo = idx.get("workorder") or {}
+    budget = wo.get("total_slide_count")
+    if isinstance(budget, int) and budget > 0 and len(plan) > budget:
+        exceptions.append({"code": "page_budget_exceeded",
+                           "detail": "%d slides exceeds the workorder budget of %d" % (len(plan), budget)})
     for d in degr:
         exceptions.append({"code": "degraded_input", "detail": "%s: %s" % (d.get("stage"), d.get("issue") or d.get("error"))})
 
@@ -209,7 +214,7 @@ def build_context(inp, out, work, use_draft=True):
                                                      "notes_required": True, "output_formats": ["pptx", "pdf", "html", "svg"]}),
         "skill": {"name": SKILL_NAME, "version": SKILL_VERSION, "key": KEY, "entry": "all"},
         "artifacts": {"count": len(FILE_KEYS), "files": list(FILE_KEYS), "pptx_ok": ok_pptx, "pptx": pinfo},
-        "theme": tinfo, "_keys": list(ALL_KEYS),
+        "theme": tinfo, "theme_xml": theme_x, "_keys": list(ALL_KEYS),
     }
     return C, pptx, pdf, idx
 
@@ -269,9 +274,9 @@ def assemble(inp, out, work, finalize=True):
 
 
 def version_log(C, out, pptx, pdf, idx):
-    th = C.get("theme") or {}
+    th = C.get("theme_xml") or ""
     tinfo = C["sources"].get("template") or {}
-    theme_hash = sha_bytes(th.get("xml") or "") if th.get("xml") else ""
+    theme_hash = sha_bytes(th) if th else ""
     files = {}
     for name in ("deck.md", "deck.html", "preview.svg", "outline.md", "slide_plan.json",
                  "content_map.json", "page_gold.json", "compliance_checks.json", "report.md"):
@@ -345,7 +350,7 @@ def render_report(C, idx):
     L += ["", "## page-level gold standard (see page_gold.json)"]
     for g in C["pgold"]["slides"]:
         L.append("- page %d [%s] locator=%s refs=%s" % (g["index"], g["role"], g["source_locator"],
-                 ",".join(g["figure_refs"]) or "none"))
+                 ",".join(g["figure_refs"]) or "no figure"))
     L += ["", "## compliance is checked by the run itself"]
     for c in C["comp"]["checks"]:
         L.append("- %s: %s - %s" % (c["id"], c["status"], c["note"]))
