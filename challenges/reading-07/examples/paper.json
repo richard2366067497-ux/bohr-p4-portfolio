@@ -1,0 +1,30 @@
+{
+  "paper_id": "demo-paper-001",
+  "title": "Annealing temperature and CO oxidation activity of a Co/Al2O3 catalyst",
+  "paragraphs": [
+    {
+      "paragraph_id": "P1",
+      "section": "Introduction",
+      "page": 1,
+      "text": "This study examines how annealing temperature affects the CO oxidation activity of a Co/Al2O3 catalyst."
+    },
+    {
+      "paragraph_id": "P2",
+      "section": "Results",
+      "page": 4,
+      "text": "After annealing at 350 °C the Co/Al2O3 catalyst reached a CO conversion of 78% (p = 0.02)."
+    },
+    {
+      "paragraph_id": "P3",
+      "section": "Results",
+      "page": 5,
+      "text": "The 450 °C sample reached a CO conversion of 62%, whereas the 350 °C sample reached 78%."
+    },
+    {
+      "paragraph_id": "P4",
+      "section": "Methods",
+      "page": 6,
+      "text": "Only the 350 °C and 450 °C annealing conditions were tested; higher annealing temperatures were not evaluated."
+    }
+  ]
+}
