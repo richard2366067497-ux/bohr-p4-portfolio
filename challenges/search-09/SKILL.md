@@ -18,6 +18,14 @@ Four questions drive the design, and each is answered by an artifact:
 | 合得对 | a merge/judgment uses a defensible key, not a vibe | judgment rules `R_J1`…`R_J4` |
 | 追得回 | every judgment walks back to a source locator and a verbatim quote | `anchor_table.csv` |
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 0. result.json contract
 
 The entry command writes `/app/output/result.json` and echoes every field of the caller's
@@ -71,11 +79,8 @@ is missing:
 ## 2. 单命令（等价入口，评测入口，one-shot）
 
 This is the single-command equivalent and the evaluation entry point. With **no** draft present it
-still produces the complete contract, every deliverable and `result.json`, and exits 0:
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+still produces the complete contract, every deliverable and `result.json`, and exits 0.
+The command block is the first code block at the top of this file.
 
 Optional arguments: `--input` (default `/input`), `--output` (default `/app/output`),
 `--work` (default `/app/work`). Deterministic, offline, standard library only.
