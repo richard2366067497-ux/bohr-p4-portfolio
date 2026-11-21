@@ -12,6 +12,7 @@ split / narrow / delete / insert），附预期效果与风险。纯 Python 标�
 /skills/weekly-skill/
   SKILL.md
   scripts/{main.py,core.py,review.py}
+  references/expert_playbook.md   # 专家参考手册：判分要点、六步法、问题卡口径、专家检查表（执行前必读）
   references/dimensions.md
   environment/resources.yaml
   examples/{case.json,manuscript.md}
@@ -89,9 +90,9 @@ P1；若正文引用 `[7]` 在参考文献里没有条目，`argument_chain` 会
 
 ## 维护与版本策略
 
-- 版本 9.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与
+- 版本 10.0.0；六维 id 与 finding/action 字段冻结，新增维度需同步 `DIMS`、检测器与
   `references/dimensions.md`。
 - 改动后运行 `selftest`、`selfcheck` 与 `scripts/eval_sim.py`（rich/boundary × single/agent），见 `SELFTEST.md`。
 - 预算与安全边界：完全离线、仅用 Python 标准库、只写 `--output` 与 `--work`，输入树从不改写；
-  包体 12 文件、单文件 ≤30KB、主脚本（`scripts/main.py`）≤25KB，因此代码拆在 `core.py`（共享层）
+  包体 13 文件、单文件 ≤30KB、主脚本（`scripts/main.py`）≤25KB，因此代码拆在 `core.py`（共享层）
   与 `review.py`（审读层）两个模块里。
