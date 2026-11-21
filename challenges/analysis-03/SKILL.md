@@ -10,6 +10,14 @@ tags: [scientific-visualization, figure-spec, publication-export, evidence-trace
 本包是 `analysis-03` 的 v10 形态：**单命令即可跑完整条流水线**，无需先初始化再手写工作稿；
 Agent 仍可阅读证据后补充判断，但评估器只跑第一条命令也能拿到全部产物与完整契约回填。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 执行任何命令前**先完整阅读 `references/expert_playbook.md`**，并按它组织全部产出：按其 §2 六步流程推进
@@ -48,9 +56,7 @@ Agent 仍可阅读证据后补充判断，但评估器只跑第一条命令也�
 解析数据表 → 统计口径 → 图型选型（含拒绝理由）→ 渲染真实 SVG → 写图注/绘图纸/审计/报告 →
 回填全部 `output_contract` 键 → 写 `result.json`：
 
-```bash
-python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 - 该命令是评测器可执行的一次性等价入口，退出码恒为 0；空输入 / 坏输入同样退出 0 并写出合法
   `result.json`（`status=failed` 或 `partial`，降级但不编造测量值）。
