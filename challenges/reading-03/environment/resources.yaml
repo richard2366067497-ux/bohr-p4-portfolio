@@ -1,0 +1,55 @@
+# 运行环境与资源声明（reading-03 · sci-lit-bilingual-audit）
+name: sci-lit-bilingual-audit
+version: 3.0.0
+runtime: python
+python: ">=3.8"
+
+# 单命令入口：一次跑完全流程，恒 exit 0，无工作稿也产出全部交付物。
+entry:
+  command: "python scripts/main.py all --input /input --output /app/output --work /app/work"
+  exit_code: 0
+  subcommands: [all, init, show, check, build, selfcheck, compare]
+
+# 路径约定
+paths:
+  input: /input          # 只读：case.json、task.md、materials/
+  output: /app/output    # result.json 与全部交付物
+  work: /app/work        # 工作稿、索引与中间报告
+  cwd: /app
+
+# 预算
+budget:
+  max_requests: 64
+  max_seconds: 900
+  max_tokens: 16384
+
+# 约束
+constraints:
+  network: none
+  external_binaries: none       # 不调用 poppler/pdftotext 等
+  models: none                  # 不联网、不调用大模型
+  deterministic: true
+  pure_stdlib: true
+  ocr: false                    # 扫描件/图片公式只记降级，不 OCR
+
+# 依赖：Python 标准库（re/json/os/sys/zipfile/zlib/html/argparse/time）
+dependencies:
+  - name: python
+    stdlib_only: true
+  - name: zlib
+  - name: zipfile
+
+# 支持格式
+formats:
+  read: [".txt", ".md", ".markdown", ".html", ".htm", ".docx", ".json", ".pdf"]
+  pdf: text-layer-only
+  write: [".json", ".jsonl", ".md", ".txt"]
+
+# 交付物（--output 下）
+deliverables:
+  - result.json
+  - paragraph_pairs.jsonl
+  - audit_report.json
+  - glossary.json
+  - bilingual_review.md
+  - run_log.txt
