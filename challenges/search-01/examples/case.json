@@ -1,0 +1,18 @@
+{
+  "case_id": "demo-search-answered",
+  "language": "en",
+  "materials_root": "materials",
+  "research_question": "query planning and recall for literature retrieval",
+  "notes": "FICTIONAL demo case for the packaged example only; not a formal test case and not a submitted answer.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "candidates": "string",
+    "queries": "string",
+    "coverage": "string",
+    "missing": "string",
+    "sources": "string",
+    "uncertainty": "string",
+    "change_records": "string"
+  }
+}
