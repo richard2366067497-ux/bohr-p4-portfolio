@@ -1,4 +1,4 @@
-# analysis-05 — sci-analysis-dag (v6)
+# analysis-05 — sci-analysis-dag (v10)
 
 把科研材料里的数据表做成一条可复核的分析流水线：**导入 → 清洗（行数守恒）→ 描述与推断统计
 → 真实 SVG 图件 → 报告**。所有打印出来的数字都来自同一套登记表（`verification.json`），
@@ -11,7 +11,11 @@
 | `SKILL.md` | 契约样例、单命令入口、产物清单、降级矩阵 |
 | `scripts/main.py` | CLI 与编排：跑 DAG、回填契约、写 `result.json` |
 | `scripts/engine.py` | 引擎库：导入 / 清洗 / 统计 / 渲染 SVG |
+| `references/expert_playbook.md` | 随包方法论：八步流程 / 公式 / 前提检验 / 陷阱 / 自查表 |
 | `references/method-notes.md` | 统计口径与清洗规则的说明 |
+| `environment/resources.yaml` | 资源入口：入口命令、限额、降级矩阵 |
+| `examples/sample_data.csv` | 随包示例数据（30 行 5 列，含 1 重复行 / 2 缺失 / 2 离群） |
+| `GAIN_EVIDENCE.md` | 增益证据：可复现实测对比表 |
 | `README.md` / `SELFTEST.md` / `GITHUB_URL.txt` | 说明与自检 |
 
 纯标准库（csv, json, math, sqlite3, hashlib, re, pathlib）；无网络、无时钟，重复运行字节稳定。
