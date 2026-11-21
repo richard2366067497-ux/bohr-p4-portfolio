@@ -1,8 +1,10 @@
-# SELFTEST — reproducible single-command and agent-path runs
+# SELFTEST — reproducible single-command and agent-path runs（writing-15 v10）
 
 Everything below is offline and standard-library only. Run from the package root. The interpreter is
 `python3` on the platform; on this workstation it was
 `C:\Users\23660\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe` (3.12).
+
+基准包：`work/p4/v9/writing-15`（v10 = v9 + 内嵌专家手册，逻辑不变）。v10 复跑结果见 §7。
 
 ## 1. Example run (walks the whole pipeline)
 
@@ -39,7 +41,7 @@ combinations were run:
 Reproduce with, for each pair of `case in {rich, boundary}` and `mode in {single, agent}`:
 
 ```bash
-python scripts/eval_sim.py --pkg work/p4/v9/writing-15 \
+python scripts/eval_sim.py --pkg work/p4/v10/writing-15 \
   --case work/p4/synth_cases/writing-15/rich --mode single \
   --out /tmp/es-out --json-out /tmp/es.json
 ```
@@ -93,3 +95,54 @@ normalisation) is in `references/rules-and-failure-modes.md`.
 - no placeholder token survives in any artifact;
 - the annotated manuscript keeps every source line; removing the `EA-` quote blocks restores the
   original text (`versions/rollback_check.json`).
+
+## 7. v10 内嵌专家手册（本版）
+
+新增 `references/expert_playbook.md`（12416 B）：把专家手册整理为可执行方法论——任务本质与判分
+要点、错误做法→正确做法、6 步求解框架、量化口径与公式（事实-来源匹配率 / 术语一致性 / 引用
+缺失率 / 编号连续性 / 修改可追溯率 / 未确认项占比）、领域知识与单位陷阱、交付物清单 + 专家
+检查表、完整虚构案例、交付前门控；已去除提示词痕迹。`SKILL.md` 增补「执行前必读（专家方法论）」
+与 §9 自检首条「`references/expert_playbook.md` §5.2 专家检查表逐项通过」。
+
+复跑（本机、离线、纯标准库）：
+
+```
+python scripts/eval_sim.py --pkg work/p4/v10/writing-15 \
+    --case work/p4/synth_cases/writing-15/<rich|boundary> --mode <single|agent>
+```
+
+| case | mode | contract source | status | failures | warnings |
+|-|-|-|-|-|-|
+| rich | single | `case.json:output_contract` (10 keys) | PASS | 0 | 0 |
+| rich | agent | `case.json:output_contract` (10 keys) | PASS | 0 | 0 |
+| boundary | single | `SKILL.md` JSON sample (10 keys) | PASS | 0 | 0 |
+| boundary | agent | `SKILL.md` JSON sample (10 keys) | PASS | 0 | 0 |
+
+四组 `failures=0 / warnings=0`。单命令实跑
+
+```bash
+python scripts/main.py all --input work/p4/synth_cases/writing-15/rich --output OUT --work WORK
+```
+
+输出 `build: status=ok artifacts=13`、`selfcheck: files=ok echo=ok placeholders=ok status=ok`，
+exit 0；rich 输入 56 blocks、7 类账本、5 findings、2 annotation，`preserved_facts` 未保留 0。
+
+### v10 包清单
+
+```
+SKILL.md                                10654 B
+scripts/main.py                         19787 B
+scripts/ledger_engine.py                26668 B
+references/expert_playbook.md           12416 B   （专家手册）
+references/rules-and-failure-modes.md    7348 B
+templates/glossary-citation-checklist.md 1916 B
+environment/resources.yaml               2860 B
+README.md                                5842 B
+GAIN_EVIDENCE.md                         3667 B
+GITHUB_URL.txt                            112 B
+examples/case.json                        449 B
+examples/manuscript.md                   1494 B
+SELFTEST.md                      <this file>
+```
+
+**13 个文件**，总 **97577 B**（≤150KB），最大单文件 `ledger_engine.py` 26668 B（＜30KB），纯标准库。
