@@ -5,6 +5,7 @@ Pure Python standard library, fully offline. Comment parsing, anchor matching
 and the placeholder-hygiene writers live here; the revision pipeline is in
 ``main.py``. Nothing depends on the current working directory.
 """
+import difflib
 import hashlib
 import json
 import re
@@ -233,7 +234,7 @@ def read_document(path):
 
 
 SKIP_NAMES = {"case.json", "task.md", "task.txt", "index.json", "result.json", "draft.json",
-              "challenge.json", "resources.yaml"}
+              "challenge.json", "resources.yaml", "change_diff.md"}
 
 
 def discover(root, case=None):
@@ -647,3 +648,42 @@ def verify_consistency(ledger, changes, revised_text):
         if anchor_marker(c["id"]) not in (revised_text or ""):
             problems.append("orphan change " + c["id"])
     return problems
+
+
+# ------------------------------------------------------------------ gain evidence
+def baseline_concat(docs):
+    """Verbatim concatenation used by ``--baseline``.
+
+    Deliberately naive: materials are pasted as-is, with no comment parsing, no
+    anchor matching, no four-state decision and no revision. It is the deterministic
+    floor (all rates 0.0) that the normal run is compared against in GAIN_EVIDENCE.md.
+    """
+    if not docs:
+        return ""
+    return "\n\n".join("<!-- %s -->\n%s" % (d["path"], (d["text"] or "").rstrip())
+                       for d in docs)
+
+
+def render_change_diff(lg, changes):
+    """Per-change original -> revised sentence diff (unified diff, stdlib only).
+
+    One block per adopted change, keyed by its [[Cx]] marker, so a reviewer can read
+    the before/after of every claim the response letter says was made, without
+    re-running anything.
+    """
+    zh = lg == "zh"
+    out = ["# " + ("修改前后 diff（逐条）" if zh else "Per-change diff (before -> after)"), "",
+           "> " + ("每条修改给出原句、改后句与 unified diff；`[[Cx]]` 锚点可在修改稿中检索。" if zh
+                   else "Each change lists the original sentence, the revised sentence and a unified "
+                        "diff; the `[[Cx]]` marker is searchable in the revised manuscript."), ""]
+    for ch in sorted(changes, key=lambda x: int(x["id"][1:])):
+        a = re.sub(r"\s+", " ", ch.get("anchor_text", "")).strip()
+        b = re.sub(r"\s+", " ", ch.get("revised_text", "")).strip()
+        out += ["## %s | comment %s | %s / %s" % (ch["id"], ch["comment_id"], ch["decision"], ch["kind"]), "",
+                "- " + ("定位" if zh else "Locator") + ": `%s`" % ch["revised_locator"],
+                "- " + ("锚点" if zh else "Marker") + ": `%s`" % ch["marker"], "", "```diff"]
+        out += list(difflib.unified_diff([a], [b], fromfile="original", tofile="revised", lineterm=""))
+        out += ["```", ""]
+    if not changes:
+        out.append("- " + ("本次没有产生可定位的修改。" if zh else "No locatable change was produced in this run."))
+    return "\n".join(out)
