@@ -46,7 +46,8 @@ python3 scripts/main.py all --input examples --output /tmp/out --work /tmp/work
 ## 目录
 
 ```
-scripts/main.py               命令入口（all/init/show/check/build/selfcheck/compare）
+scripts/main.py               命令入口（all/init/show/check/build/selfcheck/compare）+ 产物渲染
+scripts/core.py               材料解析、参考集冻结、命中判定、归因、补检与契约值
 references/expert_playbook.md 专家方法论：框架/口径/陷阱/检查表（执行前必读）
 SKILL.md                      契约、单命令、分步命令、异常处置、自查、top_fix 映射
 SELFTEST.md                   本地评测记录（4 组 eval_sim 全 PASS）
