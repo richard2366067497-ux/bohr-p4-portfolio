@@ -1,0 +1,17 @@
+{
+  "case_id": "example-sample-pdf",
+  "materials_root": "materials",
+  "task": "Read the supplied PDF into structured fields in reading order, keep a locator and a verbatim quote for every item, and report honestly what could not be read.",
+  "output_contract": {
+    "document": "value",
+    "blocks": "value",
+    "sections": "value",
+    "tables": "value",
+    "formulas": "value",
+    "reading_order_notes": "value",
+    "unreadable": "value",
+    "sources": "value",
+    "uncertainty": "value",
+    "change_records": "value"
+  }
+}
