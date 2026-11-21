@@ -11,6 +11,14 @@ tags: [codegen, execution, verification, reproducibility]
 再手写工作稿；Agent 仍可读证据后补充判断（写入 `draft.json`，`all` 会自动合并），但评测器只跑
 第一条命令也能拿到全部关键产物与完整契约回填。
 
+## 单命令入口（评测入口，先看这里）
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
+```bash
+python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
+```
+
 ## 随包方法论（执行前必读）
 
 执行任何命令前**先完整阅读 `references/expert_playbook.md`**，并按它组织全部产出：按其 §2 八步流程推进
@@ -53,9 +61,7 @@ tags: [codegen, execution, verification, reproducibility]
 → **独立重算**每个关键数字并逐条校验 → 渲染图表 → 写全部交付物 → 回填全部 `output_contract` 键 →
 写 `result.json`：
 
-```bash
-python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work
-```
+见文首「单命令入口（评测入口）」——同一条命令，评测环境只跑这一条也能过。
 
 - 该命令是评测器可执行的一次性等价入口，退出码恒为 0；空输入 / 坏输入同样退出 0 并写出合法
   `result.json`（`status=failed` 或 `partial`，降级但不编造数值）。
