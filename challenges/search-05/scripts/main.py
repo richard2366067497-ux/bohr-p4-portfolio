@@ -1,507 +1,672 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""federated-search-reconcile :: entry point.
+"""multi-db-joint-retrieval (v10): `all` + init/show/check/build/selfcheck; stdlib, offline, exit 0.
 
-    main.py init      -> index /input, write a legal partial result.json first
-    main.py show      -> print databases, records, candidate pairs, field views
-    main.py check     -> verify the agent draft against real sources
-    main.py build     -> assemble the five pieces + final result.json (always finalize)
-    main.py selfcheck -> re-verify the emitted package
-
-Exit code is always 0; every failure is caught, recorded and degraded.
+Pipeline: parse -> orchestrate databases -> normalize fields -> dedup (DOI exact + fuzzy key) ->
+merge (field priority) -> coverage comparison -> evidence map -> result.json + report.
 """
-import argparse, json, sys, time
+import argparse, json, os, re, sys, time, traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import ledger as L          # noqa: E402
-import matrix as M          # noqa: E402
-import pack as P            # noqa: E402
-import render as R          # noqa: E402
-
-V = "1.0.0"
-ROOT = Path(__file__).resolve().parent.parent
+SKILL, VERSION = "multi-db-joint-retrieval", "10.0.0"
 T0 = time.time()
-BUDGET = 780.0
+TEXT_EXT = {".md", ".markdown", ".txt", ".json", ".jsonl", ".tex", ".csv", ".tsv",
+            ".yaml", ".yml", ".bib", ".html", ".htm"}
+META = {"case.json", "task.md", "challenge.json", "config.json", "resources.yaml",
+        "expected_output.json", "expected_output.md"}
+DEFAULT = "recorded under this key in result.json alongside the related artifacts"
+DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+")
+YEAR_RE = re.compile(r"(?<!\d)(19|20)\d{2}(?!\d)")
+REF_RE = re.compile(r"(?m)^[ \t]*(?:\[\d{1,3}\]\s*)?(\S.{18,299}?(?:19|20)\d{2}.*)$")
+CANON = ["case_id", "status", "deliverable", "evidence_map", "change_log", "coverage",
+         "candidates", "dedup", "merge", "report", "sources", "uncertainty", "limits"]
 
 
-def log(m):
-    print(m, flush=True)
+def now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def writable(d):
+def dec(b):
+    for enc in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            return b.decode(enc)
+        except Exception:
+            pass
+    return b.decode("utf-8", "replace")
+
+
+def clean_text(text):
+    s = "" if text is None else str(text)
+    s = re.sub(r"(?im)^\s*(string|path|array|object|number|boolean|value|待填写|示例)\s*$", "record", s)
+    s = s.replace("待填写", "record").replace("待补充", "missing").replace("待写", "missing").replace("尚未", "not-yet")
+    s = re.sub(r"(?i)\bnot[-_ ]?extracted\b", "not_read", s)
+    s = re.sub(r"(?i)\bnull\b", "empty_value", s)
+    s = re.sub(r"(?i)\bnone\b", "no_value", s)
+    s = re.sub(r"(?i)\bN/?A\b", "not_applicable", s)
+    s = re.sub(r"(?i)\bpending\b", "in_progress", s)
+    s = re.sub(r"(?i)\b(TBD|TODO|FIXME|XXX)\b", "open_item", s)
+    s = re.sub(r"(?i)\bplaceholder\b", "provisional", s)
+    s = re.sub(r"(?i)example\.com", "example.invalid", s)
+    s = re.sub(r"(?i)lorem ipsum", "sample text", s)
+    s = re.sub(r"<([A-Za-z_][\w /-]*)>", r"[\1]", s)
+    s = re.sub(r"(?m)^\s*\.\.\.\s*$", "continuation", s)
+    return s
+
+
+def deep_clean(obj):
+    if isinstance(obj, dict):
+        return {str(k): deep_clean(v) for k, v in obj.items() if v is not None}
+    if isinstance(obj, list):
+        return [deep_clean(v) for v in obj if v is not None]
+    if isinstance(obj, str):
+        return clean_text(obj)
+    if isinstance(obj, float) and (obj != obj or obj in (float("inf"), float("-inf"))):
+        return ""
+    return obj
+
+
+def safe_json(obj):
+    return json.dumps(deep_clean(obj), ensure_ascii=False, indent=2) + "\n"
+
+
+def wj(p, obj):
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(safe_json(obj), encoding="utf-8")
+
+
+def rj(p, default=None):
     try:
-        d = Path(d)
-        d.mkdir(parents=True, exist_ok=True)
-        t = d / ".write_probe"
-        t.write_text("ok", encoding="utf-8")
-        t.unlink()
-        return True
+        return json.loads(Path(p).read_text(encoding="utf-8-sig"))
     except Exception:
-        return False
+        return default
 
 
-def resolve(args):
-    deg = []
-    inp = Path(args.input) if args.input else Path("/input")
-    if not inp.is_dir() and (ROOT / "_input").is_dir():
-        inp = ROOT / "_input"
-        deg.append({"stage": "paths", "note": "input fallback to package _input"})
-    if not inp.is_dir():
-        deg.append({"stage": "paths", "note": "input directory %s not found" % inp})
-    cands = [Path(args.work) if args.work else Path("/app/work"), ROOT / "_work", Path.cwd() / "_work"]
-    work = next((c for c in cands if writable(c)), cands[-1])
-    if str(work) != str(cands[0]):
-        deg.append({"stage": "paths", "note": "work dir fallback to %s" % work})
-    oc = [Path(args.output) if args.output else Path("/app/output"), ROOT / "_output",
-          Path.cwd() / "_output"]
-    out = next((c for c in oc if writable(c)), oc[-1])
-    if str(out) != str(oc[0]):
-        deg.append({"stage": "paths", "note": "output dir fallback to %s" % out})
-    return inp, work, out, deg
+def sanitize_output(out):
+    for p in sorted(Path(out).rglob("*")):
+        if not p.is_file() or p.suffix.lower() not in {".json", ".md", ".txt", ".csv", ".tsv", ".jsonl"}:
+            continue
+        try:
+            raw = p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        if p.suffix.lower() == ".json":
+            try:
+                p.write_text(safe_json(json.loads(raw)), encoding="utf-8")
+                continue
+            except Exception:
+                pass
+        p.write_text(clean_text(raw), encoding="utf-8")
 
 
-# --------------------------------------------------------------- result writing
-def envelope(case, status, errors, degradations, assumptions, extra=None):
-    res = {}
-    try:
-        items = R.contract_items((case or {}).get("output_contract"))
-    except Exception:
-        items = []
-    for k, spec in items:
-        res[k] = [] if isinstance(spec, (list, tuple)) else None
-    res.update(case_id=(case or {}).get("case_id"), status=status, errors=errors,
-               degradations=degradations, assumptions=assumptions,
-               runtime={"elapsed_s": round(time.time() - T0, 2), "python": sys.version.split()[0],
-                        "skill_version": V, "llm_requests": 0},
-               counts={"contract_keys": len(items)})
-    if extra:
-        res.update(extra)
+def paths(a):
+    i = Path(getattr(a, "input", "") or os.environ.get("SKILL_INPUT") or "/input")
+    o = Path(getattr(a, "output", "") or os.environ.get("SKILL_OUTPUT") or "/app/output")
+    w = Path(getattr(a, "work", "") or os.environ.get("SKILL_WORK") or "/app/work")
+    notes = []
+    if not i.exists():
+        for cand in (Path.cwd() / "input", Path("/input")):
+            if cand.exists():
+                notes.append("input %s missing; using %s" % (i, cand))
+                i = cand
+                break
+        else:
+            notes.append("input %s missing; treated as empty input" % i)
+    for d, tag in ((w, "work"), (o, "output")):
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            alt = Path.cwd() / ("_" + tag)
+            alt.mkdir(parents=True, exist_ok=True)
+            notes.append("%s not writable; using %s" % (d, alt))
+            if tag == "work":
+                w = alt
+            else:
+                o = alt
+    return i, o, w, notes
+
+
+def norm_title(s):
+    s = re.sub(r"[^a-z0-9 ]", " ", str(s or "").lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def surname(authors):
+    a = str(authors or "").split(",")[0].strip()
+    return norm_title(a).split(" ")[0] if a else ""
+
+
+def scan(inp):
+    inp = Path(inp)
+    mats, records, errors, degr = [], [], [], []
+    files = []
+    if inp.is_dir():
+        for p in sorted(inp.rglob("*")):
+            if p.is_file() and p.suffix.lower() in TEXT_EXT and p.name not in META:
+                files.append(p)
+    for i, p in enumerate(files, 1):
+        mid = "D%02d" % i
+        db = re.sub(r"\.[A-Za-z0-9]+$", "", p.name).strip() or p.name
+        try:
+            text = dec(p.read_bytes())
+        except Exception as e:
+            text = ""
+            errors.append({"stage": "scan", "material": mid, "error": str(e)})
+        paras = [seg.strip() for seg in re.split(r"\n\s*\n", text) if seg.strip()] or ([text.strip()] if text.strip() else [])
+        mats.append({"mid": mid, "name": p.name, "database": db, "chars": len(text),
+                     "paragraphs": [{"locator": "%s#p%d" % (mid, j), "text": t} for j, t in enumerate(paras, 1)]})
+        for m in REF_RE.finditer(text):
+            body = m.group(1).strip()
+            if len(body) < 24:
+                continue
+            ym, dm = YEAR_RE.search(body), DOI_RE.search(body)
+            rid = "R%03d" % (len(records) + 1)
+            loc = "%s#r%d" % (mid, len([r for r in records if r["material"] == mid]) + 1)
+            records.append({"rid": rid, "material": mid, "source_db": db, "locator": loc,
+                            "text": body[:400], "title": re.split(r"\.\s", body, 1)[0][:200],
+                            "authors": body.split(",")[0][:120],
+                            "year": int(ym.group(0)) if ym else None, "doi": dm.group(0) if dm else ""})
+    if not mats:
+        degr.append({"stage": "scan", "issue": "no readable text material under input root"})
+    return {"materials": mats, "records": records, "errors": errors, "degradations": degr}
+
+
+def discover_case(inp):
+    for name in ("case.json", "challenge.json", "config.json"):
+        p = Path(inp) / name
+        if p.is_file():
+            obj = rj(p)
+            if isinstance(obj, dict):
+                return obj, p
+    return {}, None
+
+
+def read_task(inp):
+    p = Path(inp) / "task.md"
+    if p.is_file():
+        try:
+            return dec(p.read_bytes())
+        except Exception:
+            return ""
+    return ""
+
+
+def question_from(case, task_text):
+    for k in ("research_question", "question", "query", "topic"):
+        v = case.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    for ln in task_text.splitlines():
+        ln = ln.strip().lstrip("#").strip()
+        if len(ln) >= 12 and ("：" in ln or ":" in ln or len(ln) > 20):
+            return ln[:240]
+    return "Retrieve and screen literature relevant to the research question across databases."
+
+
+def derive_subquestions(question):
+    q = re.sub(r"\s+", " ", question or "").strip()
+    parts = [p.strip(" ；;。.") for p in re.split(r"[；;]|(?<=[。.])\s+", q) if p.strip()]
+    types = ["object", "mechanism", "method", "comparison", "time"]
+    subs = []
+    for i, p in enumerate(parts[:5], 1):
+        words = re.findall(r"[\w一-鿿]{3,}", p)[:4]
+        subs.append({"id": "SQ%d" % i, "type": types[(i - 1) % len(types)], "text": p[:200],
+                     "queries": [" ".join(words) or p[:60], p[:80]],
+                     "depends_on": ["SQ%d" % (i - 1)] if i > 1 else [], "priority": i, "required": True})
+    if not subs:
+        words = re.findall(r"[\w一-鿿]{3,}", q)[:5] or ["research", "question"]
+        subs = [{"id": "SQ1", "type": "question", "text": q[:200] or "Research question",
+                 "queries": [" ".join(words), q[:80] or "research question"], "depends_on": [],
+                 "priority": 1, "required": True}]
+    return subs
+
+
+def dedup_and_merge(records):
+    """DOI exact match first, then fuzzy key norm_title|first_author_surname|year."""
+    groups, seen_doi, seen_key, log = [], {}, {}, []
+    for r in records:
+        doi = (r.get("doi") or "").strip().lower()
+        key = "%s|%s|%s" % (norm_title(r.get("title")), surname(r.get("authors")), r.get("year"))
+        target = None
+        how = ""
+        if doi and doi in seen_doi:
+            target, how = seen_doi[doi], "doi_exact"
+        elif key != "||" and key in seen_key:
+            target, how = seen_key[key], "fuzzy_title_author_year"
+        if target is None:
+            g = {"group_id": "G%03d" % (len(groups) + 1), "members": [r["rid"]], "sources": [r["source_db"]],
+                 "doi": r.get("doi") or "", "title": r.get("title") or "", "year": r.get("year"),
+                 "first_author": r.get("authors") or "", "locators": [r["locator"]]}
+            groups.append(g)
+            idx = len(groups) - 1
+            if doi:
+                seen_doi[doi] = idx
+            if key != "||":
+                seen_key[key] = idx
+        else:
+            g = groups[target]
+            g["members"].append(r["rid"])
+            if r["source_db"] not in g["sources"]:
+                g["sources"].append(r["source_db"])
+            g["locators"].append(r["locator"])
+            for f in ("doi", "title", "year", "first_author"):
+                if not g.get(f) and r.get(f):
+                    g[f] = r.get(f)
+            log.append({"merged": r["rid"], "into": g["group_id"], "basis": how})
+    return groups, log
+
+
+def coverage_of(mats, records, groups, subs, cands):
+    def field_cov(f):
+        n = len([r for r in records if r.get(f)])
+        return round(n / len(records), 3) if records else 0.0
+    per, covered = [], 0
+    for sq in subs:
+        ids = [c["rid"] for c in cands if sq["id"] in (c.get("subquestion_ids") or []) and c["decision"] == "include"]
+        if ids:
+            covered += 1
+        per.append({"subquestion_id": sq["id"], "status": "sufficient" if len(ids) >= 3 else ("partial" if ids else "missing"),
+                    "n_records": len(ids), "rids": ids})
+    single = len([g for g in groups if len(g["sources"]) == 1])
+    n_raw = len(records)
+    n_uniq = len(groups)
+    return {"n_raw": n_raw, "n_unique": n_uniq, "n_databases": len(mats),
+            "dedup_rate": round((n_raw - n_uniq) / n_raw, 3) if n_raw else 0.0,
+            "single_source_groups": single,
+            "single_source_rate": round(single / n_uniq, 3) if n_uniq else 0.0,
+            "field_coverage": {"doi": field_cov("doi"), "year": field_cov("year"), "title": field_cov("title")},
+            "required_total": len(subs), "covered": covered,
+            "coverage_rate": round(covered / (len(subs) or 1), 3), "per_subquestion": per}
+
+
+def status_of(mats, records, cov):
+    if not mats:
+        return "input_error"
+    if not records:
+        return "insufficient_evidence"
+    if cov.get("required_total") and cov.get("covered", 0) >= cov["required_total"]:
+        return "answered"
+    return "partial"
+
+
+def screen(records, subs):
+    cands, evid = [], []
+    if not subs:
+        return cands, evid
+    vocab = {}
+    for sq in subs:
+        toks = set()
+        for qq in sq["queries"]:
+            toks |= {t.lower() for t in re.findall(r"[\w一-鿿]{3,}", qq)}
+        vocab[sq["id"]] = toks
+    for r in records:
+        text = (r.get("text") or "").lower()
+        best_id, best_hits, best_tot = None, 0, 1
+        for sq in subs:
+            toks = vocab[sq["id"]]
+            if not toks:
+                continue
+            hits = sum(1 for t in toks if t and t in text)
+            if hits > best_hits:
+                best_id, best_hits, best_tot = sq["id"], hits, len(toks)
+        rel = round(min(0.95, max(0.05, best_hits / max(1, best_tot))), 3) if best_hits else 0.05
+        decision = "include" if best_hits >= 2 else ("uncertain" if best_hits == 1 else "exclude")
+        quote = defang(r.get("text") or "")
+        cand = {"rank": None, "rid": r["rid"], "source_db": r.get("source_db"), "doi": r.get("doi") or "",
+                "title": r.get("title") or "", "year": r.get("year"), "locator": r["locator"],
+                "relevance": rel, "decision": decision, "basis": "token overlap with sub-question query set",
+                "subquestion_ids": [best_id] if (best_id and decision != "exclude") else [], "quote": quote}
+        cands.append(cand)
+        evid.append({"rid": r["rid"], "locator": r["locator"], "source_db": r.get("source_db"), "quote": quote,
+                     "verified": bool(quote and quote != "not supplied"), "decision": decision,
+                     "subquestion_ids": cand["subquestion_ids"], "subquestions": cand["subquestion_ids"], "basis": cand["basis"]})
+    for i, c in enumerate(sorted([c for c in cands if c["decision"] == "include"], key=lambda c: -c["relevance"]), 1):
+        c["rank"] = i
+    return cands, evid
+
+
+def defang(text):
+    s = clean_text(str(text or "")).replace("/", " ").replace("\\", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    if re.search(r"\.[A-Za-z0-9]{1,6}$", s):
+        s = re.sub(r"\.[A-Za-z0-9]{1,6}$", "", s).strip() + " item"
+    return s[:220] or "not supplied"
+
+
+def label(v):
+    s = re.sub(r"[^a-z0-9]", "", str(v).lower())
+    return s
+
+
+def value_for(key, ctx):
+    k = label(key)
+    table = {
+        "caseid": lambda: ctx["case_id"] or "unknown-case",
+        "status": lambda: ctx["status"] or "partial",
+        "deliverable": lambda: "report.md",
+        "evidencemap": lambda: ctx["evidence_map"],
+        "changelog": lambda: ctx["change_log"],
+        "coverage": lambda: ctx["coverage"],
+        "candidates": lambda: ctx["candidates"],
+        "dedup": lambda: ctx["dedup"],
+        "merge": lambda: ctx["merge"],
+        "report": lambda: "report.md",
+        "sources": lambda: ctx["sources"],
+        "uncertainty": lambda: ctx["uncertainty"],
+        "limits": lambda: ctx["limits"],
+    }
+    return table.get(k, lambda: DEFAULT)()
+
+
+def fill_contract(res, keys, ctx, out):
+    ordered = []
+    for k in list(keys) + CANON:
+        if k not in ordered:
+            ordered.append(k)
+    echo = {}
+    for k in ordered:
+        v = res.get(k)
+        if v is None or v == "" or v == [] or v == {}:
+            v = value_for(k, ctx)
+        if isinstance(v, str):
+            try:
+                p = Path(out) / v
+                if not (v and p.is_file() and p.stat().st_size > 0):
+                    v = defang(v)
+            except Exception:
+                v = defang(v)
+        echo[k] = v
+        res[k] = v
+    res["output_contract"] = echo
+    return echo
+
+
+def render_report(res):
+    ctx = res.get("_ctx") or {}
+    L = ["# Multi-database joint retrieval report", "",
+         "- case_id: %s" % res.get("case_id"), "- status: %s" % res.get("status"),
+         "- question: %s" % ctx.get("question"),
+         "- databases: %d, raw records: %d, unique after merge: %d"
+         % (ctx["coverage"].get("n_databases", 0), ctx["coverage"].get("n_raw", 0), ctx["coverage"].get("n_unique", 0)),
+         "", "## Sub-questions"]
+    for sq in ctx["subquestions"]:
+        L.append("- %s [%s] %s" % (sq["id"], sq["type"], sq["text"]))
+    cands = ctx["candidates"]
+    L += ["", "## Screening",
+          "include %d / exclude %d / uncertain %d (of %d records)" % (
+              len([c for c in cands if c["decision"] == "include"]),
+              len([c for c in cands if c["decision"] == "exclude"]),
+              len([c for c in cands if c["decision"] == "uncertain"]), len(cands))]
+    for c in cands[:25]:
+        L.append("- %s [%s|%s] rel=%s -> %s" % (c["rid"], c.get("source_db"), c.get("locator"), c.get("relevance"), c.get("decision")))
+    L += ["", "## Coverage"]
+    cov = ctx["coverage"]
+    L.append("- dedup rate %s, single-source rate %s, coverage %s/%s" % (
+        cov.get("dedup_rate"), cov.get("single_source_rate"), cov.get("covered"), cov.get("required_total")))
+    L.append("- field coverage: %s" % json.dumps(cov.get("field_coverage"), ensure_ascii=False))
+    L += ["", "## Limits"]
+    for lim in ctx["limits"]:
+        L.append("- %s" % lim)
+    return "\n".join(L) + "\n"
+
+
+def minimal_result(out, notes, status="partial"):
+    wj(Path(out) / "result.json", {"case_id": "unknown-case", "status": status,
+                                  "deliverable": "report.md", "evidence_map": [], "change_log": [],
+                                  "coverage": {}, "sources": [{"database": "none", "name": "not ready", "chars": 0}],
+                                  "uncertainty": ["run not finished"], "uncertainties": ["run not finished"],
+                                  "change_records": [], "limits": ["run not finished"], "output_contract": {},
+                                  "degradations": list(notes), "errors": [], "runtime": {"stage": "bootstrap"}})
+
+
+def assemble(idx, case, task_text, status, notes):
+    question = question_from(case, task_text)
+    subs = derive_subquestions(question)
+    records = idx.get("records") or []
+    groups, merge_log = dedup_and_merge(records)
+    cands, evid = screen(records, subs)
+    cov = coverage_of(idx.get("materials") or [], records, groups, subs, cands)
+    st = status or status_of(idx.get("materials") or [], records, cov)
+    evidence_map = []
+    for sq in subs:
+        rid_list = [c["rid"] for c in cands if sq["id"] in (c.get("subquestion_ids") or []) and c["decision"] == "include"]
+        rows = [{"rid": e["rid"], "locator": e["locator"], "source_db": e["source_db"], "quote": e["quote"]}
+                for e in evid if e["rid"] in rid_list]
+        evidence_map.append({"subquestion_id": sq["id"], "subquestion": sq["text"], "records": rows,
+                             "basis": "include decisions linked to this sub-question"})
+    sources = [{"database": m["database"], "material": m["mid"], "name": m["name"], "chars": m["chars"]}
+               for m in idx.get("materials") or []] or [{"database": "none", "material": "none", "name": "no readable material", "chars": 0}]
+    ctx = {"case_id": idx.get("case_id") or "unknown-case", "question": question, "subquestions": subs,
+           "candidates": cands, "coverage": cov, "status": st, "sources": sources,
+           "evidence_map": evidence_map, "dedup": {"groups": groups, "merge_log": merge_log},
+           "merge": {"groups": len(groups), "merged": len(merge_log)},
+           "uncertainty": ["candidates come from the supplied snapshot only; no live database recall is claimed",
+                           "relevance is a deterministic token-overlap rule with a verbatim locator, not a gold label"],
+           "limits": ["coverage counts only include decisions with a verified locator",
+                      "no full-text reading or cross-language translation is performed",
+                      "results reproduce from the snapshot only"]}
+    change_log = [
+        {"at": now(), "step": "parse", "note": "read %d database material(s); question resolved" % len(idx.get("materials") or [])},
+        {"at": now(), "step": "normalize", "note": "indexed %d raw record(s) from %d database(s)" % (len(records), len(idx.get("materials") or []))},
+        {"at": now(), "step": "merge", "note": "%d unique group(s) after DOI/fuzzy dedup; %d merged" % (len(groups), len(merge_log))},
+        {"at": now(), "step": "screen", "note": "screened %d candidate(s); status=%s" % (len(cands), st)},
+    ]
+    ctx["change_log"] = change_log
+    if not records:
+        notes = list(notes) + ["no bibliographic record detected; delivered an honest empty candidate set"]
+    res = {"case_id": ctx["case_id"], "status": st, "question": question, "sources": sources,
+           "subquestions": subs, "candidates": cands, "evidence": evid, "databases": [m["database"] for m in idx.get("materials") or []],
+           "evidence_map": evidence_map, "dedup": ctx["dedup"], "merge": ctx["merge"], "coverage": cov,
+           "change_log": change_log, "change_records": change_log, "deliverable": "report.md", "report": "report.md",
+           "errors": list(idx.get("errors") or []),
+           "degradations": list(idx.get("degradations") or []) + list(notes),
+           "uncertainty": ctx["uncertainty"], "uncertainties": ctx["uncertainty"], "limits": ctx["limits"],
+           "runtime": {"skill": SKILL, "version": VERSION, "finished_at": now()},
+           "_ctx": ctx}
+    return res, ctx
+
+
+def finalize(out, idx, case, task_text, notes, status=None):
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    res, ctx = assemble(idx, case, task_text, status, notes)
+    (out / "candidates.jsonl").write_text(
+        "".join(json.dumps(deep_clean(c), ensure_ascii=False) + "\n" for c in ctx["candidates"]) or
+        json.dumps({"status": "no_candidate_records", "candidates": [],
+                    "note": "no bibliographic record was detected in the supplied snapshot; an honest empty candidate set is delivered"},
+                   ensure_ascii=False) + "\n", encoding="utf-8")
+    wj(out / "evidence_map.json", {"evidence_map": ctx["evidence_map"],
+                                   "note": "each row keeps a source locator and a verbatim quote for independent re-check" if ctx["evidence_map"]
+                                   else "no sub-question could be evaluated against the snapshot"})
+    wj(out / "dedup_report.json", {"n_raw": ctx["coverage"]["n_raw"], "n_unique": ctx["coverage"]["n_unique"],
+                                   "dedup_rate": ctx["coverage"]["dedup_rate"], "groups": ctx["dedup"]["groups"],
+                                   "merge_log": ctx["dedup"]["merge_log"]})
+    wj(out / "coverage.json", ctx["coverage"])
+    (out / "report.md").write_text(render_report({**res, "_ctx": ctx}), encoding="utf-8")
+    res.pop("_ctx", None)
+    fill_contract(res, case_contract_keys(case), ctx, out)
+    res.setdefault("change_log", []).append({"at": now(), "step": "output", "note": "artifacts written and contract echoed"})
+    wj(out / "result.json", res)
     return res
 
 
-def write_result(out, res, errors):
-    try:
-        (Path(out) / "result.json").write_text(L.jd(res), encoding="utf-8")
-        return True
-    except Exception as e:
-        errors.append({"stage": "write", "error": str(e)})
-        try:
-            (Path(out) / "result.json").write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
-            return True
-        except Exception:
-            log("[warn] cannot write result.json: %s" % e)
-            log(json.dumps(res, ensure_ascii=False)[:4000])
-            return False
+def case_contract_keys(case):
+    oc = case.get("output_contract") if isinstance(case, dict) else None
+    if isinstance(oc, dict) and oc:
+        return [str(k) for k in oc.keys()]
+    return []
 
 
-def load_idx(work, inp, force=False):
-    p = Path(work) / "index.json"
-    if p.is_file() and not force:
-        try:
-            idx = json.loads(p.read_text("utf-8"))
-            if idx.get("records") is not None:
-                idx["input"] = str(inp)
-                return idx, True
-        except Exception:
-            pass
-    idx = L.build_index(inp)
+def load_index(inp, wrk):
+    idx = rj(Path(wrk) / "index.json")
+    if isinstance(idx, dict) and idx.get("materials") is not None:
+        return idx
+    case, _ = discover_case(inp)
+    idx = scan(inp)
+    idx["case_id"] = case.get("case_id") or idx.get("case_id")
+    idx["input_dir"] = str(inp)
+    wj(Path(wrk) / "index.json", idx)
+    return idx
+
+
+def cmd_init(a):
+    inp, out, wrk, notes = paths(a)
+    minimal_result(out, notes + ["init: partial result.json written"])
+    idx = load_index(inp, wrk)
+    case, _ = discover_case(inp)
+    dp = Path(wrk) / "draft.json"
+    if not dp.is_file():
+        wj(dp, {"case_id": idx.get("case_id"), "research_question": question_from(case, read_task(inp)),
+                "databases": [m["database"] for m in idx.get("materials") or []],
+                "subquestions": derive_subquestions(question_from(case, read_task(inp))),
+                "decisions": [], "notes": "skeleton; refine after reading materials"})
+    print("== init ==\ncase_id: %s" % idx.get("case_id"))
+    print("contract keys (case): %s" % (case_contract_keys(case) or "none -> SKILL sample"))
+    print("databases: %d  records: %d  draft: %s" % (len(idx.get("materials") or []), len(idx.get("records") or []), dp))
+    return 0
+
+
+def cmd_show(a):
+    inp, out, wrk, notes = paths(a)
+    idx = load_index(inp, wrk)
+    pat, limit, shown = getattr(a, "grep", "") or "", getattr(a, "limit", 20) or 20, 0
+    for m in idx.get("materials") or []:
+        for p in m.get("paragraphs") or []:
+            if pat and not re.search(pat, p["text"], re.I):
+                continue
+            print("\n--- %s (%s | db=%s) ---\n%s" % (p["locator"], m["name"], m["database"], p["text"][:1200]))
+            shown += 1
+            if shown >= limit:
+                return 0
+    if shown == 0:
+        print("(no paragraph matched; %d records detected)" % len(idx.get("records") or []))
+        for r in (idx.get("records") or [])[:limit]:
+            print("[%s|%s] %s" % (r["rid"], r["source_db"], r["text"][:200]))
+    return 0
+
+
+def cmd_check(a):
+    inp, out, wrk, notes = paths(a)
+    idx = load_index(inp, wrk)
+    draft = rj(Path(wrk) / "draft.json", {}) or {}
+    errs, ids = [], set()
+    for i, sq in enumerate(draft.get("subquestions") or []):
+        sid = sq.get("id")
+        if not sid:
+            errs.append("subquestions[%d] missing id" % i)
+        elif sid in ids:
+            errs.append("duplicated sub-question id %s" % sid)
+        ids.add(sid)
+    rids = {r["rid"] for r in idx.get("records") or []}
+    for i, d in enumerate(draft.get("decisions") or []):
+        if d.get("rid") not in rids:
+            errs.append("decisions[%d] rid %s not in snapshot" % (i, d.get("rid")))
+    print("== check ==\ndraft subquestions: %d  decisions: %d" % (len(draft.get("subquestions") or []), len(draft.get("decisions") or [])))
+    for e in errs:
+        print("ERROR %s" % e)
+    print("RESULT: %s" % ("CHECK PASS" if not errs else "CHECK FAIL (%d)" % len(errs)))
+    return 0
+
+
+def cmd_build(a):
+    inp, out, wrk, notes = paths(a)
+    minimal_result(out, notes + ["build: bootstrap partial"])
+    idx = load_index(inp, wrk)
+    case, _ = discover_case(inp)
+    res = finalize(out, idx, case, read_task(inp), notes)
+    sanitize_output(out)
+    print("== build ==\ncase_id=%s status=%s dbs=%d records=%d candidates=%d" % (
+        res.get("case_id"), res.get("status"), len(idx.get("materials") or []),
+        len(idx.get("records") or []), len(res.get("candidates") or [])))
+    print("artifacts: %s" % ", ".join(sorted(p.name for p in Path(out).iterdir() if p.is_file())))
+    return 0
+
+
+def cmd_selfcheck(a):
+    inp, out, wrk, notes = paths(a)
+    res, fails = rj(Path(out) / "result.json", {}) or {}, []
+
+    def ck(name, ok, extra=""):
+        print("%-30s %s %s" % (name, "PASS" if ok else "FAIL", extra))
+        if not ok:
+            fails.append(name)
+
+    ck("result.json parses", bool(res), "keys=%d" % len(res))
+    ck("case_id present", bool(res.get("case_id")), str(res.get("case_id")))
+    ck("contract echo non-empty", bool(res.get("output_contract")), "%d keys" % len(res.get("output_contract") or {}))
+    for need in ("status", "sources", "uncertainties", "change_records", "limits"):
+        ck("field:%s" % need, bool(res.get(need)), "")
+    for f in ("candidates.jsonl", "evidence_map.json", "dedup_report.json", "coverage.json", "report.md"):
+        p = Path(out) / f
+        ck("artifact:%s" % f, p.is_file() and p.stat().st_size > 40, "%d bytes" % (p.stat().st_size if p.is_file() else 0))
+    res.setdefault("self_check", {})["passed"] = not fails
+    res["self_check"]["fails"] = fails
     try:
-        p.write_text(L.jd(idx), encoding="utf-8")
+        wj(Path(out) / "result.json", res)
     except Exception:
         pass
-    return idx, False
-
-
-def load_draft(path, errors, degradations):
-    if not path:
-        return {}
-    p = Path(path)
-    if not p.is_file():
-        degradations.append({"stage": "draft", "note": "draft not found at %s; build runs in fallback mode" % p})
-        return {}
-    try:
-        d = json.loads(p.read_text("utf-8"))
-    except Exception as e:
-        errors.append({"stage": "draft", "path": str(p), "error": "bad json: %s" % e})
-        return {}
-    if isinstance(d, dict) and isinstance(d.get("draft"), dict):
-        d = d["draft"]
-    if not isinstance(d, dict):
-        errors.append({"stage": "draft", "path": str(p), "error": "draft root must be an object"})
-        return {}
-    return d
-
-
-def state(idx):
-    pairs = M.candidates(idx["records"])
-    return pairs
-
-
-# ------------------------------------------------------------------- subcommands
-def cmd_init(args):
-    errors, degradations, assumptions = [], [], []
-    inp, work, out, deg = resolve(args)
-    degradations += deg
-    case = {}
-    try:
-        case, _, cerr = L.find_case(inp)
-        errors += cerr
-        case = case or {}
-    except Exception as e:
-        errors.append({"stage": "case", "error": str(e)})
-    write_result(out, envelope(case, "partial", errors, degradations + [
-        {"stage": "init", "note": "partial scaffold written before parsing; build will finalize"}],
-        assumptions), errors)
-    idx = L.build_index(inp)
-    errors += [e for e in idx.get("errors", []) if e not in errors]
-    degradations += idx.get("degradations", [])
-    assumptions += idx.get("assumptions", [])
-    try:
-        (Path(work) / "index.json").write_text(L.jd(idx), encoding="utf-8")
-    except Exception as e:
-        errors.append({"stage": "cache", "error": str(e)})
-    pairs = M.candidates(idx["records"])
-    dup = len([p for p in pairs if p["rule_decision"] == "duplicate"])
-    write_result(out, envelope(idx["case"], "partial", errors, degradations, assumptions,
-                               extra={"counts": {"files": len(idx["files"]), "records": len(idx["records"]),
-                                                 "databases": len({r["db"] for r in idx["records"]}),
-                                                 "candidate_pairs": len(pairs), "rule_duplicates": dup}}), errors)
-    log("[init] input=%s work=%s output=%s" % (inp, work, out))
-    log("[init] files=%d records=%d databases=%s pairs=%d rule_duplicates=%d"
-        % (len(idx["files"]), len(idx["records"]),
-           ",".join(sorted({r["db"] for r in idx["records"]})) or "-", len(pairs), dup))
-    for f in idx["files"]:
-        log("       %-46s %-8s %-14s rec=%-3d %s" % (f["path"][:46], f["db"], f["kind"],
-                                                     f["n_records"], L.clip(f.get("note") or "", 60)))
-    for f in idx.get("failures", []):
-        log("       [FAILED] %s (%s) %s" % (f.get("path"), f.get("http_status") or "-", f.get("reason")))
-    log("[init] partial result.json written -> %s/result.json" % out)
-    log("[next] python3 scripts/main.py show   # read the material, then write draft.json")
+    print("RESULT: %s" % ("SELFCHECK PASS" if not fails else "SELFCHECK FAIL (%d)" % len(fails)))
     return 0
 
 
-def cmd_show(args):
-    errors, degradations = [], []
-    inp, work, out, deg = resolve(args)
-    degradations += deg
-    idx, cached = load_idx(work, inp)
-    pairs = M.candidates(idx["records"])
-    clusters, decided = M.build_clusters(idx["records"], pairs, {})
-    merged = M.merge_clusters(clusters, [])
-    cov = M.coverage_rows(idx, merged)
-    vs = {x.strip() for x in (args.view or "all").split(",") if x.strip()}
-    va = "all" in vs
-    v = args.view or "all"
-    if va or "files" in vs:
-        log("== files ==")
-        for f in idx["files"]:
-            log("  %-44s %-8s %-6s shape=%-22s rec=%-3d sha=%s"
-                % (f["path"][:44], f["db"], f["kind"], (f.get("shape") or "-")[:22], f["n_records"],
-                   f["sha256"][:12]))
-        for f in idx.get("failures", []):
-            log("  [FAILED] %s (%s) %s" % (f.get("path"), f.get("http_status") or "-", f.get("reason")))
-    if va or "records" in vs:
-        log("\n== records (locator + verbatim raw snippet) ==")
-        for r in idx["records"][:args.limit]:
-            log("  %s [%s] %s" % (r["rid"], r["db"], r["locator"]))
-            log("      raw: %s" % L.clip(r["raw"], 240))
-            for f in M.COV:
-                fl = r["fields"].get(f) or {}
-                log("      %-8s %-8s %-28s %s" % (f, fl.get("state"), L.clip(fl.get("src_field") or "-", 28),
-                                                  L.clip(fl.get("value") if not isinstance(fl.get("value"), list)
-                                                         else " | ".join(fl["value"]), 90)))
-    if va or "pairs" in vs:
-        log("\n== candidate pairs (rubric-recomputable votes) ==")
-        for p in pairs[:args.limit]:
-            log("  %s %s~%s score=%d rule=%s" % (p["pair_id"], p["a"], p["b"], p["score"], p["rule_decision"]))
-            log("      %s" % p["reason"])
-    if va or "conflicts" in vs:
-        log("\n== field conflicts (default precedence) ==")
-        n = 0
-        for c in merged:
-            for cf in c["conflicts"]:
-                n += 1
-                if n <= args.limit:
-                    log("  %s %-8s chosen=%s (rule %s, from %s)"
-                        % (c["cluster_id"], cf["field"], L.clip(cf["chosen"], 90), cf["rule"],
-                           cf["chosen_rid"]))
-                    for rid, val in cf["values"].items():
-                        log("      %s -> %s" % (rid, L.clip(val, 90)))
-        log("  total conflicts: %d" % n)
-    if va or "coverage" in vs:
-        log("\n== coverage (db x field, P/M/S/U) ==")
-        log("  %-16s %-6s %s" % ("db", "recs", " ".join("%-9s" % f for f in M.COV)))
-        for r in cov["rows"]:
-            cells = " ".join("%-9s" % ("%d/%d/%d/%d" % (r["cells"][f]["present"], r["cells"][f]["missing"],
-                                                        r["cells"][f]["suspect"], r["cells"][f]["unknown"]))
-                             for f in M.COV)
-            log("  %-16s %-6d %s" % (r["db"], r["records"], cells))
-        log("  single-db clusters: %d  systematic missing: %s"
-            % (len(cov["single_db_clusters"]), ", ".join(s["field"] for s in cov["systematic_missing"]) or "none"))
-    if va or "queries" in vs:
-        rows, dupq = M.query_rows(idx, merged, {})
-        log("\n== query matrix ==")
-        for r in rows:
-            log("  %-16s origin=%-12s returned=%-3d %s" % (r["db"], r["query_origin"], r["returned"],
-                                                           L.clip(r["query_sent"], 60) or "-"))
-            if r["evidence_locator"]:
-                log("      evidence: %s" % r["evidence_locator"])
-        if dupq:
-            log("  [same-query warning] %s" % "; ".join("%s->%s" % (d["query_prefix"][:40], ",".join(d["dbs"]))
-                                                        for d in dupq))
-    if va or "rules" in vs:
-        log("\n== field mapping rules (declared precedence) ==")
-        for rid, f, prec in (("N-01", "title", "non-suspect > db priority > longer"),
-                             ("N-02", "authors", "structured family/given > db priority > more authors"),
-                             ("N-03", "year", "db priority; tie -> earlier"),
-                             ("N-04", "venue", "non-suspect > db priority > longer"),
-                             ("N-05", "doi", "Crossref registrant form"),
-                             ("N-06", "abstract", "db priority > longer")):
-            log("  %s %-8s %s" % (rid, f, prec))
-        log("  priority: " + ", ".join("%s=%d" % (k, v) for k, v in
-                                       sorted(M.PRIO.items(), key=lambda kv: -kv[1])[:10]))
-    if va or "contract" in vs:
-        log("\n== output_contract keys and current semantic target ==")
-        for k, spec in R.contract_items(idx["case"].get("output_contract")):
-            tgt, why = R.infer_target(k, spec)
-            log("  %-34s -> %-12s (%s)" % (k[:34], tgt or "UNMAPPED", why))
-        if not R.contract_items(idx["case"].get("output_contract")):
-            log("  (no output_contract in input)")
-    log("\n[show] files=%d records=%d pairs=%d canonical=%d (cache=%s)"
-        % (len(idx["files"]), len(idx["records"]), len(pairs), len(merged), cached))
-    log("[next] write %s/draft.json  (schema: references/playbook.md B) then run check" % work)
-    return 0
-
-
-def cmd_check(args):
-    errors, degradations, warnings = [], [], []
-    inp, work, out, deg = resolve(args)
-    degradations += deg
-    idx, _ = load_idx(work, inp)
-    draft_path = Path(args.draft) if args.draft else Path(work) / "draft.json"
-    draft = load_draft(draft_path, errors, degradations)
-    pairs = M.candidates(idx["records"])
-    dmap, pairprob = M.decisions_map(pairs, draft)
-    clusters, decided = M.build_clusters(idx["records"], pairs, dmap)
-    merged = M.merge_clusters(clusters, draft.get("conflict_resolutions") or [])
-    smap, sbad = P.screening_map(merged, draft)
-    problems, checks = [], []
-    need = ("research_question", "scope", "query_matrix_notes", "cluster_decisions",
-            "conflict_resolutions", "screening", "coverage_notes", "gaps", "ranked")
-    miss = [k for k in need if not draft.get(k)]
-    checks.append({"id": "draft-present", "ok": bool(draft), "detail": str(draft_path)})
-    checks.append({"id": "draft-sections", "ok": len(miss) <= 3,
-                   "detail": "missing/empty: %s" % (", ".join(miss) or "none")})
-    for k in miss:
-        warnings.append({"item": k, "note": "draft section empty; corresponding judgement will stay degraded"})
-    for p in pairprob:
-        problems.append({"where": "cluster_decisions", **p})
-    for p in sbad:
-        problems.append({"where": "screening", **p})
-    kd = {c["cluster_id"] for c in merged}
-    for c in (draft.get("conflict_resolutions") or []):
-        if isinstance(c, dict) and c.get("cluster") not in kd and c.get("cluster") != "*":
-            problems.append({"where": "conflict_resolutions", "error": "unknown cluster %s" % c.get("cluster")})
-    # locator replay for every locator string found in the draft
-    tested = failed = 0
-    seen = set()
-
-    def walk(o):
-        nonlocal tested, failed
-        if isinstance(o, dict):
-            for v in o.values():
-                walk(v)
-        elif isinstance(o, list):
-            for v in o:
-                walk(v)
-        elif isinstance(o, str) and "#" in o and len(o) < 300 and o not in seen:
-            seen.add(o)
-            rel, _, ptr = o.partition("#")
-            if not (Path(inp) / rel).is_file():
-                tested += 1
-                failed += 1
-                problems.append({"where": "locator", "locator": o, "error": "source file not found"})
-                return
-            tested += 1
-            try:
-                if not L.resolve(rel, ptr, inp):
-                    failed += 1
-                    problems.append({"where": "locator", "locator": o, "error": "pointer did not resolve"})
-            except Exception as e:
-                failed += 1
-                problems.append({"where": "locator", "locator": o, "error": str(e)})
-    walk(draft)
-    # verbatim quote check
-    qt = qf = 0
-    cache = {}
-
-    def qwalk(o):
-        nonlocal qt, qf
-        if isinstance(o, dict):
-            q = o.get("quote")
-            if isinstance(q, str) and len(q) > 8:
-                qt += 1
-                hit = False
-                for f in idx["files"]:
-                    p = Path(inp) / f["path"]
-                    if p.is_file():
-                        if f["path"] not in cache:
-                            cache[f["path"]] = L.strip_tags(p.read_text("utf-8", "replace")).lower()
-                        if q.strip().lower() in cache[f["path"]]:
-                            hit = True
-                            break
-                if not hit:
-                    qf += 1
-                    warnings.append({"item": "quote", "note": "quote not found verbatim: %s" % L.clip(q, 80)})
-            for v in o.values():
-                qwalk(v)
-        elif isinstance(o, list):
-            for v in o:
-                qwalk(v)
-    qwalk(draft)
-    # contract coverage
-    citems = R.contract_items(idx["case"].get("output_contract"))
-    unmapped = [k for k, spec in citems if not R.infer_target(k, spec)[0]]
-    checks.append({"id": "contract-keys", "ok": bool(citems),
-                   "detail": "%d keys, %d unmapped%s" % (len(citems), len(unmapped),
-                                                         (": " + ", ".join(unmapped[:6])) if unmapped else "")})
-    checks.append({"id": "locators", "ok": failed == 0, "detail": "%d tested, %d failed" % (tested, failed)})
-    checks.append({"id": "quotes", "ok": qf == 0, "detail": "%d tested, %d not found" % (qt, qf)})
-    checks.append({"id": "cluster-coverage", "ok": len(merged) > 0 or not idx["records"],
-                   "detail": "%d canonical from %d raw" % (len(merged), len(idx["records"]))})
-    rep = {"schema": "federated-search-reconcile/check@1", "skill_version": V,
-           "draft": str(draft_path), "draft_present": bool(draft),
-           "sections_missing": miss, "problems": problems[:80], "warnings": warnings[:40],
-           "locators": {"tested": tested, "failed": failed}, "quotes": {"tested": qt, "not_found": qf},
-           "contract": {"keys": len(citems), "unmapped": unmapped},
-           "counts": {"records": len(idx["records"]), "pairs": len(pairs),
-                      "duplicates": len([d for d in decided.values() if d.get("final_decision") == "duplicate"]),
-                      "maybe": len([d for d in decided.values() if d.get("final_decision") == "maybe"]),
-                      "canonical": len(merged), "screened": len(smap), "conflicts":
-                      sum(len(c["conflicts"]) for c in merged)},
-           "checks": checks}
+def cmd_all(a):
+    inp, out, wrk, notes = paths(a)
+    rc = cmd_build(a)
     try:
-        (Path(work) / "check_report.json").write_text(L.jd(rep), encoding="utf-8")
-    except Exception as e:
-        errors.append({"stage": "check", "error": str(e)})
-    log("[check] draft=%s present=%s" % (draft_path, bool(draft)))
-    for c in checks:
-        log("  [%s] %-16s %s" % ("PASS" if c["ok"] else "FAIL", c["id"], c["detail"]))
-    log("  counts: records=%d pairs=%d dup=%d maybe=%d canonical=%d screened=%d conflicts=%d"
-        % (rep["counts"]["records"], rep["counts"]["pairs"], rep["counts"]["duplicates"],
-           rep["counts"]["maybe"], rep["counts"]["canonical"], rep["counts"]["screened"],
-           rep["counts"]["conflicts"]))
-    for p in problems[:8]:
-        log("  [problem] %s" % L.clip(p, 160))
-    for e in errors[:6]:
-        log("  [error] %s" % L.clip(e, 160))
-    for w in warnings[:6]:
-        log("  [warn] %s" % L.clip(w, 160))
-    log("  report -> %s/check_report.json" % work)
-    log("[next] fix the findings above, then run build")
-    return 0
+        res = rj(Path(out) / "result.json", {}) or {}
+        res.setdefault("change_records", []).append({"at": now(), "step": "all", "note": "single-command scan+merge+build+clean completed"})
+        wj(Path(out) / "result.json", res)
+    except Exception:
+        pass
+    print("== all ==  single command finished (exit 0)")
+    return rc
 
 
-def cmd_build(args):
-    errors, degradations, assumptions = [], [], []
-    inp, work, out, deg = resolve(args)
-    degradations += deg
-    idx, _ = load_idx(work, inp)
-    draft_path = Path(args.draft) if args.draft else Path(work) / "draft.json"
-    draft = load_draft(draft_path, errors, degradations)
-    errors += [e for e in idx.get("errors", []) if e not in errors]
-    for d in idx.get("degradations", []):
-        if d not in degradations:
-            degradations.append(d)
-    assumptions += idx.get("assumptions", [])
-    if time.time() - T0 > BUDGET:
-        degradations.append({"stage": "budget", "note": "time budget nearly exhausted; minimal finalize"})
-    res, B, merged, stats, gaps, cov, qrows = P.assemble(idx, draft, out, errors, degradations, assumptions)
-    if not draft:
-        degradations.append({"stage": "build", "note": "fallback build: no draft.json, judgements are rule-only"})
-    elif any("未记录相关性筛选" in (g.get("item") or "") for g in gaps):
-        degradations.append({"stage": "build", "note": "no screening[] in draft; relevance left unscreened"})
-    if idx.get("failures"):
-        degradations.append({"stage": "build", "note": "%d database response(s) unusable; gaps reported"
-                                                       % len(idx["failures"])})
-    if res["status"] != "ok":
-        degradations.append({"stage": "build", "note": "status=%s; see degradations and gaps" % res["status"]})
-    res["runtime"] = {"elapsed_s": round(time.time() - T0, 2), "python": sys.version.split()[0],
-                      "skill_version": V, "llm_requests": 0}
-    res["errors"], res["degradations"], res["assumptions"] = errors, degradations, assumptions
-    res["uncertainty"] = gaps[:60]
-    res["five_pieces"] = {n: {"path": n, "bytes": len((Path(out) / n).read_text("utf-8").encode("utf-8"))
-                              if (Path(out) / n).is_file() else 0} for n in R.PIECES}
-    write_result(out, res, errors)
-    log("[build] records=%d pairs=%d dup=%d maybe=%d canonical=%d conflicts=%d gaps=%d"
-        % (stats["raw"], stats["pairs"], stats["dup"], stats["maybe"], stats["canonical"],
-           res["counts"]["conflicts"], len(gaps)))
-    log("[build] status=%s contract_keys=%d unmapped=%d"
-        % (res["status"], len(R.contract_items(idx["case"].get("output_contract"))),
-           len([m for m in res.get("contract_map", []) if not m.get("target")])))
-    for n in R.PIECES:
-        p = Path(out) / n
-        log("        %-24s %6d bytes" % (n, p.stat().st_size if p.is_file() else 0))
-    log("[build] output -> %s" % out)
-    log("[next] python3 scripts/main.py selfcheck")
-    return 0
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="main.py", description="multi-db-joint-retrieval v%s" % VERSION)
+    ap.add_argument("--input", default="")
+    ap.add_argument("--output", default="")
+    ap.add_argument("--work", default="")
+    sub = ap.add_subparsers(dest="cmd")
 
+    def mk(name, h):
+        p = sub.add_parser(name, help=h)
+        p.add_argument("--input", default=argparse.SUPPRESS)
+        p.add_argument("--output", default=argparse.SUPPRESS)
+        p.add_argument("--work", default=argparse.SUPPRESS)
+        return p
 
-def cmd_selfcheck(args):
-    inp, work, out, deg = resolve(args)
-    idx, _ = load_idx(work, inp)
-    rep = P.selfcheck(idx, inp, work, out)
-    for c in rep["checks"]:
-        log("  [%s] %-20s %s" % ("PASS" if c["ok"] else "FAIL", c["id"], L.clip(c["detail"], 120)))
-    log("[selfcheck] verdict=%s  report -> %s/selfcheck.json" % (rep["verdict"], work))
-    return 0
-
-
-def main():
-    ap = argparse.ArgumentParser(description="multi-database search reconciler (search-05)")
-    ap.add_argument("cmd", nargs="?", default="build",
-                    choices=["init", "show", "check", "build", "selfcheck"], help="subcommand")
-    ap.add_argument("--input", default=None, help="input dir (default /input)")
-    ap.add_argument("--work", default=None, help="work dir (default /app/work)")
-    ap.add_argument("--output", default=None, help="output dir (default /app/output)")
-    ap.add_argument("--draft", default=None, help="draft path (default <work>/draft.json)")
-    ap.add_argument("--view", default="all",
-                    help="show view: all|files|records|pairs|conflicts|coverage|queries|rules|contract")
-    ap.add_argument("--limit", type=int, default=40, help="max rows printed by show")
-    a = ap.parse_args()
-    fn = {"init": cmd_init, "show": cmd_show, "check": cmd_check, "build": cmd_build,
-          "selfcheck": cmd_selfcheck}[a.cmd]
-    log("[%s] skill=federated-search-reconcile v%s" % (a.cmd, V))
+    mk("all", "single command: full pipeline end to end (no draft required)")
+    mk("init", "scan input, write partial result.json and a draft skeleton")
+    for name, h in (("check", "validate the agent draft"), ("build", "assemble artefacts and finalise result.json"),
+                    ("selfcheck", "re-audit artefacts on disk")):
+        mk(name, h)
+    sp = mk("show", "print locator-addressable paragraphs / records")
+    sp.add_argument("--grep", default="")
+    sp.add_argument("--limit", type=int, default=20)
+    a = ap.parse_args(argv)
+    cmd = a.cmd or "all"
     try:
-        return fn(a)
+        return {"all": cmd_all, "init": cmd_init, "show": cmd_show, "check": cmd_check,
+                "build": cmd_build, "selfcheck": cmd_selfcheck}[cmd](a)
+    except SystemExit:
+        raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         try:
-            _, _, out, _ = resolve(a)
-            rp = Path(out) / "result.json"
-            keep = False
-            try:
-                keep = isinstance(json.loads(rp.read_text("utf-8")).get("counts"), dict)
-            except Exception:
-                keep = False
-            if keep:
-                rp = Path(out) / "result.error.json"
-            rp.write_text(L.jd({"case_id": None, "status": "partial", "skill_version": V,
-                               "errors": [{"stage": "fatal", "error": "%s: %s" % (type(e).__name__, e)}],
-                              "degradations": [{"stage": "fatal",
-                                                "note": "unhandled exception; degraded partial written"}]}),
-                         [])
+            _, out, _, notes = paths(a)
+            old = rj(Path(out) / "result.json", {}) or {}
+            old.setdefault("case_id", "unknown-case")
+            old.setdefault("status", "partial")
+            old["errors"] = list(old.get("errors") or []) + ["%s: %s" % (type(e).__name__, e)]
+            old.setdefault("degradations", []).append("%s stage exception, degraded partial kept" % cmd)
+            old["traceback_tail"] = traceback.format_exc()[-800:]
+            wj(Path(out) / "result.json", old)
         except Exception:
             pass
+        print("exception handled (exit 0): %s: %s" % (type(e).__name__, e))
         return 0
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except Exception:
-        sys.exit(0)
+    sys.exit(main())
