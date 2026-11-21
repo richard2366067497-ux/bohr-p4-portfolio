@@ -20,6 +20,21 @@ page; a keyword hit is never promoted into a family link; and a source whose lic
 handled as the yellow tier, so only conclusions and locators leave the dossier. No network, no clock,
 no third-party package, no invented literature or numbers.
 
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按其组织全部产出：
+
+- **协议先行**：按其 **§2 七步框架（含门控）** 推进——盘点材料 → 冻结检索协议 → 来源授权分级
+  → 执行查询并存证 → 抽取规范化定位 → 筛选归并状态核验 → 尽早输出增量完善；前一步未冻结不进入下一步。
+- **授权闸门**：按其 **§3 绿/黄/红分级**处理每份来源，许可未声明按黄色并进 `gaps`。
+- **口径与公式**：按其 **§4** 计算精确率/召回率/正确率/覆盖率/可追溯率；召回率无完整参考范围时
+  报 `not_estimable`，不得宣称 100%。
+- **事实边界**：按其 **§5 领域事实清单** 逐条排雷；号码规范化不等于存在性证明，授权种类代码
+  不等于当前有效。
+- **门控**：交付前逐项通过其 **§8 防扣分自查表（26 项）**；任一项未过则 `status=partial`
+  并把未决项写入 `uncertainties` / `boundary_log.json`，绝不静默提升为完整成功。
+
 ## 0. result.json contract
 
 Every key below is echoed both at the top level of `result.json` and inside its `output_contract` object;
@@ -141,3 +156,9 @@ label can be re-checked against the line it came from.
 - A source whose licence is not declared -> the yellow tier; only conclusions, field names and locators
   leave the dossier.
 - No network, no clock, no third-party package, no invented literature, numbers or legal status.
+
+## 7. 专家门控（交付前硬性）
+
+**专家检查表逐项通过**是交付前的硬门控：每件交付物必须先通过
+`references/expert_playbook.md` §8 的 26 项防扣分自查表。任一项未通过，`status` 记为 `partial`
+并把未决项写入 `uncertainties` 与 `boundary_log.json`，绝不静默提升为完整成功。
