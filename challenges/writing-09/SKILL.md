@@ -1,12 +1,26 @@
 ---
 name: writing-09-results-discussion
 description: Results and Discussion section writer. Reads data tables, figures-as-data and statistics output, extracts numeric readouts with their units, writes a Results section that reports only observations, a Discussion that checks each interpretation against the data or a located source, and a Limitations block with causal boundaries. Use when a manuscript needs a submittable Results/Discussion chapter built from materials already in hand.
-version: 9.0.0
+version: 10.0.0
 ---
 
 # 结果与讨论章节写作 / Results and Discussion writing
 
 数据与图表已经在手时，本 Skill 负责把它们变成可投稿的结果段与讨论段：读数读得准、结果只陈述观察、讨论承担解释与文献对照、局限写到方法层面。运行完全离线，只用 Python 标准库。
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **流程**：按其 **§2 七步法（S1–S7）** 推进——解析契约 → 建证据账本（`D/L` 编号）→ 定比较与论断
+  → 复算与单位审计 → 起草章节 → 反向核验 → 打包交付；前一步未冻结不进入下一步。
+- **统计口径**：按其 **§3.1–§3.3** 计算均值、`s`（`n−1`）、`SEM`、绝对差/相对差与逐批次产率
+  `Y=X·S/100`，区分百分点与百分比、SD 与 SEM。
+- **读数优先级**：按其 **§3.4** “原始数据/统计输出 > 表格与图注 > 矢量图标签 > 位图数字化”，
+  冲突来源并列不平均；语气分级与证据强度一致。
+- **领域红线**：按其 **§4** 检查口径、归一化、表征边界、稳定性与文献条件可比性。
+- **门控**：交付前逐项通过其 **§5 专家检查表**，并按其 **§7** 做交付前门控。
 
 ## 单命令入口（single command，一次跑完）
 
@@ -77,12 +91,15 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 | **PNG / JPEG** | 读文件头记录尺寸（PNG IHDR / JPEG SOFn），内容进 `figure_inventory` 并转 `human_review` 人工读数 |
 | 位图或扫描件存在时 | 记 `png_skipped`：离线无字体渲染器，预览改为 `preview.svg`，不伪造 PNG |
 
-## 自检与增益（v9）
+## 自检与增益（v10）
 
 - 离线自测：`python3 scripts/main.py --selftest` → 19 项（PDF 文本层、位图清点、坏件降级、8 件产物、
   SVG 预览、契约回填、基线指标、因果措辞、占位符扫描），退出码 0。
 - 评分口径到检查项的映射见 `references/rubric.md`；基线对照怎么读见 `references/benchmark.md`；
-  骨架模板见 `references/templates/results_discussion_template.md`。
+  骨架模板见 `references/templates/results_discussion_template.md`；专家方法见 `references/expert_playbook.md`。
+- 自检清单：单命令退出码 0 且 `result.json` 合法；契约逐键回填、`case_id` 透传；
+  每个读数可回溯到 `D-ID`；**`references/expert_playbook.md` §5 专家检查表逐项通过**；
+  异常已分类、阴性结果未消失。
 
 ## 适用条件与限制
 
@@ -90,4 +107,4 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 - 限制：离线，不联网查询文献；位图与扫描 PDF 无 OCR（只能清点并转人工）；显著性仅在材料给出时报告；
   数值分级为启发式，最终以人工复核为准。
 
-结构约定见 `references/schema.md`，撰写口径见 `references/writing-rules.md`，增益证据见 `GAIN_EVIDENCE.md`。
+结构约定见 `references/schema.md`，撰写口径见 `references/writing-rules.md`，专家方法见 `references/expert_playbook.md`，增益证据见 `GAIN_EVIDENCE.md`。
