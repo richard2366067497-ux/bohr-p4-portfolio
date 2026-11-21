@@ -50,21 +50,20 @@ def load_ctx(args, rebuild=False):
     return {"inp": inp, "out": out, "work": work, "case": case, "cpath": cpath,
             "meta": meta, "index": index}
 def write_partial(out, meta, index, queries):
-    contract = (meta or {}).get("output_contract") or {}
-    payload = core.blank_payload(contract, (meta or {}).get("case_id"), "partial",
-                                 "部分：已建索引，待 Agent 工作稿裁决")
     docs = (index or {}).get("docs") or []
-    payload["status"] = "partial"
-    payload["coverage"] = {"docs_indexed": sum(1 for d in docs if d.get("status") == "ok"),
-                           "docs_total": len(docs), "queries_expected": len(queries or [])}
-    payload["queries"] = [{"query_id": q["query_id"], "question": q["question"], "answer": "",
-                           "status": "not_found", "evidence": [],
-                           "search_scope": "未检索（init 阶段）"} for q in (queries or [])]
-    payload["result"] = {"queries": payload["queries"], "hits": [], "coverage": payload["coverage"]}
-    payload["sources"] = [{"type": d.get("type"), "path": d.get("path"), "sha256_16": d.get("sha256_16")}
-                          for d in docs[:60]]
-    payload["degradations"] = [{"item": "draft", "reason": "agent_draft_not_written",
-                                "impact": "未经 Agent 裁决，仅有索引与空答案"}]
+    rows = [{"query_id": q["query_id"], "question": q["question"], "answer": "",
+             "status": "not_found", "evidence": [], "search_scope": "未检索（init 阶段）"}
+            for q in (queries or [])]
+    cov = {"docs_indexed": sum(1 for d in docs if d.get("status") == "ok"),
+           "docs_total": len(docs), "queries_expected": len(rows)}
+    payload = core.blank_payload((meta or {}).get("output_contract") or {}, (meta or {}).get("case_id"),
+                                 "partial", "部分：已建索引，待 Agent 工作稿裁决")
+    payload.update({"status": "partial", "coverage": cov, "queries": rows,
+                    "result": {"queries": rows, "hits": [], "coverage": cov},
+                    "sources": [{"type": d.get("type"), "path": d.get("path"),
+                                 "sha256_16": d.get("sha256_16")} for d in docs[:60]],
+                    "degradations": [{"item": "draft", "reason": "agent_draft_not_written",
+                                      "impact": "未经 Agent 裁决，仅有索引与空答案"}]})
     core.jdump(Path(out) / "result.json", payload)
 def write_candidates(work, case, index, queries):
     extra = extra_syn(case)
@@ -102,22 +101,23 @@ def write_candidates(work, case, index, queries):
     core.jdump(Path(work) / "draft.candidates.json", payload)
     core.jdump(Path(work) / "draft.template.json", payload)
     return payload
+_PDF_PAGE = (b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+             b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+             b"3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n")
+_PDF_SCAN_BODY = (_PDF_PAGE + b"4 0 obj\n<< /Length 24 >>\n"
+                  b"stream\nq 612 0 0 792 0 0 cm Q\nendstream\nendobj\n")
+def _pdf(body, enc=False):
+    trailer = b"/Encrypt << /Filter /Standard >>" if enc else b"/Root 1 0 R"
+    return b"%PDF-1.4\n" + body + b"trailer\n<< " + trailer + b" >>\n%%EOF\n"
 FIXTURES = {
-    "encrypted.pdf": b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-                     b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-                     b"3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\ntrailer\n"
-                     b"<< /Root 1 0 R /Encrypt 9 0 R >>\n%%EOF\n",
-    "scan_only.pdf": b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-                     b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-                     b"3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n"
-                     b"4 0 obj\n<< /Length 24 >>\nstream\nq 612 0 0 792 0 0 cm Q\nendstream\n"
-                     b"endobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+    "encrypted.pdf": _pdf(_PDF_PAGE, enc=True),
+    "scan_only.pdf": _pdf(_PDF_SCAN_BODY),
     "legacy.doc": b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 96,
     "broken.docx": b"PK\x03\x04" + b"this is not a zip container" * 3,
     "empty.md": b"",
-    "dup_a/run-notes.md": "# Run notes\nBatch B-17 ELISA readout; see plate sheet.\n".encode(),
-    "dup_b/run-notes.md": "# Run notes\nBatch B-17 ELISA readout; see plate sheet.\n".encode(),
-    "denied/private.md": "# Private\nRestricted protocol; index presence only.\n".encode(),
+    "dup_a/run-notes.md": b"# Run notes\nBatch B-17 ELISA readout; see plate sheet.\n",
+    "dup_b/run-notes.md": b"# Run notes\nBatch B-17 ELISA readout; see plate sheet.\n",
+    "denied/private.md": b"# Private\nRestricted protocol; index presence only.\n",
 }
 FIXTURE_EXPECT = {
     "encrypted.pdf": "encrypted", "scan_only.pdf": "no_text_layer", "legacy.doc": "unsupported_legacy",
