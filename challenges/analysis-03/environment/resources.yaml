@@ -1,44 +1,30 @@
-# 运行时与资源清单（figure-publisher v7）
-runtime:
-  language: python
-  python: "3.10+"
-  dependencies: []            # 纯标准库：argparse csv json sqlite3 hashlib re pathlib
-  network: false
-  deterministic: true
-  entry: "python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work"
-  exit_code: 0                # 无论输入是否完整/合法，恒为 0
-
-paths:
-  skill: /skills/weekly-skill
-  input: /input
-  output: /app/output
-  work: /app/work
-
-input:
-  optional:
-    - name: case.json
-      purpose: case_id 与 output_contract（存在即回填）
-    - name: "*.csv | *.tsv | *.json | *.jsonl | *.db | *.sqlite"
-      purpose: 待渲染的数据表
-  accepts_empty: true
-  accepts_malformed: true
-
-output:
-  - figure_report.md
-  - stats.json
-  - figure_data.json
-  - figures/figure_1.svg
-  - figures/figure_1.pdf
-  - figures/figure_code.py
-  - result.json
-
+# Resource entry point — figure-spec-publisher (analysis-03, v10)
+schema: resource-entry/v1
+skill: figure-spec-publisher
+entry:
+  command: python3 /skills/weekly-skill/scripts/engine.py all
+  arguments: ["--input /input", "--output /app/output", "--work /app/work"]
+  exit_code_expected: 0
+  alternatives: [init, show, check, build, selfcheck]
+references: [references/expert_playbook.md, references/figure-spec-rules.md]   # 六步流程/图型选型/编码/导出/公式/自查表
+examples: {dir: examples, data: examples/sample_data.csv, expected: "status=success, 4 figure specs, 8 rejected chart types, audit 5/5, 11 artifacts"}
+runtime: {language: python3, version: ">=3.8", third_party: none, network: false, clock: false, model_calls: 0}
+budget: {max_requests: 64, max_seconds: 900, max_tokens: 16384}
 limits:
-  max_files: 8
-  max_total_kb: 150
-  max_file_kb: 30
-  output_clean_of_placeholders: true
-
-render:
-  svg: true
-  pdf: true                   # base-14 Helvetica 矢量 PDF，可 pdftoppm/convert 栅格化
-  chart_types: [bar, line, scatter]
+  files_per_material_scan: 60   # further files are indexed and left unread
+  bytes_per_file: 500000        # a larger file is read up to the cap; truncation is reported
+  max_specs: 6                  # a table with many numeric fields yields at most six planned figures
+  group_min_n_for_errorbar: 3   # below three per group no SD error bar is drawn
+inputs:
+  - {path: /input/case.json, required: false, note: "case_id, materials_root, output_contract (authoritative)"}
+  - {path: /input, required: true, note: "csv, tsv, json, jsonl, sqlite, md or txt; anything else is snapshotted and named"}
+  - {path: /app/work/draft.json, required: false, note: "spec overrides; recomputed specs always win"}
+outputs:
+  [figure_report.md, figure_specs.json, data_to_figure.json, stats.json, cleaning_log.json, audit.json,
+   captions.md, case_materials.json, overview.svg, figure_code.py, result.json]
+workdir: /app/work
+degradation:
+  missing_input: status=failed, every contract key present with an honest envelope, exit 0
+  unreadable_material: snapshotted, named in case_materials.json, nothing guessed
+  no_tabular_data: input-inventory bar chart + all text/JSON artifacts, status=partial
+  bad_draft: rejected field by field into change_records, documented defaults applied
