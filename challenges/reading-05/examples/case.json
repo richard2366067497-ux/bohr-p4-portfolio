@@ -1,0 +1,11 @@
+{
+  "case_id": "example-reading-05",
+  "task_instruction": "Extract and quote the quantitative results of the supplied paper, each with a locator.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "result": "string",
+    "claims": "string",
+    "uncertainties": "string"
+  }
+}
