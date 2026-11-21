@@ -119,3 +119,7 @@ python3 /skills/weekly-skill/scripts/main.py selfcheck  # 复核契约键、产�
 - [ ] 报告覆盖六类检查项（未覆盖的要写明原因）。
 - [ ] 无 `待写`/`TBD`/`null`/`pending` 等占位符。
 - [ ] 空输入与坏 JSON 都 exit 0 且 `result.json` 合法。
+
+## 随包方法论（执行前必读）
+
+执行前先阅读 `references/expert_playbook.md`，按其框架、公式与自查表逐项产出并核验；交付前确认「专家检查表逐项通过」。
