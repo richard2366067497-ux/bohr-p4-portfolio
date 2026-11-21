@@ -1,0 +1,71 @@
+# environment/resources.yaml - search-05 / multi-db-joint-retrieval (v10)
+# Resource entry declaration. Pure standard library, offline, deterministic.
+skill: multi-db-joint-retrieval
+version: 1.0.0
+lang: python
+python: ">=3.9"
+
+entry:
+  single_command: >-
+    python3 -B /skills/weekly-skill/scripts/main.py
+    --input /input --output /app/output --work /app/work
+  agent_first:
+    - python3 -B /skills/weekly-skill/scripts/main.py init  --input /input --output /app/output --work /app/work
+    - "Agent: run show, read the per-database materials with their D01#pN locators, optionally write /app/work/draft.json"
+    - python3 -B /skills/weekly-skill/scripts/main.py check --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py build --input /input --output /app/output --work /app/work
+    - python3 -B /skills/weekly-skill/scripts/main.py selfcheck --output /app/output --work /app/work
+  selftest: >-
+    python3 -B /skills/weekly-skill/scripts/main.py selfcheck
+    --output /app/output --work /app/work
+
+scripts:
+  - scripts/main.py       # CLI: all (default) / init / show / check / build / selfcheck
+
+paths:
+  input: /input
+  output: /app/output
+  work: /app/work
+  skill_root: /skills/weekly-skill
+
+inputs:
+  case_json: "case.json provides case_id, research_question, databases and output_contract (keys echoed verbatim)"
+  task_md: "task.md provides the research question when case.json does not"
+  materials: "each UTF-8 text material is treated as one snapshot database; its file name is the database name"
+  records: "reference-like lines are indexed with rid + D01#rN locators; dedup uses DOI-exact then norm_title|first_author_surname|year; no live remote DB is queried"
+  unusable_files: "empty / corrupt / binary files are recorded and never quoted"
+
+required_outputs:
+  - result.json
+  - candidates.jsonl
+  - evidence_map.json
+  - dedup_report.json
+  - coverage.json
+  - report.md
+
+reusable_templates:
+  - references/expert_playbook.md
+  - examples/expected_output.json
+
+runtime:
+  network: false
+  clock: false
+  deterministic: true
+  stdlib_only: true
+  offline: true
+  exit_code: "0 (all degradation paths; only argparse usage error returns 2)"
+
+budget:
+  wall_clock_seconds: 300
+  max_output_files: 16
+  max_output_bytes: 4194304
+
+contract:
+  keys: [case_id, status, deliverable, evidence_map, change_log, coverage]
+  keys_from: "case.json:output_contract -> task.md:output_contract -> challenges/<key>.json -> SKILL.md json sample -> default keys"
+  echo: "every contract key written both at top level and inside result.json.output_contract; case_id passed through unchanged"
+  empty_structures: "empty arrays / objects are rendered as non-empty honest structures with a note"
+  placeholders: forbidden
+
+dependencies: []            # standard library only
+exit_code_policy: always 0 (usage error 2)
