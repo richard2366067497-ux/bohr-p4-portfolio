@@ -1,0 +1,49 @@
+{
+  "hypothesis": {
+    "statement": "If the hydrothermal temperature is raised from 140 to 200 C, the mean TiO2 nanorod length increases by at least 50 nm (alpha=0.05, power=0.80).",
+    "falsifier": "a mean length change below 50 nm, or a non-monotonic response, at the highest temperature",
+    "support_metric": "mean nanorod length measured on at least 50 rods per group by SEM"
+  },
+  "parameters": [
+    {"name": "temperature", "min": 60, "max": 180, "step": 20, "unit": "C"},
+    {"name": "time", "min": 6, "max": 24, "step": 2, "unit": "h"},
+    {"name": "naoh", "min": 5, "max": 15, "step": 2, "unit": "M"}
+  ],
+  "constraints": [
+    {"parameter": "temperature", "op": "le", "value": 160, "unit": "C", "note": "autoclave liner rating caps the set point at 160 C"}
+  ],
+  "resources": [
+    {"name": "hydrothermal autoclave", "spec": "100 mL PTFE-lined, 250 C rated", "qty": 2, "unit": "set", "unit_price": 300, "lead_time": 7, "booking": "week 1"},
+    {"name": "titanium precursor", "spec": "titanium butoxide, 97%", "qty": 50, "unit": "g", "unit_price": 180, "lead_time": 3},
+    {"name": "sodium hydroxide", "spec": "pellets, AR", "qty": 500, "unit": "g", "unit_price": 70, "lead_time": 3},
+    {"name": "field emission SEM", "spec": "3 nm resolution", "unit": "h", "unit_price": 200, "booking": "shared queue"}
+  ],
+  "candidate_plans": [
+    {"version": "v1", "params": {"temperature": 100, "time": 10, "naoh": 7}, "samples": 5, "usages": {"titanium precursor": 3, "sodium hydroxide": 12, "hydrothermal autoclave": 1, "field emission SEM": 2}},
+    {"version": "v2", "params": {"temperature": 120, "time": 14, "naoh": 9}, "samples": 5, "usages": {"titanium precursor": 3, "sodium hydroxide": 12, "hydrothermal autoclave": 1, "field emission SEM": 2}},
+    {"version": "v3", "params": {"temperature": 160, "time": 18, "naoh": 13}, "samples": 5, "usages": {"titanium precursor": 3, "sodium hydroxide": 12, "hydrothermal autoclave": 1, "field emission SEM": 2}}
+  ],
+  "controls": [
+    {"id": "K1", "type": "blank", "design": "identical autoclave run without the titanium precursor", "excludes": "substrate or liner self-nucleation", "readout": "background rod count"},
+    {"id": "K2", "type": "positive", "design": "published reference route at 180 C and 10 M NaOH", "excludes": "operator or instrument bias", "readout": "reference length about 150 nm"}
+  ],
+  "steps": [
+    {"id": "S1", "action": "prepare the titanium precursor solution", "device": "magnetic stirrer", "duration_min": 30},
+    {"id": "S2", "action": "prepare the NaOH mineraliser", "device": "magnetic stirrer", "duration_min": 30, "parallel_group": "prep"},
+    {"id": "S3", "action": "hydrothermal growth", "device": "hydrothermal autoclave", "duration_min": 720, "depends_on": ["S1", "S2"]},
+    {"id": "S4", "action": "centrifuge and wash", "device": "centrifuge", "duration_min": 45, "depends_on": ["S3"]},
+    {"id": "S5", "action": "dry the powder", "device": "tube furnace", "duration_min": 120, "depends_on": ["S4"]},
+    {"id": "S6", "action": "SEM imaging", "device": "field emission SEM", "duration_min": 60, "depends_on": ["S5"]},
+    {"id": "S7", "action": "rod length measurement and analysis", "device": "image analysis workstation", "duration_min": 30, "depends_on": ["S6"]}
+  ],
+  "risks": [
+    {"id": "R1", "mode": "severe agglomeration", "trigger": "more than 50 percent of the SEM field shows fused rods in two consecutive runs", "criterion": "SEM area fraction", "stop_loss": "pause the series and re-disperse with PVP", "fallback": "add 0.5 weight percent PVP and repeat the run"},
+    {"id": "R2", "mode": "length below target", "trigger": "the best group stays below 170 nm", "criterion": "mean length", "stop_loss": "extend hydrothermal time to 18 h", "fallback": "raise the mineraliser concentration by one step"}
+  ],
+  "confirmations": [
+    {"item": "autoclave liner pressure rating", "why": "a set point above the liner rating is a safety hazard", "needed_by": "before the first run"},
+    {"item": "titanium precursor MSDS and waste route", "why": "alkaline titanate waste needs a defined disposal path", "needed_by": "before the first run"}
+  ],
+  "budget": 15000,
+  "deadline_days": 5
+}
