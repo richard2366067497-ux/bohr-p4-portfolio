@@ -1,0 +1,14 @@
+{
+  "case_id": "DEMO-ML-001",
+  "language": "zh",
+  "materials_root": "materials",
+  "task": "据 materials/ 中的 config.yaml、log.txt、data_split.csv、paper.pdf 撰写实验方法章节（期刊读者，Markdown，含六类要素）。",
+  "notes": "虚构演示输入，仅展示包结构与输出形态，不对应任何正式测试案例。",
+  "output_contract": {
+    "case_id": "输入 case_id 原样回填",
+    "deliverable": "可编辑的方法与实验章节稿（manuscript.md）",
+    "preserved_facts": "材料中的数字、单位、引用与来源逐条保留并可回溯",
+    "evidence_map": "每条要素到材料来源定位（文件#行号）的映射",
+    "change_log": "逐条修改动作、原因与需人工确认项"
+  }
+}
