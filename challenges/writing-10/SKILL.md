@@ -1,12 +1,25 @@
 ---
 name: writing-10-reviewer-response
 description: Reviewer-response and manuscript-revision assistant. Parses reviewer comments (or revision meeting notes), builds a per-comment ledger, decides accept / partial / reject / defer, writes a real, locatable revision into the manuscript for every adopted comment (each edit carries a unique [[Cx]] anchor), and produces a revised manuscript, a point-by-point response letter, a change locator table and an evidence to-do list. Use when a manuscript must be revised in response to review comments or a revision meeting.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # 审稿回复与论文修改 / Reviewer response and manuscript revision
 
 审稿意见要逐条回应，修改要能**定位核对**，回答不了的要如实标注为待补，超出范围的要不采纳并说明理由。本 Skill 把"评论清单 → 逐条判定 → 真实改动 → 回复信 → 待补清单"串成一条可复核的流水线，并自校验"回复信 / 修改定位表 / 修改稿锚点"三向一致。运行完全离线，只用 Python 标准库。
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **流程**：按其 **§2 七步法（S1–S7）** 推进——输入核验与早期保存 → 建可检索稿件索引 → 原子化拆解
+  意见 → 决策与证据预配 → 最小真实修订 → 生成回复与版本台账 → 独立复核封装；前一步未冻结不进入下一步。
+- **四态判定**：按其 **§3** 给每个原子 ID 明确“采纳 / 部分采纳 / 不采纳 / 阻塞”，并计算
+  `C_disp / C_done / V_loc / V_claim / V_evi / V_ver`。
+- **数值口径**：按其 **§3** 区分百分点与百分比、SD 与 SEM，注明舍入容差；无对照日志不宣称提速百分比。
+- **领域红线**：按其 **§4** 检查统计、显著性、误差指标、单位量纲与“摘要证据边界”。
+- **门控**：交付前逐项通过其 **§5 专家检查表**，并按其 **§7** 做交付前门控。
 
 ## 单命令入口（single command，一次跑完）
 
@@ -68,7 +81,7 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 3. **分类与判定（四态）**：`clarify_scope`→`narrow`、`add_evidence`→`cite`、`new_material`/伦理审批→`defer`、`out_of_scope`/误读→`reject`；可锚定且不依赖新材料→`accept`；可锚定但依赖新材料→`partial`。
 4. **真实修改**：对 `accept`/`partial` 的锚定句做可见改写（软化过度断言 + 范围限定 / 插入引用位），写回正文并附唯一 `[[Cx]]` 锚点；`revised_locator = revised_manuscript.md#Cx` 可据此核对。
 5. **不采纳与待补**：`reject` 在回复信写明理由、不进入待补；`partial`/`defer` 写入 `evidence_pending.md`；不在回复信里编造已完成的数据或分析。
-6. **自查**：运行自带 `selfcheck`，校验回复信只引用已知改动、每条改动都有锚点、无"判定 accept 却无改动"。
+6. **自查**：运行自带 `selfcheck`，校验回复信只引用已知改动、每条改动都有锚点、无"判定 accept 却无改动"。交付前还须逐项通过 **`references/expert_playbook.md` §5 专家检查表**（专家检查表逐项通过），并确认 `result.json` 状态与实际完成程度一致、阻塞项写清缺口与替代方案。
 
 ## 异常处理
 
@@ -85,9 +98,10 @@ python3 scripts/main.py --input /input --output /app/output --work /app/work
 
 调用与 draft 示例、评论类型表（taxonomy）、回复模板见 `references/usage.md`。
 
-## 随包文件（v8 新增）
+## 随包文件（v10 新增）
 
 ```
+references/expert_playbook.md  专家参考手册：判分要点、七步法、四态判定与量化口径、专家检查表、案例（执行前必读）
 environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
 examples/                    最小可复跑样例（case.json + manuscript.md + comments.md），评审可直接复跑
 GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
