@@ -1,0 +1,21 @@
+{
+  "note": "FICTIONAL illustrative output for the packaged example only; field shape matches the packaged engine, values are abridged.",
+  "case_id": "demo-search-04",
+  "status": "traced",
+  "output_contract": {
+    "case_id": "demo-search-04",
+    "status": "traced",
+    "seed": "M01#r1",
+    "citations": 3,
+    "edges": [{"source": "M01#p1", "target": "R001", "kind": "cites", "locator": "M01#p1", "marker": "1"}],
+    "paths": [{"from": "M01#r1", "path": ["M01#r1", "R001"], "depth": 1}],
+    "gaps": [{"status": "no_gaps", "note": "all detected records carry usable metadata in the snapshot"}],
+    "network": {"nodes": [{"rid": "R001", "locator": "M01#r1"}], "edges": []},
+    "summary": "nodes 3, edges 3, traced paths 3, gaps 0",
+    "report": "report.md",
+    "show": {"command": "show", "purpose": "list locator-addressable paragraphs and detected records"},
+    "build": {"command": "build", "purpose": "assemble network, paths, gaps and final result"}
+  },
+  "sources": [{"material": "M01", "name": "sample-records.md", "chars": 780}],
+  "limits": ["paths are traced within a depth limit inside the snapshot", "no external citation database or global recall is claimed"]
+}
