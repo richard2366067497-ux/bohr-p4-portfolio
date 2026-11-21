@@ -18,10 +18,10 @@
 复现命令（`$py` = 本机可用的 python 解释器）：
 
 ```bash
-$py scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/rich     --mode single
-$py scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/rich     --mode agent
-$py scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/boundary --mode single
-$py scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/boundary --mode agent
+$py scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/rich     --mode single
+$py scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/rich     --mode agent
+$py scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/boundary --mode single
+$py scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/boundary --mode agent
 ```
 
 ## 2. rich 用例实测指标
@@ -117,10 +117,10 @@ print(hashlib.sha256(json.dumps(r, sort_keys=True, ensure_ascii=False, separator
 四组组合（rich / boundary × single / agent）：
 
 ```bash
-python3 scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/rich     --mode single
-python3 scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/rich     --mode agent
-python3 scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/boundary --mode single
-python3 scripts/eval_sim.py --pkg work/p4/v9/research-05 --case work/p4/synth_cases/research-05/boundary --mode agent
+python3 scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/rich     --mode single
+python3 scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/rich     --mode agent
+python3 scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/boundary --mode single
+python3 scripts/eval_sim.py --pkg work/p4/v10/research-05 --case work/p4/synth_cases/research-05/boundary --mode agent
 ```
 
 ### 5.4 通过判据（本包自认的口径）
