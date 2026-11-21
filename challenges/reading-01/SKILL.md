@@ -12,6 +12,14 @@ description: 把 PDF 或多份 md/txt 读成按阅读顺序排列的页面对象
 纯标准库、离线。文本层用 zlib + 对象扫描自建（不依赖 xref），可选加速器 `pymupdf` 只在环境里
 已安装时才用。读不出来的东西一律进 `unreadable`，绝不猜字。
 
+单命令评测入口：
+
+```bash
+python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
+```
+
+无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
+
 ## 随包方法论（执行前必读）
 
 在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
@@ -85,11 +93,7 @@ description: 把 PDF 或多份 md/txt 读成按阅读顺序排列的页面对象
 
 ## 4. 单命令（等价入口，one-shot，评测入口）
 
-无 draft.json 时直接运行本命令即可产出完整契约与全部交付物；评测环境按此执行。
-
-```bash
-python3 /skills/weekly-skill/scripts/main.py all --input /input --output /app/output --work /app/work
-```
+命令见文首「单命令评测入口」：无 draft.json 时同样产出完整契约与全部交付物，评测环境按此执行。
 
 `all` = `build` + `selfcheck`。**不需要任何草稿**：没有 `work/draft.json` 时它自己给出全部
 契约字段与全部交付物，退出码 0。材料不可读时同样退出 0，把原因写进 `unreadable` / `sources`
