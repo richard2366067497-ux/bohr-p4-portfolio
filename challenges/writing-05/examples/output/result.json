@@ -1,0 +1,243 @@
+{
+  "case_id": "example-writing-05",
+  "status": "success",
+  "skill": "writing-05-evidence",
+  "skill_version": "1.3.0",
+  "language": "en",
+  "deliverable": "evidence_driven_draft.md",
+  "deliverable_summary": "# Evidence-driven draft (case example-writing-05)\n\n> Built from materials; each substantive sentence carries a [n] marker into the evidence table.\n\n- Current studies suggest Caffeine is associated with a large improvement in sustained attention in healthy adults [1]\n- Current studies suggest The effect is larger after sleep deprivation than after normal sleep [1]\n- Preliminary evidence hints Our o",
+  "preserved_facts": [
+    {
+      "item": "100",
+      "unit": "mg",
+      "span": "100 mg"
+    },
+    {
+      "item": "200",
+      "unit": "mg",
+      "span": "200 mg"
+    },
+    {
+      "item": "240",
+      "unit": "",
+      "span": "240"
+    },
+    {
+      "item": "210",
+      "unit": "",
+      "span": "210"
+    },
+    {
+      "item": "-219",
+      "unit": "",
+      "span": "-219"
+    },
+    {
+      "item": "200",
+      "unit": "",
+      "span": "200"
+    },
+    {
+      "item": "480",
+      "unit": "",
+      "span": "480"
+    }
+  ],
+  "evidence_map": [
+    {
+      "claim_id": "C001",
+      "source_id": "D02",
+      "locator": "materials/refs.md [B2.S0] chars:135-272",
+      "strength": "中"
+    },
+    {
+      "claim_id": "C002",
+      "source_id": "D02",
+      "locator": "materials/refs.md [B2.S0] chars:135-272",
+      "strength": "中"
+    },
+    {
+      "claim_id": "C003",
+      "source_id": "D02",
+      "locator": "materials/refs.md [B3.S0] chars:272-407",
+      "strength": "低"
+    }
+  ],
+  "change_log": [
+    {
+      "action": "assembled the draft from located material",
+      "target": "evidence_driven_draft.md",
+      "reason": "single-command run"
+    },
+    {
+      "action": "downgraded an over-claim",
+      "target": "C001",
+      "reason": "strength is below the causal wording used"
+    },
+    {
+      "action": "marked weak evidence",
+      "target": "C003",
+      "reason": "low or insufficient grade"
+    }
+  ],
+  "output_contract": {
+    "case_id": "example-writing-05",
+    "deliverable": "evidence_driven_draft.md",
+    "preserved_facts": [
+      {
+        "item": "100",
+        "unit": "mg",
+        "span": "100 mg"
+      },
+      {
+        "item": "200",
+        "unit": "mg",
+        "span": "200 mg"
+      },
+      {
+        "item": "240",
+        "unit": "",
+        "span": "240"
+      },
+      {
+        "item": "210",
+        "unit": "",
+        "span": "210"
+      },
+      {
+        "item": "-219",
+        "unit": "",
+        "span": "-219"
+      },
+      {
+        "item": "200",
+        "unit": "",
+        "span": "200"
+      },
+      {
+        "item": "480",
+        "unit": "",
+        "span": "480"
+      }
+    ],
+    "evidence_map": [
+      {
+        "claim_id": "C001",
+        "source_id": "D02",
+        "locator": "materials/refs.md [B2.S0] chars:135-272",
+        "strength": "中"
+      },
+      {
+        "claim_id": "C002",
+        "source_id": "D02",
+        "locator": "materials/refs.md [B2.S0] chars:135-272",
+        "strength": "中"
+      },
+      {
+        "claim_id": "C003",
+        "source_id": "D02",
+        "locator": "materials/refs.md [B3.S0] chars:272-407",
+        "strength": "低"
+      }
+    ],
+    "change_log": [
+      {
+        "action": "assembled the draft from located material",
+        "target": "evidence_driven_draft.md",
+        "reason": "single-command run"
+      },
+      {
+        "action": "downgraded an over-claim",
+        "target": "C001",
+        "reason": "strength is below the causal wording used"
+      },
+      {
+        "action": "marked weak evidence",
+        "target": "C003",
+        "reason": "low or insufficient grade"
+      }
+    ]
+  },
+  "outputs": {
+    "evidence_driven_draft.md": 917,
+    "claims.json": 1187,
+    "evidence_table.json": 1695,
+    "evidence_strength.md": 569,
+    "reference_check.md": 685,
+    "uncertainty_notes.md": 126,
+    "human_review.json": 180,
+    "verification.json": 268,
+    "diff_report.md": 907
+  },
+  "metrics": {
+    "claims": 3,
+    "evidence_rows": 3,
+    "rows_with_source": 3,
+    "references": 4,
+    "downgrades": 1,
+    "verified_quote_rate": 1.0,
+    "claim_coverage": 1.0,
+    "pending_human_count": 1,
+    "overclaim_flags": 1,
+    "contract_keys_covered": "5/5"
+  },
+  "sources": [
+    {
+      "source_id": "D01",
+      "item": "materials/manuscript.md",
+      "bytes": 272,
+      "kind": "draft",
+      "read_method": "text",
+      "sha256": "434f580a37905ca4"
+    },
+    {
+      "source_id": "D02",
+      "item": "materials/refs.md",
+      "bytes": 558,
+      "kind": "references",
+      "read_method": "text",
+      "sha256": "1c063c6cbb2fe7ac"
+    }
+  ],
+  "uncertainties": [
+    "Records and identifiers are not verified online (offline run)",
+    "Weak claims kept as leads only: C003"
+  ],
+  "change_records": [
+    {
+      "action": "assembled the draft from located material",
+      "target": "evidence_driven_draft.md",
+      "reason": "single-command run"
+    },
+    {
+      "action": "downgraded an over-claim",
+      "target": "C001",
+      "reason": "strength is below the causal wording used"
+    },
+    {
+      "action": "marked weak evidence",
+      "target": "C003",
+      "reason": "low or insufficient grade"
+    }
+  ],
+  "limits": [
+    "Offline: source documents were not verified against external databases",
+    "Numbers and units are transcribed from the materials without unit conversion",
+    "Evidence grades reflect study design, sample size and agreement only"
+  ],
+  "human_review": [
+    {
+      "item": "Review the over-claim downgrades in the draft",
+      "count": 1,
+      "why": "wording"
+    }
+  ],
+  "degradations": [],
+  "errors": [],
+  "runtime": {
+    "script": "scripts/main.py",
+    "version": "1.3.0",
+    "python": "3.12.14",
+    "network": "disabled"
+  }
+}
