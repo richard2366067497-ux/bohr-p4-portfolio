@@ -1,0 +1,32 @@
+{
+  "resources": {
+    "equipment": [
+      {"name": "centrifuge", "status": "available", "model": "Eppendorf 5424R"},
+      {"name": "sequencer", "status": "procure", "lead_time": 21, "lead_unit": "d"}
+    ],
+    "materials": [
+      {"name": "kit", "unit_price": 120, "qty": 2, "lead_time": 5, "lead_unit": "d"}
+    ],
+    "bookings": [
+      {"name": "sequencer slot", "day_rate": 200, "window_days": 3}
+    ]
+  },
+  "budget": 500,
+  "parameter_domains": [
+    {"name": "temperature", "min": 60, "max": 180, "step": 10, "unit": "C"}
+  ],
+  "constraints": [
+    {"param": "temperature", "op": "le", "value": 160, "unit": "C"}
+  ],
+  "versions": [
+    {"version": "v1", "params": {"temperature": 150},
+     "steps": [{"step": "prep", "duration_min": 30}, {"step": "run", "duration_min": 90}],
+     "claims": ["within the temperature bound"]},
+    {"version": "v2", "params": {"temperature": 190},
+     "steps": [{"step": "prep", "duration_min": 30}, {"step": "run", "duration_min": 90}],
+     "claims": ["highest temperature"]},
+    {"version": "v3", "params": {"temperature": 150},
+     "steps": [{"step": "prep", "duration_min": 45}, {"step": "run", "duration_min": 120}],
+     "claims": ["lower throughput, more steps"]}
+  ]
+}
