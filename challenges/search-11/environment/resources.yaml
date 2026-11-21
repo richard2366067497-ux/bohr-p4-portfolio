@@ -1,4 +1,4 @@
-# environment/resources.yaml - search-11 / patent-search-dossier (v9)
+# environment/resources.yaml - search-11 / patent-search-dossier (v10)
 # Resource entry declaration. Pure standard library, offline, deterministic, exit code 0.
 skill: patent-search-dossier
 version: 1.0.0
@@ -55,9 +55,15 @@ required_outputs:
   - run_log.txt
 
 reusable_templates:
+  - references/expert_playbook.md
   - references/query-templates.md
   - references/license-checklist.md
   - SKILL.md#section-0   # the json output_contract sample doubles as the no-contract fallback contract
+
+examples:
+  dir: examples
+  material: examples/materials.md   # fictional number registry + query log + status + claim evidence
+  expected: "exit 0 and a complete artifact set (dry run; status partial)"
 
 runtime:
   network: false
