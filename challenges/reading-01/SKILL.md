@@ -1,3 +1,8 @@
+---
+name: structured-reading
+description: 把 PDF 或多份 md/txt 读成按阅读顺序排列的页面对象，派生标题/作者/摘要/章节/表格/公式/图表题注/参考文献，每项带 locator 与逐字引文可核回原文；纯标准库离线，读不出的内容诚实降级为 unreadable。
+---
+
 # structured-reading
 
 结构化阅读（提得全 / 排得对 / 拆得清 / 核得回）：把一个 PDF 或多份 md/txt 读成
@@ -153,7 +158,7 @@ check_report.json、compare_report.json、analysis_state.json。
 - README.md — 安装、快速开始、文件清单、维护顺序。
 - SELFTEST.md — 实测数字、单命令/agent 双路径、边界降级、测试矩阵。
 - GAIN_EVIDENCE.md — 同输入同契约下，基线与本 skill 的质量/效率对照（`compare` 命令复现）。
-- `examples/sample.pdf` — 两页两栏样例（含表格、公式、题注、参考文献、页眉页脚）。
+- `examples/case.json` — 契约样例（材料由平台隐藏案例提供）。
 - `environment/resources.yaml` — 资源入口声明。
 
 ## 10. 交付前自查
