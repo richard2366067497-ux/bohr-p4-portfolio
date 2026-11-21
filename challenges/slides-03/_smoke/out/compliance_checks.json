@@ -1,0 +1,91 @@
+{
+  "svg_xml": true,
+  "canvas": {
+    "width": 1600,
+    "height": 1000,
+    "ok": true
+  },
+  "font_style": {
+    "min_font": 14,
+    "min_font_ok": true,
+    "family": "Helvetica, Arial, 'Liberation Sans', sans-serif",
+    "italic_labels": 0,
+    "genes": 0
+  },
+  "markers": {
+    "types_used": [
+      "activation"
+    ],
+    "signatures": {
+      "activation": [
+        "arrow",
+        "",
+        "2.4"
+      ]
+    },
+    "distinct": true,
+    "activation_vs_inhibition": true
+  },
+  "gene_italics": true,
+  "compartment_containment": {
+    "entities": 1,
+    "inside": 1,
+    "failures": [],
+    "membrane_straddling": 0
+  },
+  "cross_lane_edges": {
+    "checked": 0,
+    "crossing_failures": [],
+    "ok": true
+  },
+  "legend_consistency": {
+    "items": 2,
+    "encodings_used": 2,
+    "declared_by_agent": 0,
+    "one_item_per_encoding": true,
+    "unsourced": [
+      "color:unspecified",
+      "line_style:activation"
+    ],
+    "orphan": [],
+    "ok": true
+  },
+  "notes": [
+    "encodings without an agent-sourced legend entry: color:unspecified, line_style:activation"
+  ],
+  "overflow": {
+    "text_overflows": [],
+    "box_overlaps": 0,
+    "ok": true
+  },
+  "layers": {
+    "layer-title": true,
+    "layer-compartments": true,
+    "layer-entities": true,
+    "layer-edges": true,
+    "layer-labels": true,
+    "layer-legend": true,
+    "layer-notes": true
+  },
+  "text_nodes": 8,
+  "failures": [],
+  "pass": true,
+  "png": {
+    "ok": true,
+    "width": 1600,
+    "height": 1000,
+    "bit_depth": 8,
+    "color_type": 2,
+    "unique_colors": 9,
+    "non_uniform": true
+  },
+  "pdf": {
+    "ok": true,
+    "header": "%PDF-1.4",
+    "pages": 1,
+    "eof": true,
+    "text_ops": 7,
+    "bytes": 2619,
+    "vector": true
+  }
+}
