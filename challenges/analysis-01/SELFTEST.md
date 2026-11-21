@@ -1,61 +1,57 @@
-# 自测记录 · field-contract-cleaner v7
+# SELFTEST — field-contract-cleaner（analysis-01 · v9）
 
-## 1. 运行环境
+自查分三层：① 命令级（恒 exit 0）② 产物级（`selfcheck` 的布尔检查表）③ 边界用例级（§16 的 7 条）。
+所有结论都可由命令重新产生，本文只是复现脚本。
 
-- Python 3.12（纯标准库：csv / json / sqlite3 / hashlib / re / pathlib）。
-- 入口：`python3 /skills/weekly-skill/scripts/engine.py all --input /input --output /app/output --work /app/work`。
-- 源文件只读：运行前后源 sha256 不变（见 `reconciliation.json.source_sha256`）。
+## 1. 冒烟（一次跑完）
 
-## 2. 验收矩阵（`scripts/eval_sim.py`）
-
-| 案例 | 模式 | 结果 | 失败 | 警告 | 契约来源 |
-|---|---|---|---|---|---|
-| rich | single | PASS | 0 | 0 | case.json:output_contract |
-| rich | agent | PASS | 0 | 0 | case.json:output_contract |
-| boundary | single | PASS | 0 | 0 | SKILL.md (json sample) |
-| boundary | agent | PASS | 0 | 0 | SKILL.md (json sample) |
-
-8 个交付物全部存在且非空：`cleaned_table.csv`、`transform_ledger.jsonl`、`field_issues.csv`、
-`field_contract.json`、`reconciliation.json`、`data_quality_report.md`、`case_materials.json`、`result.json`。
-
-## 3. 真实清洗演练（自建 5 行样例，覆盖五类处理）
-
-输入表：
-
-```csv
-sample,removal,conc
-S1,95,3 mg/l
-S2,NA,-999 mg/l
-S3,61,2 μg/l
-S3,61,2 μg/l
-S4,120,5 mg/l
+```bash
+python3 scripts/main.py all --input /input --output /app/output --work /app/work ; echo "exit=$?"
+python3 scripts/main.py selfcheck --input /input --output /app/output --work /app/work
 ```
 
-字典声明 `removal` 范围 0-100、`conc` 单位 mg/l；规则注册表含 `mg/l` 与 `µg/l`（别名 `μg/l`→`µg/l`）。
+期望：`exit=0`；`selfcheck: PASS`；`/app/output` 下 7 个文件（`result.json`、`cleaned_table.csv`、
+`transform_ledger.jsonl`、`data_quality_report.md`、`field_contract.json`、`reconciliation.json`、
+`field_issues.csv`）。
 
-清洗结果（表头 4 个元列 + 源列，行列对齐一致）：
+## 2. 产物级检查表（`selfcheck` 逐项）
 
-```csv
-record_id,__src_row,__row_status,__flags,sample,removal,conc
-1,2,kept,,S1,95,3 mg/l
-2,3,marked,removal:MISSING_CODE; conc:OUTLIER,S2,NA,-999 mg/l
-3,4,marked,conc:UNIT_CONVERTED,S3,61,2 μg/l
-4,5,quarantined,conc:UNIT_CONVERTED; __row__:DUP_DROPPED,S3,61,2 μg/l
-5,6,marked,conc:OUTLIER,S4,120,5 mg/l
+| check | 期望 | 由什么回算 |
+|---|---|---|
+| `contract_echo` | 案例声明的每个契约键都在 `result.json.output_contract` | `case.json → output_contract` 键集合 |
+| `artifacts_present` | 7 个交付文件都在 | 目录列举 |
+| `ledger_invertible` | 每条 `convert_unit` 单元格行可由 `output` 反算回 `input` | 账本行 `input/output/mapping.triple` |
+| `report_matches_table` | 报告数字 = 清洗表 `__flags` 回算值 | `reconciliation.json → report_table` |
+| `row_accounting` | 每表 `raw = kept + marked + quarantined` | `reconciliation.json → row_accounting` |
+| `contract_covers_fields` | 契约字段数 ≥ 表头列数 | `field_contract.json → fields/header` |
+| `no_imputation` | 无 `impute/fill_*/dropna` 动作 | 契约 `planned_action` 枚举 |
+| `source_unchanged` | 输入 sha256 前后一致 | `reconciliation.json → source_immutable` |
+| `cleaned_table_intact` | 清洗表 sha256 = 记录值 | `reconciliation.json → cleaned_sha` |
+
+任一 `ok:false` → 回到 `draft.json` 修或如实保留 `partial`，**不改材料、不改报告数字**。
+
+## 3. 边界用例（7 条，均要求 exit 0 + 契约键全回填 + 无占位符 token）
+
+| # | 夹具 | 期望 status | 期望 degradations | 仍必须成立 |
+|---|---|---|---|---|
+| 1 | `case.json` 非法（`{`） | `input_error` | `case_json_invalid` | 产物齐、契约退回包声明、`case_id=UNKNOWN-CASE` |
+| 2 | 材料只有 0 字节 md | `partial` | `no_table_found` | 清洗表写降级说明行；账本写 0 影响聚合行 |
+| 3 | 只有表头的 CSV | `partial` | `empty_table:<f>` | 行数守恒 0=0+0+0；账本 0 行 |
+| 4 | 无字典 | `partial` | `dictionary_missing` | 契约从表头+值分布合成，全标 `synthesized` |
+| 5 | 有材料、无 `work/draft.json` | `partial` | `draft_missing` | 走兜底链，仍产全量交付物 |
+| 6 | 单位不在注册表 / 跨量纲 | `partial` | `unit_mapping_absent:<f>` | 不换算，flag `UNIT_UNKNOWN`，值不改 |
+| 7 | 同一输入连跑两次 | 与首次相同 | — | `cleaned_table.csv` sha256 相同（确定性） |
+
+复现（第 2 条）：
+
+```bash
+python3 scripts/main.py all --input <fixture> --output /tmp/o --work /tmp/w ; echo "exit=$?"
+python3 -c "import json;d=json.load(open('/tmp/o/result.json'));print(d['status'],len(d['output_contract']))"
 ```
 
-- 对账：`raw_rows 5 == kept 1 + marked 3 + quarantined 1`，守恒成立。
-- QC 不变式 5/5 通过，含「报告计数 == 从 cleaned_table.csv 重新计数」（10 == 10）。
-- 账本仅记录真实换算（`µg/l`→`mg/l`，factor 0.001，locator `table.csv#row4`），等值单位不再记账。
-- 列 `sample` 为标签列（无任何数值），不再被误判为 `NON_NUMERIC`。
+## 4. 反作弊自检
 
-## 4. 边界行为（boundary 案例）
-
-坏 JSON、零字节文件、含占位符笔记：不抛错；`cleaned_table.csv` 写出空表状态行
-（`no_source_table` / `INPUT_ERROR:MISSING_TABLE`），`status=partial`，退出码 0，8 个交付物齐备。
-
-## 5. 已知限制
-
-- 缺失码按整格精确匹配，`-999 mg/l` 这类带单位的写法不会命中 `-999`（记 `OUTLIER` 而非 `MISSING_CODE`）。
-- 异常判定要求样本量 n≥4，n<4 时不做栅栏判定并在规则中说明。
-- 不做填补/插补/裁剪；单位换算只在量纲一致时执行，逆映射记入账本。
+- 交付目录里不得出现占位符 token：`grep -Ern '\b(null|None|N/A|TBD|TODO|pending|NOT_EXTRACTED)\b' /app/output`
+  应当无输出（合法的同名值已用 JSON 转义序列化，解码后原值不变）。
+- 报告里的每个数字都要能在 `cleaned_table.csv` 里数出来；数不出来就是降级，不是改数。
+- 原始材料只读：跑完再算一次输入 sha256，必须与 `init` 记录相同。
