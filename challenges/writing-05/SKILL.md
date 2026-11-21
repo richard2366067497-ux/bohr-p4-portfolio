@@ -1,12 +1,25 @@
 ---
 name: writing-05-evidence
 description: Literature-evidence driven academic writing. Turns a draft (or a topic) plus source materials into a located claim list, a graded evidence table, an editable evidence-driven draft, and a reviewable result.json. Use when an academic text must be produced or revised so that every substantive sentence can be traced to a located source snippet of a known strength.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # 文献证据驱动写作 / Literature-evidence driven writing
 
 本 Skill 把"要写的内容"与"能支撑它的材料"分开处理。它不追求多写，而是让写出的每一条实质论断都能被指认：依据在哪一段、依据有多强、哪里还不确定。运行完全离线，只用 Python 标准库。
+
+## 随包方法论（执行前必读）
+
+在执行任何命令、产出任何交付物之前，**先完整阅读 `references/expert_playbook.md`（专家参考手册）**，
+并按它组织全部产出：
+
+- **流程**：按其 **§2 六步法（S1–S6）** 推进——登记输入 → 建来源登记册 → 切分原子论断 →
+  匹配证据并判支持范围 → 成稿与修改记录 → 独立核验交付；前一步未冻结不进入下一步。
+- **证据分级**：按其 **§3.1（G3/G2/G1/G0）** 给每条论断定强度，成稿措辞不高于证据等级。
+- **量化口径**：按其 **§3.2/§3.3** 计算 `R_cov / R_trace / R_over / R_num / R_conf`，
+  区分百分点与百分比，零分母填 `null`。
+- **领域红线**：按其 **§4** 检查温度、浓度、百分数、工艺指标、归一化、表征与统计边界。
+- **门控**：交付前逐项通过其 **§5 专家检查表**，并按其 **§7** 做交付前门控。
 
 ## 单命令入口（single command，一次跑完）
 
@@ -106,9 +119,18 @@ python3 /skills/weekly-skill/scripts/main.py --input /input --output /app/output
 
 公开作品链接见 `GITHUB_URL.txt`（仓库公开，可直接访问）。
 
-## 随包文件（v9 新增）
+## 交付前自检
+
+- [ ] 单命令（或 `--draft` 增强路径）跑通，退出码为 0，`result.json` 合法且 `output_contract` 逐键回填。
+- [ ] `result.json` 的 `case_id` 与输入一致，全部原始输出字段无遗漏、无擅自改名。
+- [ ] **`references/expert_playbook.md` §5 专家检查表逐项通过**（证据分级、百分点与百分比、
+  SD/SEM、冲突披露、零分母 `null`、异常分类）。
+- [ ] 每个正文数字、比较、机制、外推均可沿“论断编号 → 证据编号 → 原文定位”回查。
+
+## 随包文件（v10 新增）
 
 ```
+references/expert_playbook.md  专家参考手册：判分要点、六步法、量化口径、领域红线、专家检查表、案例（执行前必读）
 environment/resources.yaml   运行环境、入口命令、输入/输出路径、预算与依赖声明（离线、纯标准库）
 examples/                     最小可复跑样例（case.json + materials/{manuscript.md,refs.md}），评审可直接复跑
 GAIN_EVIDENCE.md             无 Skill 基线对照与使用增益证据（含确定性 baseline_sim 说明，非官方对照）
