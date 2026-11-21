@@ -1,0 +1,59 @@
+{
+  "entities": [
+    {
+      "svg_id": "ent-x",
+      "id": "x",
+      "name": "不区分",
+      "entity_type": "unspecified",
+      "species": "",
+      "compartment": "cytoplasm",
+      "italic_required": false,
+      "source": {
+        "locator": "task.md#para7",
+        "quote": "现有 AI Agent 或工具在“生物机制图与通路图”场景中的常见问题，主要不是画不出来，而是画得像却不对：把输入句子里的名词平铺成一圈节点，节点之间随意连线，不区分激活与抑制；"
+      },
+      "quote_status": "verbatim"
+    }
+  ],
+  "relations": [
+    {
+      "svg_id": "rel-r1",
+      "id": "r1",
+      "from": "x",
+      "to": "x",
+      "relation_type": "activation",
+      "direction": "forward",
+      "evidence_strength": "mined",
+      "source": {
+        "locator": "task.md#para7",
+        "quote": "现有 AI Agent 或工具在“生物机制图与通路图”场景中的常见问题，主要不是画不出来，而是画得像却不对：把输入句子里的名词平铺成一圈节点，节点之间随意连线，不区分激活与抑制；"
+      },
+      "quote_status": "verbatim"
+    }
+  ],
+  "compartments": [
+    {
+      "id": "cytoplasm",
+      "label": "Cytoplasm",
+      "order": 2.0,
+      "entities": 1
+    }
+  ],
+  "legend_encodings": [],
+  "deferred": [],
+  "coverage": {
+    "workorder_entities": {
+      "declared": 0,
+      "covered": 0,
+      "missing": []
+    },
+    "workorder_relations": {
+      "declared": 0,
+      "covered": 0,
+      "missing": []
+    },
+    "ratio": 0.0,
+    "drawn_entities": 1,
+    "drawn_relations": 1
+  }
+}
