@@ -1,5 +1,5 @@
-# Abstract
+# Effect of Nanoparticle Size on Cellular Uptake
 
-The model was trained on 1,200 samples and achieve 91.2% accuracy on the held-out set, higher than the baseline of 88.0% [3]. Annealing at 350 °C for 30 min increased the specific surface area to 142 m2/g (Fig. 2). These results suggest that the method may generalize to unseen domains, although the improvement is small.
+## Abstract
 
-In this paper, we propose a two-stage pipeline \citep{wang2024} that combines a frozen encoder with a lightweight head. Table 1 summarises the ablation.
+The study investigate the effect of nanoparticle size on cellular uptake. The results shows that smaller nanoparticles (10 nm) was uptake more efficiently than larger ones (100 nm). This may indicates that size play a key role. The uptake rate of 10 nm particles was 2.5 fold higher than 100 nm particles (p = 0.032). SEM and TEM images confirmed the size distribution. The data suggests that cellular uptake is caused by particle size.
