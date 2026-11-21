@@ -1,0 +1,41 @@
+{
+  "material_id": "example-paper",
+  "paragraphs": [
+    {
+      "paragraph_id": "P1",
+      "section": "Methods",
+      "page": 1,
+      "text": "T6 ageing was carried out at 175 C for 8 h; three specimens were tested per condition."
+    },
+    {
+      "paragraph_id": "P2",
+      "section": "Results",
+      "page": 2,
+      "text": "The T6 aged alloy reached a yield strength of 318 MPa, higher than the as-cast value of 210 MPa."
+    },
+    {
+      "paragraph_id": "P3",
+      "section": "Discussion",
+      "page": 3,
+      "text": "We conclude that T6 ageing improves strength at the cost of ductility."
+    },
+    {
+      "paragraph_id": "P4",
+      "section": "Results",
+      "page": 2,
+      "text": "Ductility was reduced after ageing, consistent with the hardness increase."
+    }
+  ],
+  "tables": [
+    {
+      "table_id": "T1",
+      "caption": "Table 1. Mechanical properties of the alloy.",
+      "page": 2,
+      "rows": [
+        ["Condition", "Yield strength (MPa)", "Elongation (%)", "Hardness (HV)"],
+        ["As-cast", "210", "n.r.", "88"],
+        ["T6 aged", "318", "6.2", "95"]
+      ]
+    }
+  ]
+}
