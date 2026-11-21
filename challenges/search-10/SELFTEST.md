@@ -1,19 +1,20 @@
-# SELFTEST — 跨语种 known-item 检索（search-10 v9）
+# SELFTEST — 跨语种 known-item 检索（search-10 v10）
 
 本文件记录 **2026-11-21** 用 `scripts/eval_sim.py` 对 rich / boundary 两个合成用例 ×
-single / agent 两种模式做的本地评测结果，以及一次自带材料的功能运行。所有评测均为
-**PASS，0 WARN，0 FAIL**。
+single / agent 两种模式做的本地评测结果，以及一次自带材料的功能运行。四组均为
+**PASS，0 WARN，0 FAIL**。v10 相对 v9 的变化：新增 `references/expert_playbook.md`
+并在 `SKILL.md` 增加「执行前必读」与「专家检查表逐项通过」自检项。
 
 ## 复现命令
 
 ```bash
-python scripts/eval_sim.py --pkg work/p4/v9/search-10 \
+python scripts/eval_sim.py --pkg work/p4/v10/search-10 \
   --case work/p4/synth_cases/search-10/rich     --mode single
-python scripts/eval_sim.py --pkg work/p4/v9/search-10 \
+python scripts/eval_sim.py --pkg work/p4/v10/search-10 \
   --case work/p4/synth_cases/search-10/rich     --mode agent
-python scripts/eval_sim.py --pkg work/p4/v9/search-10 \
+python scripts/eval_sim.py --pkg work/p4/v10/search-10 \
   --case work/p4/synth_cases/search-10/boundary --mode single
-python scripts/eval_sim.py --pkg work/p4/v9/search-10 \
+python scripts/eval_sim.py --pkg work/p4/v10/search-10 \
   --case work/p4/synth_cases/search-10/boundary --mode agent
 ```
 
